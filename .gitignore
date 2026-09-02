@@ -10,6 +10,8 @@
 
 # testing
 /coverage
+/playwright-report/
+/test-results/
 
 # next.js
 /.next/
@@ -18,25 +20,51 @@
 
 # misc
 .DS_Store
+Thumbs.db
 *.pem
+*.key
+*.p12
 
 # debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
+*.pid
+*.pid.lock
 
 # local environment
 .env*
 !.env.example
+.dev.vars*
+!.dev.vars.example
 
 # local databases and caches
 *.db
+*.db-journal
 *.db-shm
 *.db-wal
 *.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
 *.sqlite3
+*.sqlite3-journal
+*.sqlite3-shm
+*.sqlite3-wal
 /.cache/
+/.turbo/
+*.tsbuildinfo
+
+# local model weights
+/models/**/*.gguf
+/models/**/*.safetensors
+/models/**/*.onnx
+/models/**/*.bin
+/models/**/*.ckpt
+/models/**/*.pt
+/models/**/*.pth
 
 # deployment and generated files
 .vercel
@@ -46,3 +74,5 @@ next-env.d.ts
 /outputs/
 /work/
 /reports/server-logs/
+/tmp/
+/temp/

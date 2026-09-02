@@ -2,9 +2,12 @@ import { closeSync, existsSync, mkdirSync, openSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 
-const defaultModelPath =
-  '/Users/chet/dev-projects/chatbot-testing/models/customer-support/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf';
-const modelPath = process.env.CUSTOMER_SUPPORT_MODEL_PATH || defaultModelPath;
+const defaultModelPath = resolve(
+  'models/customer-support/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
+);
+const modelPath = resolve(
+  process.env.CUSTOMER_SUPPORT_MODEL_PATH || defaultModelPath,
+);
 const llamaExecutable = process.env.LLAMA_SERVER || 'llama-server';
 const host = '127.0.0.1';
 const modelPort = 8017;

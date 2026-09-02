@@ -50,11 +50,15 @@ npm run dev
 Open [http://127.0.0.1:8016](http://127.0.0.1:8016). The command starts the model on port 8017,
 waits until it is ready, and then starts the web app. Press Control-C once to stop both processes.
 
-The default model is:
+The default model is stored locally in this repository working tree at:
 
 ```text
-/Users/chet/dev-projects/chatbot-testing/models/customer-support/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf
+models/customer-support/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf
 ```
+
+GGUF model weights are intentionally ignored by Git because of their size. See
+`models/customer-support/README.md` for the expected local asset. The launcher
+still accepts an explicit model path when needed.
 
 To use a different GGUF or `llama-server` binary:
 
