@@ -3,6 +3,8 @@ import { env } from 'cloudflare:workers';
 import {
   ACCOUNT_CHARGES_INDEX_SQL,
   ACCOUNT_CHARGES_TABLE_SQL,
+  SESSIONS_TABLE_SQL,
+  USER_CREDENTIALS_TABLE_SQL,
   USERS_TABLE_SQL,
   schemaStatements,
   SCHEMA_VERSION,
@@ -26,6 +28,7 @@ async function initializeDatabase() {
   await migrateDistributorTable(db);
   await migrateChargeAccountTable(db);
   await migrateDistributorUsers(db);
+  await migrateAuthTables(db);
   await db.batch(schemaStatements.map((sql) => db.prepare(sql)));
   const currentSeed = await db
     .prepare("SELECT value FROM metadata WHERE key = 'seed_version'")
@@ -112,4 +115,11 @@ async function migrateDistributorUsers(db: D1Database) {
       )
       .run();
   }
+}
+
+async function migrateAuthTables(db: D1Database) {
+  await db.batch([
+    db.prepare(USER_CREDENTIALS_TABLE_SQL),
+    db.prepare(SESSIONS_TABLE_SQL),
+  ]);
 }

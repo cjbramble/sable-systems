@@ -12,11 +12,11 @@ import {
   BadgeCheck,
   Bot,
   Check,
-  ChevronDown,
   CircuitBoard,
   CircleUserRound,
   Clock3,
   Headphones,
+  LogOut,
   Menu,
   MessageCircleMore,
   MoreHorizontal,
@@ -43,6 +43,9 @@ type ChatMessage = {
 type RuntimeState = 'checking' | 'ready' | 'offline';
 
 type AccountSummary = {
+  customerId: string;
+  displayName: string;
+  region: string;
   userDisplayName: string;
   userRole: string;
   totalOrders: number;
@@ -53,7 +56,7 @@ type AccountSummary = {
 };
 
 const starterPrompts = [
-  'Status of order SBL-2026-000417',
+  'Help me trace an order',
   'Check Nerveline hub availability',
   'Show my scheduled releases',
 ];
@@ -62,12 +65,12 @@ const openingMessage: ChatMessage = {
   id: 'welcome',
   role: 'assistant',
   content:
-    'COV-E customer operations node online. I can assist Calder Pike Distribution with authorized orders, allocations, shipments, returns, and SABLE inventory. What do you need traced?',
+    'COV-E customer operations node online. I can assist with your authorized orders, allocations, shipments, returns, and SABLE inventory. What do you need traced?',
   createdAt: 'Now',
 };
 
 const conversations = [
-  { label: 'Shipment SBL-2026-000417', time: 'Today' },
+  { label: 'Priority shipment trace', time: 'Today' },
   { label: 'Nerveline allocation', time: 'Aug 29' },
   { label: '2030 contract releases', time: 'Aug 24' },
 ];
@@ -86,6 +89,14 @@ function roleLabel(role = 'account_admin') {
     .join(' ');
 }
 
+function initials(name = 'Authorized User') {
+  return name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('');
+}
+
 function createId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -96,6 +107,7 @@ export default function SupportPage() {
   const [isSending, setIsSending] = useState(false);
   const [runtime, setRuntime] = useState<RuntimeState>('checking');
   const [account, setAccount] = useState<AccountSummary | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const messageEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -124,13 +136,22 @@ export default function SupportPage() {
     let active = true;
     fetch('/api/account', { cache: 'no-store' })
       .then(async (response) => {
+        if (response.status === 401) {
+          window.location.replace('/login?next=/support');
+          throw new Error('Authentication required');
+        }
         if (!response.ok) throw new Error('Account summary unavailable');
         return (await response.json()) as AccountSummary;
       })
       .then((summary) => {
-        if (active) setAccount(summary);
+        if (active) {
+          setAccount(summary);
+          setAuthChecked(true);
+        }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) setAuthChecked(true);
+      });
     return () => {
       active = false;
     };
@@ -179,6 +200,10 @@ export default function SupportPage() {
         message?: string;
         error?: string;
       };
+      if (response.status === 401) {
+        window.location.replace('/login?next=/support');
+        return;
+      }
       if (!response.ok || !payload.message) {
         throw new Error(
           payload.error || 'The local assistant did not return a response.',
@@ -227,6 +252,20 @@ export default function SupportPage() {
       event.preventDefault();
       void sendMessage();
     }
+  }
+
+  async function signOut() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    window.location.replace('/login');
+  }
+
+  if (!authChecked) {
+    return (
+      <main className="access-check">
+        <ShieldCheck />
+        <span>VERIFYING DISTRIBUTION CREDENTIALS</span>
+      </main>
+    );
   }
 
   return (
@@ -287,16 +326,23 @@ export default function SupportPage() {
             <ShieldCheck />
             <span>
               <strong>Verified private node</strong>
-              <small>Calder Pike records only.</small>
+              <small>
+                {account?.displayName ?? 'Authorized records'} only.
+              </small>
             </span>
           </div>
-          <button type="button" className="profile-row">
-            <span className="profile-avatar">MV</span>
-            <span>
-              <strong>{account?.userDisplayName ?? 'Mara Venn'}</strong>
-              <small>Calder Pike · {roleLabel(account?.userRole)}</small>
+          <button type="button" className="profile-row" onClick={signOut}>
+            <span className="profile-avatar">
+              {initials(account?.userDisplayName)}
             </span>
-            <ChevronDown />
+            <span>
+              <strong>{account?.userDisplayName ?? 'Authorized user'}</strong>
+              <small>
+                {account?.displayName ?? 'Distribution account'} ·{' '}
+                {roleLabel(account?.userRole)}
+              </small>
+            </span>
+            <LogOut aria-label="Sign out" />
           </button>
         </div>
       </aside>
@@ -467,8 +513,11 @@ export default function SupportPage() {
       <aside className="context-panel">
         <div className="context-panel__header">
           <p className="eyebrow">Authorized account</p>
-          <h2>Calder Pike</h2>
-          <p>WHS-0427 · North Atlantic Trade District</p>
+          <h2>{account?.displayName ?? 'Authorized account'}</h2>
+          <p>
+            {account?.customerId ?? 'Verifying'} ·{' '}
+            {account?.region ?? 'Trade district'}
+          </p>
         </div>
 
         <div
@@ -492,9 +541,7 @@ export default function SupportPage() {
         <div className="topic-list">
           <button
             type="button"
-            onClick={() =>
-              void sendMessage('What is the status of order SBL-2026-000417?')
-            }
+            onClick={() => void sendMessage('Help me trace an order')}
           >
             <span className="topic-icon topic-icon--blue">
               <Clock3 />
@@ -553,7 +600,9 @@ export default function SupportPage() {
             <Check />
             <span>
               <strong>Tenant isolation active</strong>
-              <small>Calder Pike authorization scope</small>
+              <small>
+                {account?.displayName ?? 'Account'} authorization scope
+              </small>
             </span>
           </div>
           <div>

@@ -1,5 +1,5 @@
-export const SCHEMA_VERSION = '5';
-export const SEED_VERSION = 'sable-distribution-2026-09-02-v6';
+export const SCHEMA_VERSION = '6';
+export const SEED_VERSION = 'sable-distribution-2026-09-02-v7';
 
 export const USERS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS users (
   user_id TEXT PRIMARY KEY,
@@ -11,6 +11,28 @@ export const USERS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS users (
   created_on TEXT NOT NULL,
   last_login_at TEXT
 ) STRICT`;
+
+export const USER_CREDENTIALS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS user_credentials (
+  user_id TEXT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+  password_salt TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  password_iterations INTEGER NOT NULL CHECK (password_iterations >= 100000),
+  password_updated_at TEXT NOT NULL
+) STRICT`;
+
+export const SESSIONS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS sessions (
+  session_id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT,
+  user_agent TEXT
+) STRICT`;
+
+export const SESSIONS_USER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_sessions_user_expiry
+  ON sessions(user_id, expires_at)`;
 
 export const ORDER_USER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_orders_placed_by_user
   ON orders(placed_by_user_id)`;
@@ -71,6 +93,8 @@ export const schemaStatements = [
     region TEXT NOT NULL
   ) STRICT`,
   USERS_TABLE_SQL,
+  USER_CREDENTIALS_TABLE_SQL,
+  SESSIONS_TABLE_SQL,
   `CREATE TABLE IF NOT EXISTS products (
     item_number TEXT PRIMARY KEY,
     product_name TEXT NOT NULL,
@@ -184,6 +208,7 @@ export const schemaStatements = [
     ON orders(customer_id, status)
     WHERE status NOT IN ('delivered', 'cancelled')`,
   ORDER_USER_INDEX_SQL,
+  SESSIONS_USER_INDEX_SQL,
   `CREATE INDEX IF NOT EXISTS idx_order_items_item_number
     ON order_items(item_number)`,
   `CREATE INDEX IF NOT EXISTS idx_order_events_order_time
@@ -196,6 +221,7 @@ export const schemaStatements = [
 ] as const;
 
 export const seedCleanupStatements = [
+  'DELETE FROM sessions',
   'DELETE FROM account_charges',
   'DELETE FROM return_items',
   'DELETE FROM returns',
@@ -207,6 +233,7 @@ export const seedCleanupStatements = [
   'DELETE FROM inventory_balances',
   'DELETE FROM fulfillment_locations',
   'DELETE FROM products',
+  'DELETE FROM user_credentials',
   'DELETE FROM users',
   'DELETE FROM distributors',
   'DELETE FROM metadata',

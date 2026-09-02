@@ -1,4 +1,4 @@
-import { PRIMARY_CUSTOMER_ID, PRIMARY_USER_ID } from './seed';
+import type { AuthenticatedUser } from './auth';
 
 export type CatalogProduct = {
   itemNumber: string;
@@ -131,6 +131,7 @@ export function parseCheckoutInput(value: unknown): CheckoutInput | null {
 export async function placeChargeAccountOrder(
   db: D1Database,
   input: CheckoutInput,
+  user: AuthenticatedUser,
 ) {
   const today = new Date().toISOString().slice(0, 10);
   if (input.requestedShipDate < today) {
@@ -205,14 +206,15 @@ export async function placeChargeAccountOrder(
       .prepare(`INSERT INTO orders (
       order_id, customer_id, placed_by_user_id, customer_po_number, created_on,
       requested_ship_date, status, currency, order_total_cents, shipping_region
-    ) VALUES (?, ?, ?, ?, ?, ?, 'confirmed', 'USD', ?, ?)`)
+    ) VALUES (?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?)`)
       .bind(
         orderId,
-        PRIMARY_CUSTOMER_ID,
-        PRIMARY_USER_ID,
+        user.distributorId,
+        user.userId,
         input.customerPoNumber,
         today,
         input.requestedShipDate,
+        user.currency,
         totalCents,
         input.shippingRegion,
       ),
@@ -251,8 +253,15 @@ export async function placeChargeAccountOrder(
       .prepare(`INSERT INTO account_charges (
       charge_id, order_id, charge_method, status, amount_cents, currency,
       authorization_code, authorized_at
-    ) VALUES (?, ?, 'charge_account', 'authorized', ?, 'USD', ?, ?)`)
-      .bind(chargeId, orderId, totalCents, authorizationCode, createdAt),
+    ) VALUES (?, ?, 'charge_account', 'authorized', ?, ?, ?, ?)`)
+      .bind(
+        chargeId,
+        orderId,
+        totalCents,
+        user.currency,
+        authorizationCode,
+        createdAt,
+      ),
   );
 
   try {

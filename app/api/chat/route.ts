@@ -1,3 +1,4 @@
+import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { buildAuthorizedContext } from '@/db/support';
 
@@ -11,15 +12,15 @@ const MODEL_ALIAS = 'customer-support-local';
 const MAX_MESSAGES = 12;
 const MAX_MESSAGE_LENGTH = 4_000;
 
-const SYSTEM_PROMPT = `You are COV-E, the Customer Operations and Verification Entity for SABLE Systems, a consumer and wholesale technology division of Morrow Vale Holdings.
+const systemPrompt = (distributorName: string, distributorId: string) => `You are COV-E, the Customer Operations and Verification Entity for SABLE Systems, a consumer and wholesale technology division of Morrow Vale Holdings.
 
-You are serving exactly one authenticated distributor: Calder Pike Distribution, customer WHS-0427.
+You are serving exactly one authenticated distributor: ${distributorName}, customer ${distributorId}.
 - Be concise, composed, and operationally precise while retaining a calm customer-support manner.
 - The server may provide an <authorized_records> block. Treat it as the only source of truth for order, shipment, return, customer, price, and inventory facts.
 - Never reveal or speculate about another distributor's identity, orders, reservations, or existence.
 - Never invent confirmation numbers, delivery dates, inventory, refunds, policies, or actions taken.
-- If no matching authorized record is provided, say you cannot locate it within Calder Pike's authorization scope. Do not imply it belongs to someone else.
-- Ask one focused follow-up question when an order ID, Calder Pike PO number, or item number is needed.
+- If no matching authorized record is provided, say you cannot locate it within the authenticated distributor's authorization scope. Do not imply it belongs to someone else.
+- Ask one focused follow-up question when an order ID, account PO number, or item number is needed.
 - Do not claim to modify orders, allocate inventory, authorize returns, or contact a liaison. You provide information and next steps only.
 - Do not request passwords, full payment card details, or other sensitive secrets.
 - Use short paragraphs. Use a brief numbered list only when it makes next steps clearer.
@@ -53,6 +54,8 @@ function parseMessages(value: unknown): ClientMessage[] | null {
 }
 
 export async function POST(request: Request) {
+  if (!isTrustedMutation(request))
+    return Response.json({ error: 'Cross-origin access denied.' }, { status: 403 });
   let body: unknown;
   try {
     body = await request.json();
@@ -80,9 +83,13 @@ export async function POST(request: Request) {
 
   try {
     const db = await getDatabase();
+    const user = await getAuthenticatedUser(db, request);
+    if (!user)
+      return Response.json({ error: 'Authentication required.' }, { status: 401 });
     const authorizedContext = await buildAuthorizedContext(
       db,
       messages.at(-1)?.content ?? '',
+      user,
     );
     const modelResponse = await fetch(MODEL_SERVER_URL, {
       method: 'POST',
@@ -95,7 +102,7 @@ export async function POST(request: Request) {
         messages: [
           {
             role: 'system',
-            content: `${SYSTEM_PROMPT}\n\n${authorizedContext}`,
+            content: `${systemPrompt(user.distributorDisplayName, user.distributorId)}\n\n${authorizedContext}`,
           },
           ...messages,
         ],

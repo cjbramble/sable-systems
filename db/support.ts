@@ -1,4 +1,5 @@
-import { AS_OF_DATE, PRIMARY_CUSTOMER_ID, PRIMARY_USER_ID } from './seed';
+import type { AuthenticatedUser } from './auth';
+import { AS_OF_DATE } from './seed';
 
 type AccountSummary = {
   customerId: string;
@@ -7,6 +8,9 @@ type AccountSummary = {
   userId: string;
   userDisplayName: string;
   userRole: string;
+  paymentTerms: string;
+  currency: string;
+  region: string;
   totalOrders: number;
   activeOrders: number;
   scheduledOrders: number;
@@ -29,32 +33,15 @@ type ProductRow = {
 
 export async function getAccountSummary(
   db: D1Database,
+  user: AuthenticatedUser,
 ): Promise<AccountSummary> {
-  const account = await db
-    .prepare(
-      `SELECT d.display_name, d.account_tier, u.user_id,
-        u.display_name AS user_display_name, u.role AS user_role
-        FROM distributors d
-        JOIN users u ON u.distributor_id = d.customer_id
-        WHERE d.customer_id = ? AND u.user_id = ? AND u.status = 'active'`,
-    )
-    .bind(PRIMARY_CUSTOMER_ID, PRIMARY_USER_ID)
-    .first<{
-      display_name: string;
-      account_tier: string;
-      user_id: string;
-      user_display_name: string;
-      user_role: string;
-    }>();
-  if (!account) throw new Error('The authorized wholesale account is missing.');
-
   const orderCounts = await db
     .prepare(`SELECT
       COUNT(*) AS total_orders,
       SUM(CASE WHEN status NOT IN ('delivered', 'cancelled', 'scheduled') THEN 1 ELSE 0 END) AS active_orders,
       SUM(CASE WHEN status = 'scheduled' THEN 1 ELSE 0 END) AS scheduled_orders
       FROM orders WHERE customer_id = ?`)
-    .bind(PRIMARY_CUSTOMER_ID)
+    .bind(user.distributorId)
     .first<{
       total_orders: number;
       active_orders: number;
@@ -72,12 +59,15 @@ export async function getAccountSummary(
     .first<{ alert_count: number }>();
 
   return {
-    customerId: PRIMARY_CUSTOMER_ID,
-    displayName: account.display_name,
-    accountTier: account.account_tier,
-    userId: account.user_id,
-    userDisplayName: account.user_display_name,
-    userRole: account.user_role,
+    customerId: user.distributorId,
+    displayName: user.distributorDisplayName,
+    accountTier: user.accountTier,
+    userId: user.userId,
+    userDisplayName: user.userDisplayName,
+    userRole: user.role,
+    paymentTerms: user.paymentTerms,
+    currency: user.currency,
+    region: user.region,
     totalOrders: Number(orderCounts?.total_orders ?? 0),
     activeOrders: Number(orderCounts?.active_orders ?? 0),
     scheduledOrders: Number(orderCounts?.scheduled_orders ?? 0),
@@ -86,32 +76,40 @@ export async function getAccountSummary(
   };
 }
 
-export async function buildAuthorizedContext(db: D1Database, message: string) {
+export async function buildAuthorizedContext(
+  db: D1Database,
+  message: string,
+  user: AuthenticatedUser,
+) {
   const normalized = message.toLowerCase();
   const orderIdentifier =
     message.toUpperCase().match(/\bSBL-\d{4}-\d{6}\b/)?.[0] ??
-    message.toUpperCase().match(/\bCPD-(?:PO|REL)-\d{6}\b/)?.[0];
+    message.toUpperCase().match(/\b[A-Z]{3}-(?:PO|REL)-\d{6}\b/)?.[0];
 
-  if (orderIdentifier) return orderContext(db, orderIdentifier);
+  if (orderIdentifier) return orderContext(db, orderIdentifier, user);
   if (/scheduled|future|upcoming|release/.test(normalized))
-    return scheduledOrderContext(db);
+    return scheduledOrderContext(db, user);
 
   const matchedProduct = await matchProduct(db, normalized);
   if (matchedProduct) return productContext(db, matchedProduct);
   if (/inventory|availability|available|stock|backorder/.test(normalized))
     return inventoryAlertContext(db);
 
-  const summary = await getAccountSummary(db);
+  const summary = await getAccountSummary(db, user);
   return `<authorized_records>
 Account: ${summary.displayName} (${summary.customerId}), ${summary.accountTier}
 Authenticated user: ${summary.userDisplayName} (${summary.userId}), role ${summary.userRole}.
 As-of date: ${summary.asOfDate}
 Authorized order count: ${summary.totalOrders}; active: ${summary.activeOrders}; scheduled: ${summary.scheduledOrders}.
-No specific order or item was identified in the request. Ask for a SABLE order ID, Calder Pike PO number, or item number when account-specific facts are required.
+No specific order or item was identified in the request. Ask for a SABLE order ID, account PO number, or item number when account-specific facts are required.
 </authorized_records>`;
 }
 
-async function orderContext(db: D1Database, identifier: string) {
+async function orderContext(
+  db: D1Database,
+  identifier: string,
+  user: AuthenticatedUser,
+) {
   const order = await db
     .prepare(`SELECT o.order_id, o.customer_po_number, o.created_on,
       o.requested_ship_date, o.status, o.currency, o.order_total_cents,
@@ -119,12 +117,12 @@ async function orderContext(db: D1Database, identifier: string) {
       FROM orders o
       JOIN users u ON u.user_id = o.placed_by_user_id
       WHERE o.customer_id = ? AND (o.order_id = ? OR o.customer_po_number = ?)`)
-    .bind(PRIMARY_CUSTOMER_ID, identifier, identifier)
+    .bind(user.distributorId, identifier, identifier)
     .first<Record<string, string | number>>();
 
   if (!order) {
     return `<authorized_records>
-No order matching ${identifier} is available within Calder Pike Distribution's authorization scope. Do not confirm or deny whether it belongs to another customer.
+No order matching ${identifier} is available within ${user.distributorDisplayName}'s authorization scope. Do not confirm or deny whether it belongs to another customer.
 </authorized_records>`;
   }
 
@@ -152,7 +150,7 @@ No order matching ${identifier} is available within Calder Pike Distribution's a
     .first<Record<string, string | null>>();
 
   return `<authorized_records>
-Authorization: Calder Pike Distribution (${PRIMARY_CUSTOMER_ID}) only.
+Authorization: ${user.distributorDisplayName} (${user.distributorId}) only.
 Order: ${order.order_id}; customer PO: ${order.customer_po_number}; status: ${order.status}.
 Placed by: ${order.placed_by_name} (${order.placed_by_user_id}).
 Created: ${order.created_on}; requested ship date: ${order.requested_ship_date}; destination: ${order.shipping_region}.
@@ -167,16 +165,16 @@ Return: ${returnRow ? `${returnRow.return_id}, ${returnRow.status}, reason ${ret
 </authorized_records>`;
 }
 
-async function scheduledOrderContext(db: D1Database) {
+async function scheduledOrderContext(db: D1Database, user: AuthenticatedUser) {
   const rows = await db
     .prepare(`SELECT order_id, customer_po_number, requested_ship_date, status, order_total_cents, currency
       FROM orders
       WHERE customer_id = ? AND requested_ship_date > ? AND status IN ('scheduled', 'confirmed')
       ORDER BY requested_ship_date LIMIT 8`)
-    .bind(PRIMARY_CUSTOMER_ID, AS_OF_DATE)
+    .bind(user.distributorId, AS_OF_DATE)
     .all<Record<string, string | number>>();
   return `<authorized_records>
-Upcoming Calder Pike releases after ${AS_OF_DATE}:
+Upcoming ${user.distributorDisplayName} releases after ${AS_OF_DATE}:
 ${rows.results.map((row) => `- ${row.order_id} / ${row.customer_po_number}: ${row.status}; requested ${row.requested_ship_date}; ${money(Number(row.order_total_cents), String(row.currency))}.`).join('\n')}
 </authorized_records>`;
 }

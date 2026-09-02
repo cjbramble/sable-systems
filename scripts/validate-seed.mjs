@@ -18,6 +18,9 @@ const distributors = statements.filter((row) =>
 const users = statements.filter((row) =>
   row.sql.startsWith('INSERT INTO users'),
 );
+const credentials = statements.filter((row) =>
+  row.sql.startsWith('INSERT INTO user_credentials'),
+);
 const expectedCustomers = {
   'WHS-0427': 648,
   'WHS-1098': 24,
@@ -44,6 +47,7 @@ const futurePrimaryOrders = primaryOrders.filter(
 assert.equal(orders.length, 720, 'expected exactly 720 orders');
 assert.equal(distributors.length, 4, 'expected four authorized distributors');
 assert.equal(users.length, 4, 'expected one user per authorized distributor');
+assert.equal(credentials.length, 4, 'expected credentials for every user');
 assert.ok(
   orders.every(
     (row) => row.params[2] === expectedUserByCustomer[String(row.params[1])],
@@ -87,6 +91,7 @@ console.log(
       orders: orders.length,
       distributors: distributors.length,
       users: users.length,
+      credentials: credentials.length,
       customerCounts,
       products: products.length,
       orderItems: orderItems.length,

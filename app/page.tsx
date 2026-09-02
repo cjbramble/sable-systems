@@ -30,9 +30,9 @@ export default function Home() {
         <nav aria-label="Primary navigation">
           <Link href="#systems">Systems</Link>
           <Link href="#mandate">Mandate</Link>
-          <Link href="/support">COV-E Support</Link>
+          <Link href="/login?next=/support">COV-E Support</Link>
         </nav>
-        <Link className="nav-cta" href="/shop">
+        <Link className="nav-cta" href="/login?next=/shop">
           Enter procurement <MoveUpRight />
         </Link>
       </header>
@@ -52,10 +52,10 @@ export default function Home() {
             partners across every trade district.
           </p>
           <div className="brand-actions">
-            <Link className="brand-primary" href="/shop">
+            <Link className="brand-primary" href="/login?next=/shop">
               Browse systems <ArrowRight />
             </Link>
-            <Link className="brand-secondary" href="/support">
+            <Link className="brand-secondary" href="/login?next=/support">
               Contact COV-E
             </Link>
           </div>
@@ -96,7 +96,7 @@ export default function Home() {
         </div>
         <div className="division-grid">
           {divisions.map(({ code, label, icon: Icon }) => (
-            <Link href="/shop" key={code}>
+            <Link href="/login?next=/shop" key={code}>
               <span className="division-code">SBL / {code}</span>
               <Icon />
               <strong>{label}</strong>
@@ -116,7 +116,7 @@ export default function Home() {
           Every SABLE component is serialized, traceable, and routed through
           verified wholesale channels.
         </p>
-        <Link href="/shop"><Boxes /> Access live inventory <ArrowRight /></Link>
+        <Link href="/login?next=/shop"><Boxes /> Access live inventory <ArrowRight /></Link>
       </section>
     </main>
   );

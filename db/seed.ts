@@ -633,6 +633,42 @@ function insertReferenceData(statements: SeedStatement[]) {
       params,
     });
 
+  const credentials = [
+    [
+      PRIMARY_USER_ID,
+      '1lIuQK9XkwWkY0c0AE4ZXg',
+      'RSZ-1tPotPr5bdAasAm06V-Qa4mC_m5Lj5khmqATtdE',
+      210000,
+      '2026-09-02T10:30:00Z',
+    ],
+    [
+      'USR-MCS-001',
+      'Wt9n8uox9Upi6cBE_ye-6g',
+      'UrIMz0NH1Hhy8E5yDuElml5XW3z8E_KKnbvQmtG3AsM',
+      210000,
+      '2026-09-02T10:30:00Z',
+    ],
+    [
+      'USR-NPC-001',
+      'g8JLxlQzzW2g424PDxucig',
+      'kQ99m_A5Z6uyu145H3Kq50iDLIaVskUN5KovMkapyZY',
+      210000,
+      '2026-09-02T10:30:00Z',
+    ],
+    [
+      'USR-HIX-001',
+      'gd8bi2Giq_dEaikXJ3kGaA',
+      'Yehzp-jylkN6Zz74bgfGGr9on7GoyCeqV5ht6mVHilA',
+      210000,
+      '2026-09-02T10:30:00Z',
+    ],
+  ];
+  for (const params of credentials)
+    statements.push({
+      sql: 'INSERT INTO user_credentials VALUES (?, ?, ?, ?, ?)',
+      params,
+    });
+
   for (const row of products) {
     statements.push({
       sql: `INSERT INTO products (

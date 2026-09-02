@@ -25,6 +25,22 @@ The seed is deterministic and contains:
 
 Other-distributor records are never included in COV-E's authorized context.
 
+## Local access
+
+The procurement catalog, ordering API, and COV-E console require a distributor
+session. Seed credentials are stored as PBKDF2 hashes; the local access phrases
+for the four fictional users are:
+
+| Distributor | Email | Access phrase |
+| --- | --- | --- |
+| Calder Pike Distribution | `mara.venn@calderpike.example` | `Sable-WHS-0427!` |
+| Meridian Civic Supply | `imani.kade@meridiancivic.example` | `Sable-WHS-1098!` |
+| Northline Prosthetics Cooperative | `rowan.sato@northline.example` | `Sable-WHS-2714!` |
+| Halcyon Industrial Exchange | `lena.orr@halcyonexchange.example` | `Sable-WHS-5830!` |
+
+Sessions use random opaque credentials in an HttpOnly, SameSite cookie and
+expire after twelve hours. Signing out revokes the server-side session.
+
 ## Run it
 
 ```bash

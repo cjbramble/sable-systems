@@ -15,6 +15,7 @@ import {
   ChevronRight,
   CircleDot,
   Cpu,
+  LogOut,
   Minus,
   PackageCheck,
   Plus,
@@ -65,6 +66,9 @@ type AccountIdentity = {
   customerId: string;
   displayName: string;
   userDisplayName: string;
+  paymentTerms: string;
+  currency: string;
+  region: string;
 };
 
 const categoryIcons = {
@@ -105,6 +109,7 @@ function dateOffset(days: number) {
 export default function ShopPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [account, setAccount] = useState<AccountIdentity | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [category, setCategory] = useState('All');
@@ -126,6 +131,10 @@ export default function ShopPage() {
         products?: Product[];
         error?: string;
       };
+      if (response.status === 401) {
+        window.location.replace('/login?next=/shop');
+        return;
+      }
       if (!response.ok || !payload.products)
         throw new Error(payload.error || 'Catalog unavailable.');
       setProducts(payload.products);
@@ -147,6 +156,10 @@ export default function ShopPage() {
           products?: Product[];
           error?: string;
         };
+        if (response.status === 401) {
+          window.location.replace('/login?next=/shop');
+          throw new Error('Authentication required.');
+        }
         if (!response.ok || !payload.products)
           throw new Error(payload.error || 'Catalog unavailable.');
         return payload.products;
@@ -174,13 +187,23 @@ export default function ShopPage() {
     let active = true;
     fetch('/api/account', { cache: 'no-store' })
       .then(async (response) => {
+        if (response.status === 401) {
+          window.location.replace('/login?next=/shop');
+          throw new Error('Authentication required.');
+        }
         if (!response.ok) throw new Error('Account unavailable.');
         return (await response.json()) as AccountIdentity;
       })
       .then((identity) => {
-        if (active) setAccount(identity);
+        if (active) {
+          setAccount(identity);
+          setRegion(identity.region);
+          setAuthChecked(true);
+        }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) setAuthChecked(true);
+      });
     return () => {
       active = false;
     };
@@ -266,6 +289,10 @@ export default function ShopPage() {
       const payload = (await response.json()) as Confirmation & {
         error?: string;
       };
+      if (response.status === 401) {
+        window.location.replace('/login?next=/shop');
+        return;
+      }
       if (!response.ok)
         throw new Error(payload.error || 'Order could not be placed.');
       setConfirmation(payload);
@@ -283,6 +310,20 @@ export default function ShopPage() {
     }
   }
 
+  async function signOut() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    window.location.replace('/login');
+  }
+
+  if (!authChecked) {
+    return (
+      <main className="access-check">
+        <ShieldCheck />
+        <span>VERIFYING PROCUREMENT CREDENTIALS</span>
+      </main>
+    );
+  }
+
   return (
     <main className="shop-page">
       <header className="shop-nav">
@@ -296,12 +337,21 @@ export default function ShopPage() {
         <div className="shop-account">
           <span>AUTHORIZED USER</span>
           <strong>
-            {account?.userDisplayName ?? 'Mara Venn'} {'//'}{' '}
-            {account?.displayName ?? 'Calder Pike'}
+            {account?.userDisplayName ?? 'Authorized user'} {'//'}{' '}
+            {account?.displayName ?? 'Distribution account'}
           </strong>
         </div>
         <div className="shop-nav__actions">
           <Link href="/support">COV-E Support</Link>
+          <Button
+            className="shop-logout"
+            variant="ghost"
+            size="icon"
+            aria-label="Sign out"
+            onClick={signOut}
+          >
+            <LogOut />
+          </Button>
           <Button className="cart-trigger" onClick={() => setCartOpen(true)}>
             <ShoppingBag /> Cart <span>{cartCount}</span>
           </Button>
@@ -526,7 +576,7 @@ export default function ShopPage() {
             </span>
             <SheetTitle>Procurement queue</SheetTitle>
             <SheetDescription>
-              Calder Pike Distribution · WHS-0427
+              {account?.displayName} · {account?.customerId}
             </SheetDescription>
           </SheetHeader>
           {confirmation ? (
@@ -555,8 +605,8 @@ export default function ShopPage() {
                 </div>
               </dl>
               <p>
-                The order has been posted to the Calder Pike charge account and
-                inventory is reserved.
+                The order has been posted to the {account?.displayName} charge
+                account and inventory is reserved.
               </p>
               <Button onClick={() => setConfirmation(null)}>
                 Build another order <ArrowRight />
@@ -632,7 +682,7 @@ export default function ShopPage() {
                     pattern="[A-Za-z0-9][A-Za-z0-9-]{3,39}"
                     value={poNumber}
                     onChange={(event) => setPoNumber(event.target.value)}
-                    placeholder="CPD-PO-260901"
+                    placeholder="ACCOUNT-PO-260901"
                   />
                 </label>
                 <label htmlFor="ship-date">
@@ -667,8 +717,13 @@ export default function ShopPage() {
                   }
                 />
                 <span>
-                  <strong>Charge this order to the Calder Pike account</strong>
-                  <small>Account terms: Net 45 · USD billing ledger</small>
+                  <strong>
+                    Charge this order to the {account?.displayName} account
+                  </strong>
+                  <small>
+                    Account terms: {account?.paymentTerms} · {account?.currency}{' '}
+                    billing ledger
+                  </small>
                 </span>
                 <ShieldCheck />
               </label>
