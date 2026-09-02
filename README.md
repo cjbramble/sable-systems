@@ -1,6 +1,6 @@
-# SABLE Systems Wholesale Portal
+# SABLE Systems Distribution Portal
 
-SABLE Systems is a branded wholesale portal for Calder Pike Distribution (`WHS-0427`). It combines
+SABLE Systems is a wholesale supplier and manufacturer serving authorized distributors. Its portal combines
 a public-facing brand gateway, an inventory-aware procurement catalog, simulated checkout, and the
 private COV-E customer-support console. COV-E uses the local Qwen3 4B model through `llama-server`
 and grounds account-specific answers in a project-local D1/SQLite database.
@@ -19,11 +19,11 @@ payment details are collected and no funds are transferred.
 The seed is deterministic and contains:
 
 - 720 orders from 2021 through 2031
-- 648 Calder Pike orders and 72 isolation records split across three other wholesalers
+- 648 Calder Pike orders and 72 isolation records split across three other distributors
 - 18 catalog records, including one retired product and one fully quarantined product
 - inventory balances, order lines, events, shipments, and returns
 
-Other-wholesaler records are never included in COV-E's authorized context.
+Other-distributor records are never included in COV-E's authorized context.
 
 ## Run it
 

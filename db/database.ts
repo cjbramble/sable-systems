@@ -20,6 +20,7 @@ async function initializeDatabase() {
   const db = (env as unknown as { DB?: D1Database }).DB;
   if (!db) throw new Error('The DB binding is not configured.');
 
+  await migrateDistributorTable(db);
   await db.batch(schemaStatements.map((sql) => db.prepare(sql)));
   const currentSeed = await db
     .prepare("SELECT value FROM metadata WHERE key = 'seed_version'")
@@ -51,4 +52,21 @@ async function initializeDatabase() {
   ]);
   await db.prepare('PRAGMA optimize').run();
   return db;
+}
+
+async function migrateDistributorTable(db: D1Database) {
+  const legacyTable = await db
+    .prepare(
+      "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'wholesalers'",
+    )
+    .first<{ name: string }>();
+  const distributorTable = await db
+    .prepare(
+      "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'distributors'",
+    )
+    .first<{ name: string }>();
+  if (legacyTable && !distributorTable) {
+    await db.prepare('PRAGMA foreign_keys = ON').run();
+    await db.prepare('ALTER TABLE wholesalers RENAME TO distributors').run();
+  }
 }

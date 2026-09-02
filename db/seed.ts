@@ -452,7 +452,7 @@ export function buildSeedStatements(): SeedStatement[] {
   const orders = [
     ...representativeOrders,
     ...generatePrimaryOrders(636),
-    ...generateOtherWholesalerOrders(),
+    ...generateOtherDistributorOrders(),
   ];
   for (const row of orders) insertOrder(statements, row);
 
@@ -527,7 +527,7 @@ function order(
 }
 
 function insertReferenceData(statements: SeedStatement[]) {
-  const wholesalers = [
+  const distributors = [
     [
       'WHS-0427',
       'Calder Pike Distribution Cooperative',
@@ -569,9 +569,9 @@ function insertReferenceData(statements: SeedStatement[]) {
       'Pacific Trade Zone',
     ],
   ];
-  for (const params of wholesalers)
+  for (const params of distributors)
     statements.push({
-      sql: 'INSERT INTO wholesalers VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      sql: 'INSERT INTO distributors VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       params,
     });
 
@@ -669,7 +669,7 @@ function generatePrimaryOrders(count: number): OrderSeed[] {
   );
 }
 
-function generateOtherWholesalerOrders(): OrderSeed[] {
+function generateOtherDistributorOrders(): OrderSeed[] {
   const customers = [
     ['WHS-1098', 'MCS'],
     ['WHS-2714', 'NPC'],

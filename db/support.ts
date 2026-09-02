@@ -29,7 +29,7 @@ export async function getAccountSummary(
 ): Promise<AccountSummary> {
   const account = await db
     .prepare(
-      'SELECT display_name, account_tier FROM wholesalers WHERE customer_id = ?',
+      'SELECT display_name, account_tier FROM distributors WHERE customer_id = ?',
     )
     .bind(PRIMARY_CUSTOMER_ID)
     .first<{ display_name: string; account_tier: string }>();
@@ -204,7 +204,7 @@ This is a digitally allocated license and does not have a physical stock balance
 Product: ${product.item_number} — ${product.product_name}; category ${product.category}.
 Wholesale price: ${money(product.unit_price_cents, 'USD')} per ${product.unit_label}; case pack ${product.case_pack}; standard lead time ${product.lead_time_days} days.
 Available to promise as of ${AS_OF_DATE}: ${available}. Inbound: ${inventory?.inbound ?? 0}. Expected restock: ${inventory?.expected_restock_date ?? 'none scheduled'}.
-Quarantined units are excluded from availability. Do not reveal other wholesalers' reservations or orders.
+Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
 </authorized_records>`;
 }
 

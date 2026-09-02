@@ -48,8 +48,8 @@ export default function Home() {
           </h1>
           <p className="brand-lede">
             Compute, interface, and augmentation systems engineered for the
-            hard edge of tomorrow. Authorized wholesale access for Calder Pike
-            Distribution.
+            hard edge of tomorrow. Purpose-built for verified distribution
+            partners across every trade district.
           </p>
           <div className="brand-actions">
             <Link className="brand-primary" href="/shop">

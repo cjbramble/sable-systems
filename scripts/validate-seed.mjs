@@ -12,6 +12,9 @@ const orderItems = statements.filter((row) =>
 const products = statements.filter((row) =>
   row.sql.includes('INSERT INTO products'),
 );
+const distributors = statements.filter((row) =>
+  row.sql.startsWith('INSERT INTO distributors'),
+);
 const expectedCustomers = {
   'WHS-0427': 648,
   'WHS-1098': 24,
@@ -30,6 +33,7 @@ const futurePrimaryOrders = primaryOrders.filter(
 ).length;
 
 assert.equal(orders.length, 720, 'expected exactly 720 orders');
+assert.equal(distributors.length, 4, 'expected four authorized distributors');
 assert.deepEqual(
   customerCounts,
   expectedCustomers,
@@ -65,6 +69,7 @@ console.log(
   JSON.stringify(
     {
       orders: orders.length,
+      distributors: distributors.length,
       customerCounts,
       products: products.length,
       orderItems: orderItems.length,

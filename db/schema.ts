@@ -1,12 +1,12 @@
-export const SCHEMA_VERSION = '2';
-export const SEED_VERSION = 'sable-wholesale-2026-09-02-v3';
+export const SCHEMA_VERSION = '3';
+export const SEED_VERSION = 'sable-distribution-2026-09-02-v4';
 
 export const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS metadata (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   ) STRICT`,
-  `CREATE TABLE IF NOT EXISTS wholesalers (
+  `CREATE TABLE IF NOT EXISTS distributors (
     customer_id TEXT PRIMARY KEY,
     legal_name TEXT NOT NULL,
     display_name TEXT NOT NULL,
@@ -49,7 +49,7 @@ export const schemaStatements = [
   ) STRICT`,
   `CREATE TABLE IF NOT EXISTS orders (
     order_id TEXT PRIMARY KEY,
-    customer_id TEXT NOT NULL REFERENCES wholesalers(customer_id),
+    customer_id TEXT NOT NULL REFERENCES distributors(customer_id),
     customer_po_number TEXT NOT NULL,
     created_on TEXT NOT NULL,
     requested_ship_date TEXT NOT NULL,
@@ -158,6 +158,6 @@ export const seedCleanupStatements = [
   'DELETE FROM inventory_balances',
   'DELETE FROM fulfillment_locations',
   'DELETE FROM products',
-  'DELETE FROM wholesalers',
+  'DELETE FROM distributors',
   'DELETE FROM metadata',
 ] as const;
