@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import {
   KeyboardEvent,
   SyntheticEvent,
@@ -12,7 +13,6 @@ import {
   BadgeCheck,
   Bot,
   Check,
-  CircuitBoard,
   CircleUserRound,
   Clock3,
   Headphones,
@@ -272,13 +272,13 @@ export default function SupportPage() {
     <main className="app-shell">
       <aside className={cn('sidebar', mobileMenuOpen && 'sidebar--open')}>
         <div className="sidebar__brand">
-          <div className="brand-mark" aria-hidden="true">
-            <CircuitBoard />
-          </div>
-          <div>
-            <p>SABLE</p>
-            <span>Morrow Vale Holdings</span>
-          </div>
+          <Link className="wordmark" href="/" aria-label="SABLE home">
+            <span className="wordmark__sigil" aria-hidden="true" />
+            <span>
+              <strong>SABLE</strong>
+              <small>Morrow Vale Holdings</small>
+            </span>
+          </Link>
           <Button
             className="sidebar__close md:hidden"
             variant="ghost"
@@ -372,29 +372,29 @@ export default function SupportPage() {
             <span className="online-dot" />
           </div>
           <div className="chat-header__title">
-            <div>
-              <h1>COV-E Customer Operations</h1>
-              <span
-                className={cn('runtime-status', `runtime-status--${runtime}`)}
-              >
-                <i />
-                {runtime === 'ready'
-                  ? 'COV-E NODE // ONLINE'
-                  : runtime === 'checking'
-                    ? 'AUTHORIZING NODE'
-                    : 'NODE // OFFLINE'}
-              </span>
-            </div>
+            <h1>COV-E Customer Operations</h1>
             <p>SABLE Systems · Authorized wholesale channel</p>
           </div>
-          <Button
-            className="header-action"
-            variant="outline"
-            onClick={newConversation}
-          >
-            <RotateCcw />
-            <span className="hidden sm:inline">Start over</span>
-          </Button>
+          <div className="chat-header__actions">
+            <span
+              className={cn('runtime-status', `runtime-status--${runtime}`)}
+            >
+              <i />
+              {runtime === 'ready'
+                ? 'COV-E NODE // ONLINE'
+                : runtime === 'checking'
+                  ? 'AUTHORIZING NODE'
+                  : 'NODE // OFFLINE'}
+            </span>
+            <Button
+              className="header-action"
+              variant="outline"
+              onClick={newConversation}
+            >
+              <RotateCcw />
+              <span className="hidden sm:inline">Start over</span>
+            </Button>
+          </div>
         </header>
 
         <div className="message-stage" aria-live="polite">

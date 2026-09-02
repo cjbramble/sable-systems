@@ -80,7 +80,7 @@ export default function LoginPage() {
     <main className="login-page">
       <section className="login-brand" aria-label="SABLE distributor access">
         <Link className="wordmark" href="/" aria-label="SABLE home">
-          <span className="wordmark__sigil">S</span>
+          <span className="wordmark__sigil" aria-hidden="true" />
           <span>
             <strong>SABLE</strong>
             <small>Morrow Vale Holdings</small>

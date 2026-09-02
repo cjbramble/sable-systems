@@ -352,7 +352,7 @@ export default function ShopPage() {
     <main className="shop-page">
       <header className="shop-nav">
         <Link className="wordmark" href="/" aria-label="SABLE home">
-          <span className="wordmark__sigil">S</span>
+          <span className="wordmark__sigil" aria-hidden="true" />
           <span>
             <strong>SABLE</strong>
             <small>Morrow Vale Holdings</small>
@@ -404,7 +404,7 @@ export default function ShopPage() {
           <p>
             Wholesale pricing · Serialized fulfillment
             <br />
-            Account terms: NET 30
+            Account terms: {account?.paymentTerms ?? 'Verified terms'}
           </p>
         </div>
       </section>

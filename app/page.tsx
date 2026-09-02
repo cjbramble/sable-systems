@@ -62,7 +62,7 @@ export default async function Home() {
     <main className="brand-page">
       <header className="brand-nav">
         <Link className="wordmark" href="/" aria-label="SABLE home">
-          <span className="wordmark__sigil">S</span>
+          <span className="wordmark__sigil" aria-hidden="true" />
           <span>
             <strong>SABLE</strong>
             <small>Morrow Vale Holdings</small>
