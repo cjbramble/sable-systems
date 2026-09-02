@@ -42,6 +42,7 @@ type OrderItemSeed = {
 type OrderSeed = {
   orderId: string;
   customerId: string;
+  placedByUserId: string;
   customerPoNumber: string;
   createdOn: string;
   requestedShipDate: string;
@@ -52,7 +53,15 @@ type OrderSeed = {
 };
 
 export const PRIMARY_CUSTOMER_ID = 'WHS-0427';
+export const PRIMARY_USER_ID = 'USR-CPD-001';
 export const AS_OF_DATE = '2026-09-02';
+
+const userIdByCustomer: Record<string, string> = {
+  'WHS-0427': PRIMARY_USER_ID,
+  'WHS-1098': 'USR-MCS-001',
+  'WHS-2714': 'USR-NPC-001',
+  'WHS-5830': 'USR-HIX-001',
+};
 
 export const products: ProductSeed[] = [
   product(
@@ -516,6 +525,7 @@ function order(
   return {
     orderId,
     customerId: PRIMARY_CUSTOMER_ID,
+    placedByUserId: PRIMARY_USER_ID,
     customerPoNumber,
     createdOn,
     requestedShipDate,
@@ -572,6 +582,54 @@ function insertReferenceData(statements: SeedStatement[]) {
   for (const params of distributors)
     statements.push({
       sql: 'INSERT INTO distributors VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      params,
+    });
+
+  const users = [
+    [
+      PRIMARY_USER_ID,
+      PRIMARY_CUSTOMER_ID,
+      'Mara Venn',
+      'mara.venn@calderpike.example',
+      'account_admin',
+      'active',
+      '2021-01-04',
+      '2026-09-02T08:42:00Z',
+    ],
+    [
+      'USR-MCS-001',
+      'WHS-1098',
+      'Imani Kade',
+      'imani.kade@meridiancivic.example',
+      'account_admin',
+      'active',
+      '2021-02-15',
+      '2026-08-29T13:05:00Z',
+    ],
+    [
+      'USR-NPC-001',
+      'WHS-2714',
+      'Rowan Sato',
+      'rowan.sato@northline.example',
+      'account_admin',
+      'active',
+      '2021-03-08',
+      '2026-08-31T16:20:00Z',
+    ],
+    [
+      'USR-HIX-001',
+      'WHS-5830',
+      'Lena Orr',
+      'lena.orr@halcyonexchange.example',
+      'account_admin',
+      'active',
+      '2021-04-19',
+      '2026-08-27T10:15:00Z',
+    ],
+  ];
+  for (const params of users)
+    statements.push({
+      sql: 'INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       params,
     });
 
@@ -719,6 +777,7 @@ function generatedOrder(
   return {
     orderId: `SBL-${year}-${String(sequence).padStart(6, '0')}`,
     customerId,
+    placedByUserId: userIdByCustomer[customerId],
     customerPoNumber: `${poPrefix}-${year > 2026 ? 'REL' : 'PO'}-${String(sequence).padStart(6, '0')}`,
     createdOn,
     requestedShipDate,
@@ -785,10 +844,14 @@ function insertOrder(statements: SeedStatement[], row: OrderSeed) {
     0,
   );
   statements.push({
-    sql: 'INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    sql: `INSERT INTO orders (
+      order_id, customer_id, placed_by_user_id, customer_po_number, created_on,
+      requested_ship_date, status, currency, order_total_cents, shipping_region
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     params: [
       row.orderId,
       row.customerId,
+      row.placedByUserId,
       row.customerPoNumber,
       row.createdOn,
       row.requestedShipDate,

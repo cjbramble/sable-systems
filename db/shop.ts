@@ -1,4 +1,4 @@
-import { PRIMARY_CUSTOMER_ID } from './seed';
+import { PRIMARY_CUSTOMER_ID, PRIMARY_USER_ID } from './seed';
 
 export type CatalogProduct = {
   itemNumber: string;
@@ -44,7 +44,8 @@ type InventoryRow = {
 };
 
 export async function getCatalog(db: D1Database): Promise<CatalogProduct[]> {
-  const rows = await db.prepare(`SELECT
+  const rows = await db
+    .prepare(`SELECT
     p.item_number, p.product_name, p.category, p.fulfillment_type,
     p.unit_price_cents, p.unit_label, p.case_pack, p.lead_time_days,
     p.warranty_months,
@@ -57,7 +58,8 @@ export async function getCatalog(db: D1Database): Promise<CatalogProduct[]> {
     LEFT JOIN inventory_balances i ON i.item_number = p.item_number
     WHERE p.active_to IS NULL
     GROUP BY p.item_number
-    ORDER BY p.category, p.product_name`).all<ProductRow>();
+    ORDER BY p.category, p.product_name`)
+    .all<ProductRow>();
 
   return rows.results.map((row) => ({
     itemNumber: row.item_number,
@@ -101,7 +103,8 @@ export function parseCheckoutInput(value: unknown): CheckoutInput | null {
     !Array.isArray(candidate.items) ||
     candidate.items.length === 0 ||
     candidate.items.length > 20
-  ) return null;
+  )
+    return null;
 
   const items: CheckoutLine[] = [];
   const seen = new Set<string>();
@@ -114,9 +117,13 @@ export function parseCheckoutInput(value: unknown): CheckoutInput | null {
       Number(line.quantity) <= 0 ||
       Number(line.quantity) > 100_000 ||
       seen.has(line.itemNumber)
-    ) return null;
+    )
+      return null;
     seen.add(line.itemNumber);
-    items.push({ itemNumber: line.itemNumber, quantity: Number(line.quantity) });
+    items.push({
+      itemNumber: line.itemNumber,
+      quantity: Number(line.quantity),
+    });
   }
   return { customerPoNumber, requestedShipDate, shippingRegion, items };
 }
@@ -131,13 +138,16 @@ export async function placeChargeAccountOrder(
   }
 
   const catalog = await getCatalog(db);
-  const productById = new Map(catalog.map((product) => [product.itemNumber, product]));
+  const productById = new Map(
+    catalog.map((product) => [product.itemNumber, product]),
+  );
   let totalCents = 0;
   const inventoryUpdates: D1PreparedStatement[] = [];
 
   for (const line of input.items) {
     const product = productById.get(line.itemNumber);
-    if (!product) throw new CheckoutError(`Item ${line.itemNumber} is not orderable.`, 422);
+    if (!product)
+      throw new CheckoutError(`Item ${line.itemNumber} is not orderable.`, 422);
     if (line.quantity % product.casePack !== 0) {
       throw new CheckoutError(
         `${product.name} must be ordered in case packs of ${product.casePack}.`,
@@ -147,7 +157,8 @@ export async function placeChargeAccountOrder(
     totalCents += product.unitPriceCents * line.quantity;
 
     if (product.fulfillmentType === 'license') continue;
-    const balances = await db.prepare(`SELECT location_id,
+    const balances = await db
+      .prepare(`SELECT location_id,
       on_hand_quantity - reserved_quantity - quarantined_quantity AS available_quantity
       FROM inventory_balances
       WHERE item_number = ? AND on_hand_quantity - reserved_quantity - quarantined_quantity > 0
@@ -157,12 +168,21 @@ export async function placeChargeAccountOrder(
     let remaining = line.quantity;
     for (const balance of balances.results) {
       if (remaining === 0) break;
-      const allocation = Math.min(remaining, Number(balance.available_quantity));
+      const allocation = Math.min(
+        remaining,
+        Number(balance.available_quantity),
+      );
       inventoryUpdates.push(
-        db.prepare(`UPDATE inventory_balances
+        db
+          .prepare(`UPDATE inventory_balances
           SET reserved_quantity = reserved_quantity + ?, updated_at = ?
           WHERE item_number = ? AND location_id = ?`)
-          .bind(allocation, `${today}T12:00:00Z`, product.itemNumber, balance.location_id),
+          .bind(
+            allocation,
+            `${today}T12:00:00Z`,
+            product.itemNumber,
+            balance.location_id,
+          ),
       );
       remaining -= allocation;
     }
@@ -181,29 +201,54 @@ export async function placeChargeAccountOrder(
   const createdAt = `${today}T12:00:00Z`;
   const statements: D1PreparedStatement[] = [
     ...inventoryUpdates,
-    db.prepare(`INSERT INTO orders (
-      order_id, customer_id, customer_po_number, created_on, requested_ship_date,
-      status, currency, order_total_cents, shipping_region
-    ) VALUES (?, ?, ?, ?, ?, 'confirmed', 'USD', ?, ?)`)
-      .bind(orderId, PRIMARY_CUSTOMER_ID, input.customerPoNumber, today,
-        input.requestedShipDate, totalCents, input.shippingRegion),
+    db
+      .prepare(`INSERT INTO orders (
+      order_id, customer_id, placed_by_user_id, customer_po_number, created_on,
+      requested_ship_date, status, currency, order_total_cents, shipping_region
+    ) VALUES (?, ?, ?, ?, ?, ?, 'confirmed', 'USD', ?, ?)`)
+      .bind(
+        orderId,
+        PRIMARY_CUSTOMER_ID,
+        PRIMARY_USER_ID,
+        input.customerPoNumber,
+        today,
+        input.requestedShipDate,
+        totalCents,
+        input.shippingRegion,
+      ),
   ];
   input.items.forEach((line, index) => {
     const product = productById.get(line.itemNumber)!;
-    statements.push(db.prepare(`INSERT INTO order_items (
+    statements.push(
+      db
+        .prepare(`INSERT INTO order_items (
       order_id, line_number, item_number, product_name_snapshot, unit_price_cents,
       ordered_quantity, allocated_quantity, shipped_quantity, cancelled_quantity
     ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)`)
-      .bind(orderId, index + 1, product.itemNumber, product.name,
-        product.unitPriceCents, line.quantity, line.quantity));
+        .bind(
+          orderId,
+          index + 1,
+          product.itemNumber,
+          product.name,
+          product.unitPriceCents,
+          line.quantity,
+          line.quantity,
+        ),
+    );
   });
   statements.push(
-    db.prepare(`INSERT INTO order_events (
+    db
+      .prepare(`INSERT INTO order_events (
       event_id, order_id, occurred_at, event_type, customer_safe_description
     ) VALUES (?, ?, ?, 'order_confirmed', ?)`)
-      .bind(`EVT-${crypto.randomUUID()}`, orderId, createdAt,
-        `Wholesale order confirmed for requested ship date ${input.requestedShipDate}. Charge account authorization confirmed.`),
-    db.prepare(`INSERT INTO account_charges (
+      .bind(
+        `EVT-${crypto.randomUUID()}`,
+        orderId,
+        createdAt,
+        `Wholesale order confirmed for requested ship date ${input.requestedShipDate}. Charge account authorization confirmed.`,
+      ),
+    db
+      .prepare(`INSERT INTO account_charges (
       charge_id, order_id, charge_method, status, amount_cents, currency,
       authorization_code, authorized_at
     ) VALUES (?, ?, 'charge_account', 'authorized', ?, 'USD', ?, ?)`)
@@ -215,19 +260,34 @@ export async function placeChargeAccountOrder(
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     if (message.includes('UNIQUE')) {
-      throw new CheckoutError('That purchase-order reference is already in use.', 409);
+      throw new CheckoutError(
+        'That purchase-order reference is already in use.',
+        409,
+      );
     }
     if (message.includes('CHECK constraint')) {
-      throw new CheckoutError('Inventory changed during checkout. Refresh and try again.', 409);
+      throw new CheckoutError(
+        'Inventory changed during checkout. Refresh and try again.',
+        409,
+      );
     }
     throw error;
   }
 
-  return { orderId, chargeId, authorizationCode, totalCents, requestedShipDate: input.requestedShipDate };
+  return {
+    orderId,
+    chargeId,
+    authorizationCode,
+    totalCents,
+    requestedShipDate: input.requestedShipDate,
+  };
 }
 
 export class CheckoutError extends Error {
-  constructor(message: string, public readonly status: number) {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
     super(message);
   }
 }

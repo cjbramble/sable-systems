@@ -15,11 +15,20 @@ const products = statements.filter((row) =>
 const distributors = statements.filter((row) =>
   row.sql.startsWith('INSERT INTO distributors'),
 );
+const users = statements.filter((row) =>
+  row.sql.startsWith('INSERT INTO users'),
+);
 const expectedCustomers = {
   'WHS-0427': 648,
   'WHS-1098': 24,
   'WHS-2714': 24,
   'WHS-5830': 24,
+};
+const expectedUserByCustomer = {
+  'WHS-0427': 'USR-CPD-001',
+  'WHS-1098': 'USR-MCS-001',
+  'WHS-2714': 'USR-NPC-001',
+  'WHS-5830': 'USR-HIX-001',
 };
 const customerCounts = Object.fromEntries(
   Object.keys(expectedCustomers).map((customerId) => [
@@ -29,11 +38,18 @@ const customerCounts = Object.fromEntries(
 );
 const primaryOrders = orders.filter((row) => row.params[1] === 'WHS-0427');
 const futurePrimaryOrders = primaryOrders.filter(
-  (row) => String(row.params[4]) > AS_OF_DATE,
+  (row) => String(row.params[5]) > AS_OF_DATE,
 ).length;
 
 assert.equal(orders.length, 720, 'expected exactly 720 orders');
 assert.equal(distributors.length, 4, 'expected four authorized distributors');
+assert.equal(users.length, 4, 'expected one user per authorized distributor');
+assert.ok(
+  orders.every(
+    (row) => row.params[2] === expectedUserByCustomer[String(row.params[1])],
+  ),
+  'expected every order user to belong to its distributor',
+);
 assert.deepEqual(
   customerCounts,
   expectedCustomers,
@@ -70,6 +86,7 @@ console.log(
     {
       orders: orders.length,
       distributors: distributors.length,
+      users: users.length,
       customerCounts,
       products: products.length,
       orderItems: orderItems.length,

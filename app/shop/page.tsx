@@ -1,7 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { SyntheticEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  SyntheticEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -55,6 +61,12 @@ type Confirmation = {
   requestedShipDate: string;
 };
 
+type AccountIdentity = {
+  customerId: string;
+  displayName: string;
+  userDisplayName: string;
+};
+
 const categoryIcons = {
   Compute: Cpu,
   Interface: ScanLine,
@@ -66,7 +78,8 @@ const categoryIcons = {
 
 const productNotes: Record<string, string> = {
   'SBL-M14-CW': 'Cryogenic wafer-scale compute for dense autonomous systems.',
-  'SBL-EID-R8': 'Low-latency inference coprocessor with neural bus integration.',
+  'SBL-EID-R8':
+    'Low-latency inference coprocessor with neural bus integration.',
   'SBL-NL-4P': 'Four-channel bidirectional neural signal gateway.',
   'SBL-KTA-T7': 'High-load synthetic tendon array for industrial augmentation.',
   'SBL-GG-R2': 'Sub-millimeter retinal projection for sealed field optics.',
@@ -91,6 +104,7 @@ function dateOffset(days: number) {
 
 export default function ShopPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [account, setAccount] = useState<AccountIdentity | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [category, setCategory] = useState('All');
@@ -108,12 +122,18 @@ export default function ShopPage() {
   const loadCatalog = useCallback(async () => {
     try {
       const response = await fetch('/api/catalog', { cache: 'no-store' });
-      const payload = (await response.json()) as { products?: Product[]; error?: string };
-      if (!response.ok || !payload.products) throw new Error(payload.error || 'Catalog unavailable.');
+      const payload = (await response.json()) as {
+        products?: Product[];
+        error?: string;
+      };
+      if (!response.ok || !payload.products)
+        throw new Error(payload.error || 'Catalog unavailable.');
       setProducts(payload.products);
       setLoadError('');
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : 'Catalog unavailable.');
+      setLoadError(
+        error instanceof Error ? error.message : 'Catalog unavailable.',
+      );
     } finally {
       setLoading(false);
     }
@@ -150,19 +170,45 @@ export default function ShopPage() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    fetch('/api/account', { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Account unavailable.');
+        return (await response.json()) as AccountIdentity;
+      })
+      .then((identity) => {
+        if (active) setAccount(identity);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const categories = useMemo(
-    () => ['All', ...Array.from(new Set(products.map((product) => product.category)))],
+    () => [
+      'All',
+      ...Array.from(new Set(products.map((product) => product.category))),
+    ],
     [products],
   );
   const filteredProducts = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    return products.filter((product) =>
-      (category === 'All' || product.category === category) &&
-      (!normalized || `${product.name} ${product.itemNumber} ${product.category}`.toLowerCase().includes(normalized)),
+    return products.filter(
+      (product) =>
+        (category === 'All' || product.category === category) &&
+        (!normalized ||
+          `${product.name} ${product.itemNumber} ${product.category}`
+            .toLowerCase()
+            .includes(normalized)),
     );
   }, [category, products, query]);
   const cartProducts = products.filter((product) => cart[product.itemNumber]);
-  const cartCount = Object.values(cart).reduce((sum, quantity) => sum + quantity, 0);
+  const cartCount = Object.values(cart).reduce(
+    (sum, quantity) => sum + quantity,
+    0,
+  );
   const subtotal = cartProducts.reduce(
     (sum, product) => sum + product.unitPriceCents * cart[product.itemNumber],
     0,
@@ -170,8 +216,15 @@ export default function ShopPage() {
 
   function changeQuantity(product: Product, delta: number) {
     setCart((current) => {
-      const nextQuantity = Math.max(0, (current[product.itemNumber] || 0) + delta);
-      if (product.availableQuantity !== null && nextQuantity > product.availableQuantity) return current;
+      const nextQuantity = Math.max(
+        0,
+        (current[product.itemNumber] || 0) + delta,
+      );
+      if (
+        product.availableQuantity !== null &&
+        nextQuantity > product.availableQuantity
+      )
+        return current;
       const next = { ...current };
       if (nextQuantity === 0) delete next[product.itemNumber];
       else next[product.itemNumber] = nextQuantity;
@@ -210,15 +263,20 @@ export default function ShopPage() {
           })),
         }),
       });
-      const payload = (await response.json()) as Confirmation & { error?: string };
-      if (!response.ok) throw new Error(payload.error || 'Order could not be placed.');
+      const payload = (await response.json()) as Confirmation & {
+        error?: string;
+      };
+      if (!response.ok)
+        throw new Error(payload.error || 'Order could not be placed.');
       setConfirmation(payload);
       setCart({});
       setPoNumber('');
       setChargeAccountAuthorized(false);
       await loadCatalog();
     } catch (error) {
-      setCheckoutError(error instanceof Error ? error.message : 'Order could not be placed.');
+      setCheckoutError(
+        error instanceof Error ? error.message : 'Order could not be placed.',
+      );
       await loadCatalog();
     } finally {
       setSubmitting(false);
@@ -230,11 +288,17 @@ export default function ShopPage() {
       <header className="shop-nav">
         <Link className="wordmark" href="/" aria-label="SABLE home">
           <span className="wordmark__sigil">S</span>
-          <span><strong>SABLE</strong><small>Morrow Vale Holdings</small></span>
+          <span>
+            <strong>SABLE</strong>
+            <small>Morrow Vale Holdings</small>
+          </span>
         </Link>
         <div className="shop-account">
-          <span>AUTHORIZED CHANNEL</span>
-          <strong>Calder Pike // WHS-0427</strong>
+          <span>AUTHORIZED USER</span>
+          <strong>
+            {account?.userDisplayName ?? 'Mara Venn'} {'//'}{' '}
+            {account?.displayName ?? 'Calder Pike'}
+          </strong>
         </div>
         <div className="shop-nav__actions">
           <Link href="/support">COV-E Support</Link>
@@ -246,13 +310,28 @@ export default function ShopPage() {
 
       <section className="shop-hero">
         <div>
-          <Link className="back-link" href="/"><ArrowLeft /> SABLE Systems</Link>
-          <p className="brand-kicker"><span /> LIVE PROCUREMENT NODE</p>
-          <h1>Hardware for<br /><em>what comes next.</em></h1>
+          <Link className="back-link" href="/">
+            <ArrowLeft /> SABLE Systems
+          </Link>
+          <p className="brand-kicker">
+            <span /> LIVE PROCUREMENT NODE
+          </p>
+          <h1>
+            Hardware for
+            <br />
+            <em>what comes next.</em>
+          </h1>
         </div>
         <div className="shop-hero__meta">
-          <div><i /><span>Inventory synchronized</span></div>
-          <p>Wholesale pricing · Serialized fulfillment<br />Account terms: NET 30</p>
+          <div>
+            <i />
+            <span>Inventory synchronized</span>
+          </div>
+          <p>
+            Wholesale pricing · Serialized fulfillment
+            <br />
+            Account terms: NET 30
+          </p>
         </div>
       </section>
 
@@ -272,57 +351,147 @@ export default function ShopPage() {
         <label className="catalog-search">
           <Search />
           <span className="sr-only">Search catalog</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search systems or item number" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search systems or item number"
+          />
         </label>
       </section>
 
       <section className="catalog-section">
         <div className="catalog-heading">
-          <span>{String(filteredProducts.length).padStart(2, '0')} systems online</span>
+          <span>
+            {String(filteredProducts.length).padStart(2, '0')} systems online
+          </span>
           <span>USD // WHOLESALE UNIT PRICING</span>
         </div>
         {loadError ? (
-          <div className="catalog-state"><ShieldCheck /><h2>Inventory link interrupted</h2><p>{loadError}</p><Button onClick={() => void loadCatalog()}>Retry uplink</Button></div>
+          <div className="catalog-state">
+            <ShieldCheck />
+            <h2>Inventory link interrupted</h2>
+            <p>{loadError}</p>
+            <Button onClick={() => void loadCatalog()}>Retry uplink</Button>
+          </div>
         ) : loading ? (
-          <div className="catalog-state"><span className="loading-ring" /><h2>Synchronizing inventory</h2></div>
+          <div className="catalog-state">
+            <span className="loading-ring" />
+            <h2>Synchronizing inventory</h2>
+          </div>
         ) : (
           <div className="product-grid">
             {filteredProducts.map((product, index) => {
-              const Icon = categoryIcons[product.category as keyof typeof categoryIcons] || Box;
+              const Icon =
+                categoryIcons[product.category as keyof typeof categoryIcons] ||
+                Box;
               const unavailable = product.availableQuantity === 0;
               const inCart = cart[product.itemNumber] || 0;
               return (
-                <article className={cn('product-card', unavailable && 'product-card--offline')} key={product.itemNumber}>
+                <article
+                  className={cn(
+                    'product-card',
+                    unavailable && 'product-card--offline',
+                  )}
+                  key={product.itemNumber}
+                >
                   <div className="product-card__top">
                     <span>{product.itemNumber}</span>
-                    <span>0{index + 1} / {String(filteredProducts.length).padStart(2, '0')}</span>
+                    <span>
+                      0{index + 1} /{' '}
+                      {String(filteredProducts.length).padStart(2, '0')}
+                    </span>
                   </div>
-                  <div className="product-glyph"><Icon /><i /><i /></div>
+                  <div className="product-glyph">
+                    <Icon />
+                    <i />
+                    <i />
+                  </div>
                   <Badge variant="outline">{product.category}</Badge>
                   <h2>{product.name}</h2>
-                  <p>{productNotes[product.itemNumber] || `SABLE ${product.category.toLowerCase()} architecture for verified wholesale deployment.`}</p>
+                  <p>
+                    {productNotes[product.itemNumber] ||
+                      `SABLE ${product.category.toLowerCase()} architecture for verified wholesale deployment.`}
+                  </p>
                   <dl>
-                    <div><dt>Pack</dt><dd>{product.casePack} {product.unitLabel}{product.casePack === 1 ? '' : 's'}</dd></div>
-                    <div><dt>Lead</dt><dd>{product.leadTimeDays === 0 ? 'Instant' : `${product.leadTimeDays} days`}</dd></div>
-                    <div><dt>Warranty</dt><dd>{product.warrantyMonths ? `${product.warrantyMonths} mo` : 'License'}</dd></div>
+                    <div>
+                      <dt>Pack</dt>
+                      <dd>
+                        {product.casePack} {product.unitLabel}
+                        {product.casePack === 1 ? '' : 's'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Lead</dt>
+                      <dd>
+                        {product.leadTimeDays === 0
+                          ? 'Instant'
+                          : `${product.leadTimeDays} days`}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Warranty</dt>
+                      <dd>
+                        {product.warrantyMonths
+                          ? `${product.warrantyMonths} mo`
+                          : 'License'}
+                      </dd>
+                    </div>
                   </dl>
                   <div className="product-stock">
-                    <span className={cn(unavailable && 'is-empty')}><i />
-                      {product.availableQuantity === null ? 'Digital allocation' : unavailable ? 'Allocation exhausted' : `${product.availableQuantity.toLocaleString()} available`}
+                    <span className={cn(unavailable && 'is-empty')}>
+                      <i />
+                      {product.availableQuantity === null
+                        ? 'Digital allocation'
+                        : unavailable
+                          ? 'Allocation exhausted'
+                          : `${product.availableQuantity.toLocaleString()} available`}
                     </span>
-                    {unavailable && product.restockDate ? <small>Inbound {product.restockDate}</small> : null}
+                    {unavailable && product.restockDate ? (
+                      <small>Inbound {product.restockDate}</small>
+                    ) : null}
                   </div>
                   <div className="product-card__footer">
-                    <div><strong>{money(product.unitPriceCents)}</strong><span>/ {product.unitLabel}</span></div>
+                    <div>
+                      <strong>{money(product.unitPriceCents)}</strong>
+                      <span>/ {product.unitLabel}</span>
+                    </div>
                     {inCart ? (
                       <div className="quantity-control">
-                        <Button variant="outline" size="icon-sm" aria-label={`Remove ${product.casePack} ${product.name}`} onClick={() => changeQuantity(product, -product.casePack)}><Minus /></Button>
+                        <Button
+                          variant="outline"
+                          size="icon-sm"
+                          aria-label={`Remove ${product.casePack} ${product.name}`}
+                          onClick={() =>
+                            changeQuantity(product, -product.casePack)
+                          }
+                        >
+                          <Minus />
+                        </Button>
                         <strong>{inCart}</strong>
-                        <Button size="icon-sm" aria-label={`Add ${product.casePack} ${product.name}`} disabled={product.availableQuantity !== null && inCart + product.casePack > product.availableQuantity} onClick={() => changeQuantity(product, product.casePack)}><Plus /></Button>
+                        <Button
+                          size="icon-sm"
+                          aria-label={`Add ${product.casePack} ${product.name}`}
+                          disabled={
+                            product.availableQuantity !== null &&
+                            inCart + product.casePack >
+                              product.availableQuantity
+                          }
+                          onClick={() =>
+                            changeQuantity(product, product.casePack)
+                          }
+                        >
+                          <Plus />
+                        </Button>
                       </div>
                     ) : (
-                      <Button disabled={unavailable} onClick={() => changeQuantity(product, product.casePack)}>
-                        {unavailable ? 'Unavailable' : 'Add case'} <ChevronRight />
+                      <Button
+                        disabled={unavailable}
+                        onClick={() =>
+                          changeQuantity(product, product.casePack)
+                        }
+                      >
+                        {unavailable ? 'Unavailable' : 'Add case'}{' '}
+                        <ChevronRight />
                       </Button>
                     )}
                   </div>
@@ -334,46 +503,107 @@ export default function ShopPage() {
       </section>
 
       {cartCount ? (
-        <button className="cart-dock" type="button" onClick={() => setCartOpen(true)}>
-          <span><ShoppingBag /> {cartCount} units queued</span>
+        <button
+          className="cart-dock"
+          type="button"
+          onClick={() => setCartOpen(true)}
+        >
+          <span>
+            <ShoppingBag /> {cartCount} units queued
+          </span>
           <strong>{money(subtotal)}</strong>
-          <span>Review order <ArrowRight /></span>
+          <span>
+            Review order <ArrowRight />
+          </span>
         </button>
       ) : null}
 
       <Sheet open={cartOpen} onOpenChange={setCartOpen}>
         <SheetContent className="checkout-sheet">
           <SheetHeader className="checkout-header">
-            <span className="brand-kicker"><span /> ORDER ASSEMBLY</span>
+            <span className="brand-kicker">
+              <span /> ORDER ASSEMBLY
+            </span>
             <SheetTitle>Procurement queue</SheetTitle>
-            <SheetDescription>Calder Pike Distribution · WHS-0427</SheetDescription>
+            <SheetDescription>
+              Calder Pike Distribution · WHS-0427
+            </SheetDescription>
           </SheetHeader>
           {confirmation ? (
             <div className="order-success">
-              <span><PackageCheck /></span>
+              <span>
+                <PackageCheck />
+              </span>
               <p>CHARGE ACCOUNT AUTHORIZED</p>
               <h2>Order entered.</h2>
               <dl>
-                <div><dt>Order</dt><dd>{confirmation.orderId}</dd></div>
-                <div><dt>Authorization</dt><dd>{confirmation.authorizationCode}</dd></div>
-                <div><dt>Order total</dt><dd>{money(confirmation.totalCents)}</dd></div>
-                <div><dt>Requested ship</dt><dd>{confirmation.requestedShipDate}</dd></div>
+                <div>
+                  <dt>Order</dt>
+                  <dd>{confirmation.orderId}</dd>
+                </div>
+                <div>
+                  <dt>Authorization</dt>
+                  <dd>{confirmation.authorizationCode}</dd>
+                </div>
+                <div>
+                  <dt>Order total</dt>
+                  <dd>{money(confirmation.totalCents)}</dd>
+                </div>
+                <div>
+                  <dt>Requested ship</dt>
+                  <dd>{confirmation.requestedShipDate}</dd>
+                </div>
               </dl>
-              <p>The order has been posted to the Calder Pike charge account and inventory is reserved.</p>
-              <Button onClick={() => setConfirmation(null)}>Build another order <ArrowRight /></Button>
+              <p>
+                The order has been posted to the Calder Pike charge account and
+                inventory is reserved.
+              </p>
+              <Button onClick={() => setConfirmation(null)}>
+                Build another order <ArrowRight />
+              </Button>
             </div>
           ) : cartProducts.length ? (
             <form className="checkout-body" onSubmit={submitOrder}>
               <div className="checkout-lines">
                 {cartProducts.map((product) => (
                   <div className="checkout-line" key={product.itemNumber}>
-                    <div><span>{product.itemNumber}</span><strong>{product.name}</strong><small>{money(product.unitPriceCents)} / {product.unitLabel}</small></div>
-                    <div className="quantity-control">
-                      <Button variant="outline" size="icon-sm" type="button" onClick={() => changeQuantity(product, -product.casePack)}><Minus /></Button>
-                      <strong>{cart[product.itemNumber]}</strong>
-                      <Button size="icon-sm" type="button" disabled={product.availableQuantity !== null && cart[product.itemNumber] + product.casePack > product.availableQuantity} onClick={() => changeQuantity(product, product.casePack)}><Plus /></Button>
+                    <div>
+                      <span>{product.itemNumber}</span>
+                      <strong>{product.name}</strong>
+                      <small>
+                        {money(product.unitPriceCents)} / {product.unitLabel}
+                      </small>
                     </div>
-                    <strong>{money(product.unitPriceCents * cart[product.itemNumber])}</strong>
+                    <div className="quantity-control">
+                      <Button
+                        variant="outline"
+                        size="icon-sm"
+                        type="button"
+                        onClick={() =>
+                          changeQuantity(product, -product.casePack)
+                        }
+                      >
+                        <Minus />
+                      </Button>
+                      <strong>{cart[product.itemNumber]}</strong>
+                      <Button
+                        size="icon-sm"
+                        type="button"
+                        disabled={
+                          product.availableQuantity !== null &&
+                          cart[product.itemNumber] + product.casePack >
+                            product.availableQuantity
+                        }
+                        onClick={() =>
+                          changeQuantity(product, product.casePack)
+                        }
+                      >
+                        <Plus />
+                      </Button>
+                    </div>
+                    <strong>
+                      {money(product.unitPriceCents * cart[product.itemNumber])}
+                    </strong>
                     <Button
                       className="remove-line"
                       variant="ghost"
@@ -387,24 +617,85 @@ export default function ShopPage() {
                   </div>
                 ))}
               </div>
-              <div className="checkout-total"><span>Order total</span><strong>{money(subtotal)}</strong></div>
+              <div className="checkout-total">
+                <span>Order total</span>
+                <strong>{money(subtotal)}</strong>
+              </div>
               <div className="checkout-form-grid">
-                <label htmlFor="po-number"><span>Purchase-order reference</span><Input id="po-number" required minLength={4} maxLength={40} pattern="[A-Za-z0-9][A-Za-z0-9-]{3,39}" value={poNumber} onChange={(event) => setPoNumber(event.target.value)} placeholder="CPD-PO-260901" /></label>
-                <label htmlFor="ship-date"><span>Requested ship date</span><Input id="ship-date" required type="date" min={dateOffset(0)} value={shipDate} onChange={(event) => setShipDate(event.target.value)} /></label>
-                <label className="wide" htmlFor="ship-region"><span>Destination region</span><Input id="ship-region" required minLength={3} maxLength={80} value={region} onChange={(event) => setRegion(event.target.value)} /></label>
+                <label htmlFor="po-number">
+                  <span>Purchase-order reference</span>
+                  <Input
+                    id="po-number"
+                    required
+                    minLength={4}
+                    maxLength={40}
+                    pattern="[A-Za-z0-9][A-Za-z0-9-]{3,39}"
+                    value={poNumber}
+                    onChange={(event) => setPoNumber(event.target.value)}
+                    placeholder="CPD-PO-260901"
+                  />
+                </label>
+                <label htmlFor="ship-date">
+                  <span>Requested ship date</span>
+                  <Input
+                    id="ship-date"
+                    required
+                    type="date"
+                    min={dateOffset(0)}
+                    value={shipDate}
+                    onChange={(event) => setShipDate(event.target.value)}
+                  />
+                </label>
+                <label className="wide" htmlFor="ship-region">
+                  <span>Destination region</span>
+                  <Input
+                    id="ship-region"
+                    required
+                    minLength={3}
+                    maxLength={80}
+                    value={region}
+                    onChange={(event) => setRegion(event.target.value)}
+                  />
+                </label>
               </div>
               <label className="charge-account-consent">
-                <input type="checkbox" checked={chargeAccountAuthorized} onChange={(event) => setChargeAccountAuthorized(event.target.checked)} />
-                <span><strong>Charge this order to the Calder Pike account</strong><small>Account terms: Net 45 · USD billing ledger</small></span>
+                <input
+                  type="checkbox"
+                  checked={chargeAccountAuthorized}
+                  onChange={(event) =>
+                    setChargeAccountAuthorized(event.target.checked)
+                  }
+                />
+                <span>
+                  <strong>Charge this order to the Calder Pike account</strong>
+                  <small>Account terms: Net 45 · USD billing ledger</small>
+                </span>
                 <ShieldCheck />
               </label>
-              {checkoutError ? <p className="checkout-error">{checkoutError}</p> : null}
-              <Button className="place-order" size="lg" type="submit" disabled={!chargeAccountAuthorized || submitting}>
-                {submitting ? 'Reserving inventory…' : 'Place charge account order'} <ArrowRight />
+              {checkoutError ? (
+                <p className="checkout-error">{checkoutError}</p>
+              ) : null}
+              <Button
+                className="place-order"
+                size="lg"
+                type="submit"
+                disabled={!chargeAccountAuthorized || submitting}
+              >
+                {submitting
+                  ? 'Reserving inventory…'
+                  : 'Place charge account order'}{' '}
+                <ArrowRight />
               </Button>
             </form>
           ) : (
-            <div className="empty-cart"><ShoppingBag /><h2>Queue is empty.</h2><p>Select whole case packs from the live catalog to begin.</p><Button onClick={() => setCartOpen(false)}>Return to catalog</Button></div>
+            <div className="empty-cart">
+              <ShoppingBag />
+              <h2>Queue is empty.</h2>
+              <p>Select whole case packs from the live catalog to begin.</p>
+              <Button onClick={() => setCartOpen(false)}>
+                Return to catalog
+              </Button>
+            </div>
           )}
         </SheetContent>
       </Sheet>

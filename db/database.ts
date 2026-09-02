@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers';
 import {
   ACCOUNT_CHARGES_INDEX_SQL,
   ACCOUNT_CHARGES_TABLE_SQL,
+  USERS_TABLE_SQL,
   schemaStatements,
   SCHEMA_VERSION,
   SEED_VERSION,
@@ -24,6 +25,7 @@ async function initializeDatabase() {
 
   await migrateDistributorTable(db);
   await migrateChargeAccountTable(db);
+  await migrateDistributorUsers(db);
   await db.batch(schemaStatements.map((sql) => db.prepare(sql)));
   const currentSeed = await db
     .prepare("SELECT value FROM metadata WHERE key = 'seed_version'")
@@ -93,4 +95,21 @@ async function migrateChargeAccountTable(db: D1Database) {
     db.prepare('DROP TABLE simulated_payments'),
     db.prepare(ACCOUNT_CHARGES_INDEX_SQL),
   ]);
+}
+
+async function migrateDistributorUsers(db: D1Database) {
+  await db.prepare(USERS_TABLE_SQL).run();
+  const columns = await db
+    .prepare('PRAGMA table_info(orders)')
+    .all<{ name: string }>();
+  if (
+    columns.results.length > 0 &&
+    !columns.results.some((column) => column.name === 'placed_by_user_id')
+  ) {
+    await db
+      .prepare(
+        'ALTER TABLE orders ADD COLUMN placed_by_user_id TEXT REFERENCES users(user_id)',
+      )
+      .run();
+  }
 }

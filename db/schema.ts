@@ -1,5 +1,45 @@
-export const SCHEMA_VERSION = '4';
-export const SEED_VERSION = 'sable-distribution-2026-09-02-v5';
+export const SCHEMA_VERSION = '5';
+export const SEED_VERSION = 'sable-distribution-2026-09-02-v6';
+
+export const USERS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS users (
+  user_id TEXT PRIMARY KEY,
+  distributor_id TEXT NOT NULL REFERENCES distributors(customer_id),
+  display_name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE,
+  role TEXT NOT NULL CHECK (role IN ('account_admin', 'buyer', 'support')),
+  status TEXT NOT NULL CHECK (status IN ('active', 'suspended')),
+  created_on TEXT NOT NULL,
+  last_login_at TEXT
+) STRICT`;
+
+export const ORDER_USER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_orders_placed_by_user
+  ON orders(placed_by_user_id)`;
+
+export const ORDER_USER_INSERT_TRIGGER_SQL = `CREATE TRIGGER IF NOT EXISTS orders_validate_user_insert
+  BEFORE INSERT ON orders
+  FOR EACH ROW
+  WHEN NEW.placed_by_user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM users
+    WHERE user_id = NEW.placed_by_user_id
+      AND distributor_id = NEW.customer_id
+      AND status = 'active'
+  )
+  BEGIN
+    SELECT RAISE(ABORT, 'order user must be active and belong to distributor');
+  END`;
+
+export const ORDER_USER_UPDATE_TRIGGER_SQL = `CREATE TRIGGER IF NOT EXISTS orders_validate_user_update
+  BEFORE UPDATE OF placed_by_user_id, customer_id ON orders
+  FOR EACH ROW
+  WHEN NEW.placed_by_user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM users
+    WHERE user_id = NEW.placed_by_user_id
+      AND distributor_id = NEW.customer_id
+      AND status = 'active'
+  )
+  BEGIN
+    SELECT RAISE(ABORT, 'order user must be active and belong to distributor');
+  END`;
 
 export const ACCOUNT_CHARGES_TABLE_SQL = `CREATE TABLE IF NOT EXISTS account_charges (
   charge_id TEXT PRIMARY KEY,
@@ -30,6 +70,7 @@ export const schemaStatements = [
     currency TEXT NOT NULL CHECK (length(currency) = 3),
     region TEXT NOT NULL
   ) STRICT`,
+  USERS_TABLE_SQL,
   `CREATE TABLE IF NOT EXISTS products (
     item_number TEXT PRIMARY KEY,
     product_name TEXT NOT NULL,
@@ -64,6 +105,7 @@ export const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS orders (
     order_id TEXT PRIMARY KEY,
     customer_id TEXT NOT NULL REFERENCES distributors(customer_id),
+    placed_by_user_id TEXT NOT NULL REFERENCES users(user_id),
     customer_po_number TEXT NOT NULL,
     created_on TEXT NOT NULL,
     requested_ship_date TEXT NOT NULL,
@@ -134,11 +176,14 @@ export const schemaStatements = [
     FOREIGN KEY (order_id, line_number) REFERENCES order_items(order_id, line_number)
   ) STRICT`,
   ACCOUNT_CHARGES_TABLE_SQL,
+  ORDER_USER_INSERT_TRIGGER_SQL,
+  ORDER_USER_UPDATE_TRIGGER_SQL,
   `CREATE INDEX IF NOT EXISTS idx_orders_customer_ship_date
     ON orders(customer_id, requested_ship_date)`,
   `CREATE INDEX IF NOT EXISTS idx_orders_customer_open
     ON orders(customer_id, status)
     WHERE status NOT IN ('delivered', 'cancelled')`,
+  ORDER_USER_INDEX_SQL,
   `CREATE INDEX IF NOT EXISTS idx_order_items_item_number
     ON order_items(item_number)`,
   `CREATE INDEX IF NOT EXISTS idx_order_events_order_time
@@ -162,6 +207,7 @@ export const seedCleanupStatements = [
   'DELETE FROM inventory_balances',
   'DELETE FROM fulfillment_locations',
   'DELETE FROM products',
+  'DELETE FROM users',
   'DELETE FROM distributors',
   'DELETE FROM metadata',
 ] as const;

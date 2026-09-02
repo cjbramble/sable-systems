@@ -43,6 +43,8 @@ type ChatMessage = {
 type RuntimeState = 'checking' | 'ready' | 'offline';
 
 type AccountSummary = {
+  userDisplayName: string;
+  userRole: string;
   totalOrders: number;
   activeOrders: number;
   scheduledOrders: number;
@@ -75,6 +77,13 @@ function timestamp() {
     hour: 'numeric',
     minute: '2-digit',
   }).format(new Date());
+}
+
+function roleLabel(role = 'account_admin') {
+  return role
+    .split('_')
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 function createId() {
@@ -282,10 +291,10 @@ export default function SupportPage() {
             </span>
           </div>
           <button type="button" className="profile-row">
-            <span className="profile-avatar">CP</span>
+            <span className="profile-avatar">MV</span>
             <span>
-              <strong>Calder Pike Distribution</strong>
-              <small>WHS-0427 · Obsidian tier</small>
+              <strong>{account?.userDisplayName ?? 'Mara Venn'}</strong>
+              <small>Calder Pike · {roleLabel(account?.userRole)}</small>
             </span>
             <ChevronDown />
           </button>

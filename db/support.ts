@@ -1,9 +1,12 @@
-import { AS_OF_DATE, PRIMARY_CUSTOMER_ID } from './seed';
+import { AS_OF_DATE, PRIMARY_CUSTOMER_ID, PRIMARY_USER_ID } from './seed';
 
 type AccountSummary = {
   customerId: string;
   displayName: string;
   accountTier: string;
+  userId: string;
+  userDisplayName: string;
+  userRole: string;
   totalOrders: number;
   activeOrders: number;
   scheduledOrders: number;
@@ -29,10 +32,20 @@ export async function getAccountSummary(
 ): Promise<AccountSummary> {
   const account = await db
     .prepare(
-      'SELECT display_name, account_tier FROM distributors WHERE customer_id = ?',
+      `SELECT d.display_name, d.account_tier, u.user_id,
+        u.display_name AS user_display_name, u.role AS user_role
+        FROM distributors d
+        JOIN users u ON u.distributor_id = d.customer_id
+        WHERE d.customer_id = ? AND u.user_id = ? AND u.status = 'active'`,
     )
-    .bind(PRIMARY_CUSTOMER_ID)
-    .first<{ display_name: string; account_tier: string }>();
+    .bind(PRIMARY_CUSTOMER_ID, PRIMARY_USER_ID)
+    .first<{
+      display_name: string;
+      account_tier: string;
+      user_id: string;
+      user_display_name: string;
+      user_role: string;
+    }>();
   if (!account) throw new Error('The authorized wholesale account is missing.');
 
   const orderCounts = await db
@@ -62,6 +75,9 @@ export async function getAccountSummary(
     customerId: PRIMARY_CUSTOMER_ID,
     displayName: account.display_name,
     accountTier: account.account_tier,
+    userId: account.user_id,
+    userDisplayName: account.user_display_name,
+    userRole: account.user_role,
     totalOrders: Number(orderCounts?.total_orders ?? 0),
     activeOrders: Number(orderCounts?.active_orders ?? 0),
     scheduledOrders: Number(orderCounts?.scheduled_orders ?? 0),
@@ -88,6 +104,7 @@ export async function buildAuthorizedContext(db: D1Database, message: string) {
   const summary = await getAccountSummary(db);
   return `<authorized_records>
 Account: ${summary.displayName} (${summary.customerId}), ${summary.accountTier}
+Authenticated user: ${summary.userDisplayName} (${summary.userId}), role ${summary.userRole}.
 As-of date: ${summary.asOfDate}
 Authorized order count: ${summary.totalOrders}; active: ${summary.activeOrders}; scheduled: ${summary.scheduledOrders}.
 No specific order or item was identified in the request. Ask for a SABLE order ID, Calder Pike PO number, or item number when account-specific facts are required.
@@ -96,10 +113,12 @@ No specific order or item was identified in the request. Ask for a SABLE order I
 
 async function orderContext(db: D1Database, identifier: string) {
   const order = await db
-    .prepare(`SELECT order_id, customer_po_number, created_on, requested_ship_date, status,
-      currency, order_total_cents, shipping_region
-      FROM orders
-      WHERE customer_id = ? AND (order_id = ? OR customer_po_number = ?)`)
+    .prepare(`SELECT o.order_id, o.customer_po_number, o.created_on,
+      o.requested_ship_date, o.status, o.currency, o.order_total_cents,
+      o.shipping_region, o.placed_by_user_id, u.display_name AS placed_by_name
+      FROM orders o
+      JOIN users u ON u.user_id = o.placed_by_user_id
+      WHERE o.customer_id = ? AND (o.order_id = ? OR o.customer_po_number = ?)`)
     .bind(PRIMARY_CUSTOMER_ID, identifier, identifier)
     .first<Record<string, string | number>>();
 
@@ -135,6 +154,7 @@ No order matching ${identifier} is available within Calder Pike Distribution's a
   return `<authorized_records>
 Authorization: Calder Pike Distribution (${PRIMARY_CUSTOMER_ID}) only.
 Order: ${order.order_id}; customer PO: ${order.customer_po_number}; status: ${order.status}.
+Placed by: ${order.placed_by_name} (${order.placed_by_user_id}).
 Created: ${order.created_on}; requested ship date: ${order.requested_ship_date}; destination: ${order.shipping_region}.
 Order total: ${money(Number(order.order_total_cents), String(order.currency))}.
 Lines:

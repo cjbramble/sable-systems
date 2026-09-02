@@ -19,6 +19,7 @@ The seed is deterministic and contains:
 
 - 720 orders from 2021 through 2031
 - 648 Calder Pike orders and 72 isolation records split across three other distributors
+- one active purchasing user for each distributor, with every order tied to its placing user
 - 18 catalog records, including one retired product and one fully quarantined product
 - inventory balances, order lines, events, shipments, and returns
 
