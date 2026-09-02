@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   ShoppingBag,
   Sparkles,
+  Trash2,
   Zap,
 } from 'lucide-react';
 
@@ -99,7 +100,7 @@ export default function ShopPage() {
   const [poNumber, setPoNumber] = useState('');
   const [shipDate, setShipDate] = useState(dateOffset(14));
   const [region, setRegion] = useState('North Atlantic Trade District');
-  const [acceptedSimulation, setAcceptedSimulation] = useState(false);
+  const [chargeAccountAuthorized, setChargeAccountAuthorized] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
@@ -180,9 +181,19 @@ export default function ShopPage() {
     setCheckoutError('');
   }
 
+  function removeFromCart(itemNumber: string) {
+    setCart((current) => {
+      const next = { ...current };
+      delete next[itemNumber];
+      return next;
+    });
+    setConfirmation(null);
+    setCheckoutError('');
+  }
+
   async function submitOrder(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!cartProducts.length || !acceptedSimulation || submitting) return;
+    if (!cartProducts.length || !chargeAccountAuthorized || submitting) return;
     setSubmitting(true);
     setCheckoutError('');
     try {
@@ -200,14 +211,14 @@ export default function ShopPage() {
         }),
       });
       const payload = (await response.json()) as Confirmation & { error?: string };
-      if (!response.ok) throw new Error(payload.error || 'Order simulation failed.');
+      if (!response.ok) throw new Error(payload.error || 'Order could not be placed.');
       setConfirmation(payload);
       setCart({});
       setPoNumber('');
-      setAcceptedSimulation(false);
+      setChargeAccountAuthorized(false);
       await loadCatalog();
     } catch (error) {
-      setCheckoutError(error instanceof Error ? error.message : 'Order simulation failed.');
+      setCheckoutError(error instanceof Error ? error.message : 'Order could not be placed.');
       await loadCatalog();
     } finally {
       setSubmitting(false);
@@ -340,15 +351,15 @@ export default function ShopPage() {
           {confirmation ? (
             <div className="order-success">
               <span><PackageCheck /></span>
-              <p>SIMULATION AUTHORIZED</p>
+              <p>CHARGE ACCOUNT AUTHORIZED</p>
               <h2>Order entered.</h2>
               <dl>
                 <div><dt>Order</dt><dd>{confirmation.orderId}</dd></div>
                 <div><dt>Authorization</dt><dd>{confirmation.authorizationCode}</dd></div>
-                <div><dt>Simulated total</dt><dd>{money(confirmation.totalCents)}</dd></div>
+                <div><dt>Order total</dt><dd>{money(confirmation.totalCents)}</dd></div>
                 <div><dt>Requested ship</dt><dd>{confirmation.requestedShipDate}</dd></div>
               </dl>
-              <p>No funds were transferred. Inventory has been reserved against this simulated order.</p>
+              <p>The order has been posted to the Calder Pike charge account and inventory is reserved.</p>
               <Button onClick={() => setConfirmation(null)}>Build another order <ArrowRight /></Button>
             </div>
           ) : cartProducts.length ? (
@@ -363,23 +374,33 @@ export default function ShopPage() {
                       <Button size="icon-sm" type="button" disabled={product.availableQuantity !== null && cart[product.itemNumber] + product.casePack > product.availableQuantity} onClick={() => changeQuantity(product, product.casePack)}><Plus /></Button>
                     </div>
                     <strong>{money(product.unitPriceCents * cart[product.itemNumber])}</strong>
+                    <Button
+                      className="remove-line"
+                      variant="ghost"
+                      size="icon-sm"
+                      type="button"
+                      aria-label={`Remove ${product.name} from cart`}
+                      onClick={() => removeFromCart(product.itemNumber)}
+                    >
+                      <Trash2 />
+                    </Button>
                   </div>
                 ))}
               </div>
-              <div className="checkout-total"><span>Simulated order total</span><strong>{money(subtotal)}</strong></div>
+              <div className="checkout-total"><span>Order total</span><strong>{money(subtotal)}</strong></div>
               <div className="checkout-form-grid">
                 <label htmlFor="po-number"><span>Purchase-order reference</span><Input id="po-number" required minLength={4} maxLength={40} pattern="[A-Za-z0-9][A-Za-z0-9-]{3,39}" value={poNumber} onChange={(event) => setPoNumber(event.target.value)} placeholder="CPD-PO-260901" /></label>
                 <label htmlFor="ship-date"><span>Requested ship date</span><Input id="ship-date" required type="date" min={dateOffset(0)} value={shipDate} onChange={(event) => setShipDate(event.target.value)} /></label>
                 <label className="wide" htmlFor="ship-region"><span>Destination region</span><Input id="ship-region" required minLength={3} maxLength={80} value={region} onChange={(event) => setRegion(event.target.value)} /></label>
               </div>
-              <label className="simulation-consent">
-                <input type="checkbox" checked={acceptedSimulation} onChange={(event) => setAcceptedSimulation(event.target.checked)} />
-                <span><strong>Authorize simulated account-ledger payment</strong><small>This demonstration never requests or transfers real funds.</small></span>
+              <label className="charge-account-consent">
+                <input type="checkbox" checked={chargeAccountAuthorized} onChange={(event) => setChargeAccountAuthorized(event.target.checked)} />
+                <span><strong>Charge this order to the Calder Pike account</strong><small>Account terms: Net 45 · USD billing ledger</small></span>
                 <ShieldCheck />
               </label>
               {checkoutError ? <p className="checkout-error">{checkoutError}</p> : null}
-              <Button className="place-order" size="lg" type="submit" disabled={!acceptedSimulation || submitting}>
-                {submitting ? 'Reserving inventory…' : 'Authorize simulated order'} <ArrowRight />
+              <Button className="place-order" size="lg" type="submit" disabled={!chargeAccountAuthorized || submitting}>
+                {submitting ? 'Reserving inventory…' : 'Place charge account order'} <ArrowRight />
               </Button>
             </form>
           ) : (

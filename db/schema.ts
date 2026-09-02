@@ -1,5 +1,19 @@
-export const SCHEMA_VERSION = '3';
-export const SEED_VERSION = 'sable-distribution-2026-09-02-v4';
+export const SCHEMA_VERSION = '4';
+export const SEED_VERSION = 'sable-distribution-2026-09-02-v5';
+
+export const ACCOUNT_CHARGES_TABLE_SQL = `CREATE TABLE IF NOT EXISTS account_charges (
+  charge_id TEXT PRIMARY KEY,
+  order_id TEXT NOT NULL UNIQUE REFERENCES orders(order_id) ON DELETE CASCADE,
+  charge_method TEXT NOT NULL CHECK (charge_method = 'charge_account'),
+  status TEXT NOT NULL CHECK (status IN ('authorized', 'declined', 'voided')),
+  amount_cents INTEGER NOT NULL CHECK (amount_cents >= 0),
+  currency TEXT NOT NULL CHECK (length(currency) = 3),
+  authorization_code TEXT NOT NULL UNIQUE,
+  authorized_at TEXT NOT NULL
+) STRICT`;
+
+export const ACCOUNT_CHARGES_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_account_charges_order
+  ON account_charges(order_id)`;
 
 export const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS metadata (
@@ -119,16 +133,7 @@ export const schemaStatements = [
     PRIMARY KEY (return_id, order_id, line_number),
     FOREIGN KEY (order_id, line_number) REFERENCES order_items(order_id, line_number)
   ) STRICT`,
-  `CREATE TABLE IF NOT EXISTS simulated_payments (
-    payment_id TEXT PRIMARY KEY,
-    order_id TEXT NOT NULL UNIQUE REFERENCES orders(order_id) ON DELETE CASCADE,
-    payment_method TEXT NOT NULL CHECK (payment_method = 'simulated_account_ledger'),
-    status TEXT NOT NULL CHECK (status IN ('authorized', 'declined', 'voided')),
-    amount_cents INTEGER NOT NULL CHECK (amount_cents >= 0),
-    currency TEXT NOT NULL CHECK (length(currency) = 3),
-    authorization_code TEXT NOT NULL UNIQUE,
-    authorized_at TEXT NOT NULL
-  ) STRICT`,
+  ACCOUNT_CHARGES_TABLE_SQL,
   `CREATE INDEX IF NOT EXISTS idx_orders_customer_ship_date
     ON orders(customer_id, requested_ship_date)`,
   `CREATE INDEX IF NOT EXISTS idx_orders_customer_open
@@ -142,12 +147,11 @@ export const schemaStatements = [
     ON shipments(order_id)`,
   `CREATE INDEX IF NOT EXISTS idx_inventory_item
     ON inventory_balances(item_number)`,
-  `CREATE INDEX IF NOT EXISTS idx_payments_order
-    ON simulated_payments(order_id)`,
+  ACCOUNT_CHARGES_INDEX_SQL,
 ] as const;
 
 export const seedCleanupStatements = [
-  'DELETE FROM simulated_payments',
+  'DELETE FROM account_charges',
   'DELETE FROM return_items',
   'DELETE FROM returns',
   'DELETE FROM shipment_items',

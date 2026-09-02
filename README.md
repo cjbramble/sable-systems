@@ -1,20 +1,19 @@
 # SABLE Systems Distribution Portal
 
 SABLE Systems is a wholesale supplier and manufacturer serving authorized distributors. Its portal combines
-a public-facing brand gateway, an inventory-aware procurement catalog, simulated checkout, and the
+a public-facing brand gateway, an inventory-aware procurement catalog, charge-account checkout, and the
 private COV-E customer-support console. COV-E uses the local Qwen3 4B model through `llama-server`
 and grounds account-specific answers in a project-local D1/SQLite database.
 
 Primary routes:
 
 - `/` — SABLE marketing and brand identity
-- `/shop` — live wholesale inventory, case-pack cart, and simulated checkout
+- `/shop` — live wholesale inventory, case-pack cart, and charge-account checkout
 - `/support` — private COV-E support for authorized orders and inventory
 
-Checkout creates durable orders, order lines, customer-safe events, and simulated payment records.
+Checkout creates durable orders, order lines, customer-safe events, and account-ledger records.
 Physical inventory is reserved atomically and can be exhausted; the server rejects over-allocation,
-non-case-pack quantities, duplicate PO references, and requested ship dates in the past. No real
-payment details are collected and no funds are transferred.
+non-case-pack quantities, duplicate PO references, and requested ship dates in the past.
 
 The seed is deterministic and contains:
 

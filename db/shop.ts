@@ -121,7 +121,7 @@ export function parseCheckoutInput(value: unknown): CheckoutInput | null {
   return { customerPoNumber, requestedShipDate, shippingRegion, items };
 }
 
-export async function placeSimulatedOrder(
+export async function placeChargeAccountOrder(
   db: D1Database,
   input: CheckoutInput,
 ) {
@@ -176,8 +176,8 @@ export async function placeSimulatedOrder(
 
   const year = today.slice(0, 4);
   const orderId = `SBL-${year}-${800000 + Math.floor(Math.random() * 100000)}`;
-  const paymentId = `PAY-${crypto.randomUUID().slice(0, 12).toUpperCase()}`;
-  const authorizationCode = `SIM-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+  const chargeId = `CHG-${crypto.randomUUID().slice(0, 12).toUpperCase()}`;
+  const authorizationCode = `ACC-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
   const createdAt = `${today}T12:00:00Z`;
   const statements: D1PreparedStatement[] = [
     ...inventoryUpdates,
@@ -202,12 +202,12 @@ export async function placeSimulatedOrder(
       event_id, order_id, occurred_at, event_type, customer_safe_description
     ) VALUES (?, ?, ?, 'order_confirmed', ?)`)
       .bind(`EVT-${crypto.randomUUID()}`, orderId, createdAt,
-        `Wholesale order confirmed for requested ship date ${input.requestedShipDate}. Payment simulation authorized.`),
-    db.prepare(`INSERT INTO simulated_payments (
-      payment_id, order_id, payment_method, status, amount_cents, currency,
+        `Wholesale order confirmed for requested ship date ${input.requestedShipDate}. Charge account authorization confirmed.`),
+    db.prepare(`INSERT INTO account_charges (
+      charge_id, order_id, charge_method, status, amount_cents, currency,
       authorization_code, authorized_at
-    ) VALUES (?, ?, 'simulated_account_ledger', 'authorized', ?, 'USD', ?, ?)`)
-      .bind(paymentId, orderId, totalCents, authorizationCode, createdAt),
+    ) VALUES (?, ?, 'charge_account', 'authorized', ?, 'USD', ?, ?)`)
+      .bind(chargeId, orderId, totalCents, authorizationCode, createdAt),
   );
 
   try {
@@ -223,7 +223,7 @@ export async function placeSimulatedOrder(
     throw error;
   }
 
-  return { orderId, paymentId, authorizationCode, totalCents, requestedShipDate: input.requestedShipDate };
+  return { orderId, chargeId, authorizationCode, totalCents, requestedShipDate: input.requestedShipDate };
 }
 
 export class CheckoutError extends Error {

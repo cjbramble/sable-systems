@@ -1,6 +1,8 @@
 import { env } from 'cloudflare:workers';
 
 import {
+  ACCOUNT_CHARGES_INDEX_SQL,
+  ACCOUNT_CHARGES_TABLE_SQL,
   schemaStatements,
   SCHEMA_VERSION,
   SEED_VERSION,
@@ -21,6 +23,7 @@ async function initializeDatabase() {
   if (!db) throw new Error('The DB binding is not configured.');
 
   await migrateDistributorTable(db);
+  await migrateChargeAccountTable(db);
   await db.batch(schemaStatements.map((sql) => db.prepare(sql)));
   const currentSeed = await db
     .prepare("SELECT value FROM metadata WHERE key = 'seed_version'")
@@ -69,4 +72,25 @@ async function migrateDistributorTable(db: D1Database) {
     await db.prepare('PRAGMA foreign_keys = ON').run();
     await db.prepare('ALTER TABLE wholesalers RENAME TO distributors').run();
   }
+}
+
+async function migrateChargeAccountTable(db: D1Database) {
+  const legacyTable = await db
+    .prepare(
+      "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'simulated_payments'",
+    )
+    .first<{ name: string }>();
+  if (!legacyTable) return;
+
+  await db.batch([
+    db.prepare(ACCOUNT_CHARGES_TABLE_SQL),
+    db.prepare(`INSERT OR IGNORE INTO account_charges (
+      charge_id, order_id, charge_method, status, amount_cents, currency,
+      authorization_code, authorized_at
+    ) SELECT payment_id, order_id, 'charge_account', status, amount_cents,
+      currency, authorization_code, authorized_at FROM simulated_payments`),
+    db.prepare('DROP INDEX IF EXISTS idx_payments_order'),
+    db.prepare('DROP TABLE simulated_payments'),
+    db.prepare(ACCOUNT_CHARGES_INDEX_SQL),
+  ]);
 }

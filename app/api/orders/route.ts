@@ -2,7 +2,7 @@ import { getDatabase } from '@/db/database';
 import {
   CheckoutError,
   parseCheckoutInput,
-  placeSimulatedOrder,
+  placeChargeAccountOrder,
 } from '@/db/shop';
 
 export const dynamic = 'force-dynamic';
@@ -20,11 +20,11 @@ export async function POST(request: Request) {
   }
   try {
     const db = await getDatabase();
-    return Response.json(await placeSimulatedOrder(db, input), { status: 201 });
+    return Response.json(await placeChargeAccountOrder(db, input), { status: 201 });
   } catch (error) {
     if (error instanceof CheckoutError) {
       return Response.json({ error: error.message }, { status: error.status });
     }
-    return Response.json({ error: 'The simulated order could not be placed.' }, { status: 500 });
+    return Response.json({ error: 'The order could not be placed.' }, { status: 500 });
   }
 }
