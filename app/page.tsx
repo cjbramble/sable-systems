@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { headers } from 'next/headers';
 import {
   ArrowRight,
   Boxes,
@@ -9,6 +10,11 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 
+import { getAuthenticatedUser } from '@/db/auth';
+import { getDatabase } from '@/db/database';
+
+export const dynamic = 'force-dynamic';
+
 const divisions = [
   { code: '01', label: 'Compute substrates', icon: Cpu },
   { code: '02', label: 'Neural interfaces', icon: ScanLine },
@@ -16,7 +22,22 @@ const divisions = [
   { code: '04', label: 'Network security', icon: ShieldCheck },
 ];
 
-export default function Home() {
+export default async function Home() {
+  let authenticated = false;
+  try {
+    const requestHeaders = await headers();
+    const request = new Request('http://sable.local/', {
+      headers: requestHeaders,
+    });
+    authenticated = Boolean(
+      await getAuthenticatedUser(await getDatabase(), request),
+    );
+  } catch {
+    // The public landing page remains available when account storage is offline.
+  }
+  const shopHref = authenticated ? '/shop' : '/login?next=/shop';
+  const supportHref = authenticated ? '/support' : '/login?next=/support';
+
   return (
     <main className="brand-page">
       <header className="brand-nav">
@@ -30,9 +51,9 @@ export default function Home() {
         <nav aria-label="Primary navigation">
           <Link href="#systems">Systems</Link>
           <Link href="#mandate">Mandate</Link>
-          <Link href="/login?next=/support">COV-E Support</Link>
+          <Link href={supportHref}>COV-E Support</Link>
         </nav>
-        <Link className="nav-cta" href="/login?next=/shop">
+        <Link className="nav-cta" href={shopHref}>
           Enter procurement <MoveUpRight />
         </Link>
       </header>
@@ -52,10 +73,10 @@ export default function Home() {
             partners across every trade district.
           </p>
           <div className="brand-actions">
-            <Link className="brand-primary" href="/login?next=/shop">
+            <Link className="brand-primary" href={shopHref}>
               Browse systems <ArrowRight />
             </Link>
-            <Link className="brand-secondary" href="/login?next=/support">
+            <Link className="brand-secondary" href={supportHref}>
               Contact COV-E
             </Link>
           </div>
@@ -96,7 +117,7 @@ export default function Home() {
         </div>
         <div className="division-grid">
           {divisions.map(({ code, label, icon: Icon }) => (
-            <Link href="/login?next=/shop" key={code}>
+            <Link href={shopHref} key={code}>
               <span className="division-code">SBL / {code}</span>
               <Icon />
               <strong>{label}</strong>
@@ -116,7 +137,7 @@ export default function Home() {
           Every SABLE component is serialized, traceable, and routed through
           verified wholesale channels.
         </p>
-        <Link href="/login?next=/shop"><Boxes /> Access live inventory <ArrowRight /></Link>
+        <Link href={shopHref}><Boxes /> Access live inventory <ArrowRight /></Link>
       </section>
     </main>
   );
