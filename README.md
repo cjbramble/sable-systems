@@ -1,14 +1,26 @@
-# SABLE Customer Operations
+# SABLE Systems Wholesale Portal
 
-SABLE Customer Operations is a private, local wholesale-support application for Calder Pike
-Distribution (`WHS-0427`). COV-E uses the local Qwen3 4B model through `llama-server` and grounds
-account-specific answers in a project-local D1/SQLite database.
+SABLE Systems is a branded wholesale portal for Calder Pike Distribution (`WHS-0427`). It combines
+a public-facing brand gateway, an inventory-aware procurement catalog, simulated checkout, and the
+private COV-E customer-support console. COV-E uses the local Qwen3 4B model through `llama-server`
+and grounds account-specific answers in a project-local D1/SQLite database.
+
+Primary routes:
+
+- `/` — SABLE marketing and brand identity
+- `/shop` — live wholesale inventory, case-pack cart, and simulated checkout
+- `/support` — private COV-E support for authorized orders and inventory
+
+Checkout creates durable orders, order lines, customer-safe events, and simulated payment records.
+Physical inventory is reserved atomically and can be exhausted; the server rejects over-allocation,
+non-case-pack quantities, duplicate PO references, and requested ship dates in the past. No real
+payment details are collected and no funds are transferred.
 
 The seed is deterministic and contains:
 
 - 720 orders from 2021 through 2031
 - 648 Calder Pike orders and 72 isolation records split across three other wholesalers
-- 18 catalog records, including one retired product and one quarantined product
+- 18 catalog records, including one retired product and one fully quarantined product
 - inventory balances, order lines, events, shipments, and returns
 
 Other-wholesaler records are never included in COV-E's authorized context.
