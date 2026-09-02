@@ -70,7 +70,11 @@ export default function Home() {
           <div className="sigil-orbit sigil-orbit--one" />
           <div className="sigil-orbit sigil-orbit--two" />
           <div className="sigil-core">
-            <span aria-hidden="true">S</span>
+            <span className="sigil-axis" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
           </div>
           <p>MVH // SIGNAL VERIFIED</p>
         </div>

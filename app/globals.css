@@ -133,15 +133,58 @@
 .brand-proof strong { display: block; color: #e9d39c; font: 500 26px/1 var(--font-display); }
 .brand-proof span { display: block; margin-top: 7px; color: #66817d; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; }
 .sigil-stage { position: relative; min-height: 540px; perspective: 900px; transform-style: preserve-3d; }
-.sigil-stage::before { content: ''; position: absolute; inset: 8% 3%; background: repeating-linear-gradient(90deg, rgba(129, 220, 202, .08) 0 1px, transparent 1px 18px); clip-path: polygon(50% 0, 100% 25%, 88% 82%, 50% 100%, 12% 82%, 0 25%); transform: rotateY(-18deg) rotateX(11deg); filter: drop-shadow(0 0 26px rgba(64, 191, 169, .18)); }
-.sigil-core { position: absolute; top: 50%; left: 50%; display: grid; width: 230px; height: 270px; place-items: center; border: 1px solid rgba(237, 196, 109, .72); background: linear-gradient(145deg, rgba(225, 180, 89, .18), rgba(5, 18, 20, .76)); box-shadow: inset -22px -20px 60px rgba(0,0,0,.42), 22px 28px 80px rgba(0,0,0,.5), 0 0 70px rgba(64,191,169,.16); transform: translate(-50%, -50%) rotateY(-24deg) rotateX(7deg) rotateZ(45deg); transform-style: preserve-3d; }
+.sigil-stage::before { content: ''; position: absolute; inset: 8% 3%; animation: signal-field 8s ease-in-out infinite alternate; background: repeating-linear-gradient(90deg, rgba(129, 220, 202, .08) 0 1px, transparent 1px 18px); clip-path: polygon(50% 0, 100% 25%, 88% 82%, 50% 100%, 12% 82%, 0 25%); transform: rotateY(-18deg) rotateX(11deg); filter: drop-shadow(0 0 26px rgba(64, 191, 169, .18)); }
+.sigil-stage::after { content: ''; position: absolute; top: 5%; bottom: 5%; left: 8%; width: 1px; animation: signal-scan 6s cubic-bezier(.45,0,.55,1) infinite; background: linear-gradient(transparent, rgba(237,196,109,.72), transparent); box-shadow: 0 0 22px rgba(237,196,109,.36); opacity: 0; }
+.sigil-core { position: absolute; top: 50%; left: 50%; display: grid; width: 230px; height: 270px; place-items: center; animation: sigil-float 7s ease-in-out infinite; border: 1px solid rgba(237, 196, 109, .72); background: linear-gradient(145deg, rgba(225, 180, 89, .18), rgba(5, 18, 20, .76)); box-shadow: inset -22px -20px 60px rgba(0,0,0,.42), 22px 28px 80px rgba(0,0,0,.5), 0 0 70px rgba(64,191,169,.16); transform: translate(-50%, -50%) rotateY(-24deg) rotateX(7deg) rotateZ(45deg); transform-style: preserve-3d; }
 .sigil-core::before, .sigil-core::after { content: ''; position: absolute; inset: 15px; border: 1px solid rgba(113, 211, 194, .34); transform: translateZ(28px); }
-.sigil-core::after { inset: 38px; border-color: rgba(237, 196, 109, .3); transform: translateZ(52px); }
-.sigil-core span { color: #edd394; text-shadow: 8px 12px 0 #254b48, 0 0 28px rgba(237, 196, 109, .5); font: 700 148px/1 var(--font-display); transform: rotateZ(-45deg) translateZ(62px); }
+.sigil-core::after { inset: 38px; animation: core-breathe 3.5s ease-in-out infinite; border-color: rgba(237, 196, 109, .3); transform: translateZ(52px); }
+.sigil-axis { position: relative; display: flex; width: 122px; height: 1px; align-items: center; justify-content: space-between; animation: axis-pulse 2.8s ease-in-out infinite; background: linear-gradient(90deg, transparent, #e9c46e 18%, #6fd0be 50%, #e9c46e 82%, transparent); box-shadow: 0 0 18px rgba(111,208,190,.45); transform: rotateZ(-45deg) translateZ(68px); transform-style: preserve-3d; }
+.sigil-axis::before, .sigil-axis::after { content: ''; position: absolute; top: 50%; width: 46px; height: 46px; border: 1px solid rgba(111,208,190,.38); transform: translateY(-50%) rotate(45deg); }
+.sigil-axis::before { left: 13px; }
+.sigil-axis::after { right: 13px; border-color: rgba(233,196,110,.35); }
+.sigil-axis i { position: relative; z-index: 2; width: 7px; height: 7px; border: 1px solid #e8ca85; border-radius: 50%; background: #0c1b1d; box-shadow: 0 0 12px rgba(232,202,133,.6); }
 .sigil-orbit { position: absolute; top: 50%; left: 50%; border: 1px solid rgba(111, 199, 183, .28); border-radius: 50%; transform-style: preserve-3d; }
-.sigil-orbit--one { width: 500px; height: 290px; transform: translate(-50%,-50%) rotateX(68deg) rotateZ(-8deg); }
-.sigil-orbit--two { width: 360px; height: 470px; transform: translate(-50%,-50%) rotateY(66deg) rotateZ(19deg); border-color: rgba(219, 174, 85, .23); }
+.sigil-orbit--one { width: 500px; height: 290px; animation: orbit-one 18s linear infinite; transform: translate(-50%,-50%) rotateX(68deg) rotateZ(-8deg); }
+.sigil-orbit--two { width: 360px; height: 470px; animation: orbit-two 24s linear infinite reverse; transform: translate(-50%,-50%) rotateY(66deg) rotateZ(19deg); border-color: rgba(219, 174, 85, .23); }
 .sigil-stage > p { position: absolute; right: 5%; bottom: 8%; color: #55726e; font-size: 8px; letter-spacing: .22em; }
+@keyframes sigil-float {
+  0%, 100% { transform: translate(-50%, -50%) rotateY(-24deg) rotateX(7deg) rotateZ(45deg); }
+  50% { transform: translate(-50%, -53%) rotateY(-17deg) rotateX(11deg) rotateZ(45deg); }
+}
+@keyframes orbit-one {
+  from { transform: translate(-50%,-50%) rotateX(68deg) rotateZ(-8deg); }
+  to { transform: translate(-50%,-50%) rotateX(68deg) rotateZ(352deg); }
+}
+@keyframes orbit-two {
+  from { transform: translate(-50%,-50%) rotateY(66deg) rotateZ(19deg); }
+  to { transform: translate(-50%,-50%) rotateY(66deg) rotateZ(379deg); }
+}
+@keyframes signal-field {
+  from { opacity: .55; transform: rotateY(-18deg) rotateX(11deg) translateZ(-8px); }
+  to { opacity: 1; transform: rotateY(-12deg) rotateX(7deg) translateZ(12px); }
+}
+@keyframes signal-scan {
+  0%, 12% { left: 8%; opacity: 0; }
+  25%, 75% { opacity: .65; }
+  88%, 100% { left: 92%; opacity: 0; }
+}
+@keyframes core-breathe {
+  0%, 100% { opacity: .45; transform: translateZ(52px) scale(.96); }
+  50% { opacity: 1; transform: translateZ(58px) scale(1.04); }
+}
+@keyframes axis-pulse {
+  0%, 100% { opacity: .65; filter: brightness(.9); }
+  50% { opacity: 1; filter: brightness(1.35); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sigil-stage::before,
+  .sigil-stage::after,
+  .sigil-core,
+  .sigil-core::after,
+  .sigil-axis,
+  .sigil-orbit--one,
+  .sigil-orbit--two { animation: none; }
+}
 .brand-ticker { display: flex; min-height: 54px; align-items: center; justify-content: space-around; gap: 24px; overflow: hidden; border-top: 1px solid rgba(137,189,180,.18); border-bottom: 1px solid rgba(137,189,180,.18); background: #0a1518; color: #71908b; font-size: 9px; font-weight: 700; letter-spacing: .16em; white-space: nowrap; }
 .brand-ticker i { width: 4px; height: 4px; border-radius: 50%; background: #d2a44d; }
 .systems-section { width: min(100% - 48px, 1440px); margin: 0 auto; padding: 120px 0; }
