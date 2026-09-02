@@ -39,6 +39,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { CATALOG_CATEGORIES } from '@/lib/catalog-categories';
 
 type Product = {
   itemNumber: string;
@@ -212,7 +213,9 @@ export default function ShopPage() {
   const categories = useMemo(
     () => [
       'All',
-      ...Array.from(new Set(products.map((product) => product.category))),
+      ...CATALOG_CATEGORIES.filter((catalogCategory) =>
+        products.some((product) => product.category === catalogCategory),
+      ),
     ],
     [products],
   );

@@ -246,8 +246,8 @@
 .section-heading > p { color: #d4ad5b; font-size: 9px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; }
 .section-heading h2, .mandate-section h2 { margin: 0; font: 500 clamp(2.5rem, 4.3vw, 4.6rem)/.95 var(--font-display); letter-spacing: -.035em; text-transform: uppercase; }
 .section-heading > span { color: #69827e; font-size: 12px; line-height: 1.7; }
-.division-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid #28423e; border-left: 1px solid #28423e; }
-.division-grid a { position: relative; display: flex; min-height: 300px; flex-direction: column; justify-content: space-between; border-right: 1px solid #28423e; border-bottom: 1px solid #28423e; padding: 28px; color: #dfeae6; text-decoration: none; transition: background 180ms ease, color 180ms ease; }
+.division-grid { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid #28423e; border-left: 1px solid #28423e; }
+.division-grid a { position: relative; display: flex; min-height: 260px; flex-direction: column; justify-content: space-between; border-right: 1px solid #28423e; border-bottom: 1px solid #28423e; padding: 28px; color: #dfeae6; text-decoration: none; transition: background 180ms ease, color 180ms ease; }
 .division-grid a:hover { background: #d2a94f; color: #121a1b; }
 .division-grid a > svg { width: 54px; height: 54px; stroke-width: 1; }
 .division-grid a > svg:last-child { position: absolute; right: 24px; bottom: 24px; width: 16px; height: 16px; }
@@ -272,6 +272,8 @@
   .nav-cta svg { width: 17px; }
   .brand-hero, .systems-section, .mandate-section { width: min(100% - 28px, 1440px); }
   .brand-hero h1 { font-size: 3.4rem; }
+  .division-grid { grid-template-columns: 1fr; }
+  .division-grid a { min-height: 210px; }
   .brand-proof { gap: 22px; }
   .brand-proof strong { font-size: 22px; }
   .sigil-stage { min-height: 390px; transform: scale(.82); margin: -30px; }

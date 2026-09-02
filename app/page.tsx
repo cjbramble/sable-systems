@@ -8,19 +8,33 @@ import {
   MoveUpRight,
   ScanLine,
   ShieldCheck,
+  Sparkles,
+  Zap,
 } from 'lucide-react';
 
 import { getAuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
+import {
+  CATALOG_CATEGORIES,
+  type CatalogCategory,
+} from '@/lib/catalog-categories';
 
 export const dynamic = 'force-dynamic';
 
-const divisions = [
-  { code: '01', label: 'Compute substrates', icon: Cpu },
-  { code: '02', label: 'Neural interfaces', icon: ScanLine },
-  { code: '03', label: 'Cybernetic systems', icon: CircleDot },
-  { code: '04', label: 'Network security', icon: ShieldCheck },
-];
+const categoryIcons: Record<CatalogCategory, typeof Cpu> = {
+  Compute: Cpu,
+  Cybernetics: CircleDot,
+  Interface: ScanLine,
+  Power: Zap,
+  Security: ShieldCheck,
+  Software: Sparkles,
+};
+
+const divisions = CATALOG_CATEGORIES.map((label, index) => ({
+  code: String(index + 1).padStart(2, '0'),
+  label,
+  icon: categoryIcons[label],
+}));
 
 export default async function Home() {
   let authenticated = false;
