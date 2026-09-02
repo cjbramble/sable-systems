@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   KeyboardEvent,
   SyntheticEvent,
@@ -428,9 +430,13 @@ export default function SupportPage() {
                     <time>{message.createdAt}</time>
                   </div>
                   <div className="message-bubble">
-                    {message.content.split('\n').map((line, index) => (
-                      <p key={`${message.id}-${index}`}>{line || '\u00a0'}</p>
-                    ))}
+                    {message.role === 'assistant' ? (
+                      <Markdown remarkPlugins={[remarkGfm]} skipHtml>
+                        {message.content}
+                      </Markdown>
+                    ) : (
+                      <p>{message.content}</p>
+                    )}
                   </div>
                 </div>
                 {message.role === 'user' ? (
