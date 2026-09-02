@@ -39,7 +39,13 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
-import { CATALOG_CATEGORIES } from '@/lib/catalog-categories';
+import {
+  CATALOG_CATEGORIES,
+  isCatalogCategory,
+  type CatalogCategory,
+} from '@/lib/catalog-categories';
+
+type ShopCategory = 'All' | CatalogCategory;
 
 type Product = {
   itemNumber: string;
@@ -113,7 +119,7 @@ export default function ShopPage() {
   const [authChecked, setAuthChecked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [category, setCategory] = useState('All');
+  const [category, setCategory] = useState<ShopCategory>('All');
   const [query, setQuery] = useState('');
   const [cart, setCart] = useState<Record<string, number>>({});
   const [cartOpen, setCartOpen] = useState(false);
@@ -167,6 +173,12 @@ export default function ShopPage() {
       })
       .then((nextProducts) => {
         if (!active) return;
+        const requestedCategory = new URLSearchParams(
+          window.location.search,
+        ).get('category');
+        setCategory(
+          isCatalogCategory(requestedCategory) ? requestedCategory : 'All',
+        );
         setProducts(nextProducts);
         setLoadError('');
       })
@@ -210,7 +222,7 @@ export default function ShopPage() {
     };
   }, []);
 
-  const categories = useMemo(
+  const categories = useMemo<ShopCategory[]>(
     () => [
       'All',
       ...CATALOG_CATEGORIES.filter((catalogCategory) =>
@@ -268,6 +280,15 @@ export default function ShopPage() {
     });
     setConfirmation(null);
     setCheckoutError('');
+  }
+
+  function chooseCategory(nextCategory: ShopCategory) {
+    setCategory(nextCategory);
+    const url = new URL(window.location.href);
+    if (isCatalogCategory(nextCategory))
+      url.searchParams.set('category', nextCategory);
+    else url.searchParams.delete('category');
+    window.history.replaceState(window.history.state, '', url);
   }
 
   async function submitOrder(event: SyntheticEvent<HTMLFormElement>) {
@@ -395,7 +416,7 @@ export default function ShopPage() {
               key={item}
               type="button"
               className={cn(category === item && 'is-active')}
-              onClick={() => setCategory(item)}
+              onClick={() => chooseCategory(item)}
             >
               {item}
             </button>

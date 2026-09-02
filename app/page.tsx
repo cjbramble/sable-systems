@@ -51,6 +51,12 @@ export default async function Home() {
   }
   const shopHref = authenticated ? '/shop' : '/login?next=/shop';
   const supportHref = authenticated ? '/support' : '/login?next=/support';
+  const categoryHref = (category: CatalogCategory) => {
+    const destination = `/shop?category=${encodeURIComponent(category)}`;
+    return authenticated
+      ? destination
+      : `/login?next=${encodeURIComponent(destination)}`;
+  };
 
   return (
     <main className="brand-page">
@@ -131,7 +137,7 @@ export default async function Home() {
         </div>
         <div className="division-grid">
           {divisions.map(({ code, label, icon: Icon }) => (
-            <Link href={shopHref} key={code}>
+            <Link href={categoryHref(label)} key={code}>
               <span className="division-code">SBL / {code}</span>
               <Icon />
               <strong>{label}</strong>
