@@ -7,6 +7,7 @@ import {
   KeyboardEvent,
   SyntheticEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -21,13 +22,13 @@ import {
   LogOut,
   Menu,
   MessageCircleMore,
-  MoreHorizontal,
   Plus,
   RotateCcw,
   Search,
   ShieldCheck,
   ShoppingBag,
   Sparkles,
+  Trash2,
   TriangleAlert,
   X,
 } from 'lucide-react';
@@ -38,14 +39,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { buildChatRequestHistory } from '@/lib/chat-history';
 import { redirectToLogin, signOut } from '@/lib/client-session';
 import type { AccountSummary } from '@/lib/contracts';
+import {
+  createIncidentTitle,
+  filterSupportIncidents,
+  parseStoredIncidents,
+  removeSupportIncident,
+  type SupportChatMessage,
+  type SupportIncident,
+} from '@/lib/support-incidents';
 import { cn } from '@/lib/utils';
-
-type ChatMessage = {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  createdAt: string;
-};
 
 type RuntimeState = 'checking' | 'ready' | 'offline';
 
@@ -65,7 +67,7 @@ const starterPrompts = [
   'Show my scheduled releases',
 ];
 
-const openingMessage: ChatMessage = {
+const openingMessage: SupportChatMessage = {
   id: 'welcome',
   role: 'assistant',
   content:
@@ -73,10 +75,67 @@ const openingMessage: ChatMessage = {
   createdAt: 'Now',
 };
 
-const conversations = [
-  { label: 'Priority shipment trace', time: 'Today' },
-  { label: 'Nerveline allocation', time: 'Aug 29' },
-  { label: '2030 contract releases', time: 'Aug 24' },
+const initialIncidents: SupportIncident[] = [
+  {
+    id: 'priority-shipment-trace',
+    title: 'Priority shipment trace',
+    updatedAt: 'Today',
+    messages: [
+      {
+        id: 'priority-customer',
+        role: 'user',
+        content: 'Trace the priority shipment on our latest release.',
+        createdAt: '8:42 AM',
+      },
+      {
+        id: 'priority-cove',
+        role: 'assistant',
+        content:
+          'The latest priority release is allocated and queued for carrier handoff. I can provide the order-level milestones if you share the order number.',
+        createdAt: '8:42 AM',
+      },
+    ],
+  },
+  {
+    id: 'nerveline-allocation',
+    title: 'Nerveline allocation',
+    updatedAt: 'Aug 29',
+    messages: [
+      {
+        id: 'nerveline-customer',
+        role: 'user',
+        content: 'Check Nerveline hub availability for our account.',
+        createdAt: '3:18 PM',
+      },
+      {
+        id: 'nerveline-cove',
+        role: 'assistant',
+        content:
+          'I can check current Nerveline allocation, inbound quantities, and lead times against your authorized account.',
+        createdAt: '3:18 PM',
+      },
+    ],
+  },
+  {
+    id: 'contract-releases-2030',
+    title: '2030 contract releases',
+    updatedAt: 'Aug 24',
+    messages: [
+      {
+        id: 'releases-customer',
+        role: 'user',
+        content: 'Show our scheduled contract releases for 2030.',
+        createdAt: '11:06 AM',
+      },
+      {
+        id: 'releases-cove',
+        role: 'assistant',
+        content:
+          'Your 2030 releases can be reviewed by requested ship date, allocation state, or customer purchase order.',
+        createdAt: '11:06 AM',
+      },
+    ],
+  },
 ];
 
 function timestamp() {
@@ -106,7 +165,13 @@ function createId() {
 }
 
 export default function SupportPage() {
-  const [messages, setMessages] = useState<ChatMessage[]>([openingMessage]);
+  const [incidents, setIncidents] =
+    useState<SupportIncident[]>(initialIncidents);
+  const [activeIncidentId, setActiveIncidentId] = useState<string | null>(
+    initialIncidents[0].id,
+  );
+  const [incidentSearch, setIncidentSearch] = useState('');
+  const [incidentStorageReady, setIncidentStorageReady] = useState(false);
   const [draft, setDraft] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
@@ -116,6 +181,18 @@ export default function SupportPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const messageEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const activeIncident = useMemo(
+    () => incidents.find((incident) => incident.id === activeIncidentId),
+    [activeIncidentId, incidents],
+  );
+  const messages = useMemo(
+    () => activeIncident?.messages ?? [openingMessage],
+    [activeIncident],
+  );
+  const filteredIncidents = useMemo(
+    () => filterSupportIncidents(incidents, incidentSearch),
+    [incidentSearch, incidents],
+  );
 
   useEffect(() => {
     let active = true;
@@ -150,6 +227,19 @@ export default function SupportPage() {
       })
       .then((summary) => {
         if (active) {
+          const storageKey = `sable:support-incidents:${summary.userId}`;
+          let restored = initialIncidents;
+          try {
+            restored = parseStoredIncidents(
+              window.localStorage.getItem(storageKey),
+              initialIncidents,
+            );
+          } catch {
+            // Incident history remains usable in memory when storage is blocked.
+          }
+          setIncidents(restored);
+          setActiveIncidentId(restored[0]?.id ?? null);
+          setIncidentStorageReady(true);
           setAccount(summary);
           setAuthChecked(true);
         }
@@ -166,27 +256,99 @@ export default function SupportPage() {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isSending]);
 
+  useEffect(() => {
+    if (!account?.userId || !incidentStorageReady) return;
+    const storageKey = `sable:support-incidents:${account.userId}`;
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(incidents));
+    } catch {
+      // Private browsing may block persistence; the current session still works.
+    }
+  }, [account?.userId, incidentStorageReady, incidents]);
+
   function newConversation() {
-    setMessages([openingMessage]);
+    if (
+      activeIncident?.title === 'New service incident' &&
+      activeIncident.messages.length === 1
+    ) {
+      setMobileMenuOpen(false);
+      window.setTimeout(() => inputRef.current?.focus(), 0);
+      return;
+    }
+    const incident: SupportIncident = {
+      id: createId(),
+      title: 'New service incident',
+      updatedAt: 'Now',
+      messages: [openingMessage],
+    };
+    setIncidents((current) => [incident, ...current]);
+    setActiveIncidentId(incident.id);
+    setDraft('');
+    setRequestError(null);
+    setIncidentSearch('');
+    setMobileMenuOpen(false);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function selectIncident(incidentId: string) {
+    setActiveIncidentId(incidentId);
     setDraft('');
     setRequestError(null);
     setMobileMenuOpen(false);
-    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function deleteIncident(incident: SupportIncident) {
+    if (!window.confirm(`Delete “${incident.title}”?`)) return;
+    const remaining = removeSupportIncident(incidents, incident.id);
+    setIncidents(remaining);
+    if (activeIncidentId === incident.id) {
+      setActiveIncidentId(remaining[0]?.id ?? null);
+      setDraft('');
+      setRequestError(null);
+    }
   }
 
   async function sendMessage(rawMessage?: string) {
     const content = (rawMessage ?? draft).trim();
     if (!content || isSending) return;
 
-    const userMessage: ChatMessage = {
+    const userMessage: SupportChatMessage = {
       id: createId(),
       role: 'user',
       content,
       createdAt: timestamp(),
     };
+    const incidentId = activeIncident?.id ?? createId();
     const nextMessages = [...messages, userMessage];
 
-    setMessages(nextMessages);
+    if (activeIncident) {
+      setIncidents((current) =>
+        current.map((incident) =>
+          incident.id === incidentId
+            ? {
+                ...incident,
+                title:
+                  incident.messages.length === 1
+                    ? createIncidentTitle(content)
+                    : incident.title,
+                updatedAt: 'Now',
+                messages: nextMessages,
+              }
+            : incident,
+        ),
+      );
+    } else {
+      setIncidents((current) => [
+        {
+          id: incidentId,
+          title: createIncidentTitle(content),
+          updatedAt: 'Now',
+          messages: nextMessages,
+        },
+        ...current,
+      ]);
+      setActiveIncidentId(incidentId);
+    }
     setDraft('');
     setRequestError(null);
     setIsSending(true);
@@ -221,15 +383,25 @@ export default function SupportPage() {
         );
       const reply = payload.message;
 
-      setMessages((current) => [
-        ...current,
-        {
-          id: createId(),
-          role: 'assistant',
-          content: reply,
-          createdAt: timestamp(),
-        },
-      ]);
+      setIncidents((current) =>
+        current.map((incident) =>
+          incident.id === incidentId
+            ? {
+                ...incident,
+                updatedAt: 'Now',
+                messages: [
+                  ...incident.messages,
+                  {
+                    id: createId(),
+                    role: 'assistant',
+                    content: reply,
+                    createdAt: timestamp(),
+                  },
+                ],
+              }
+            : incident,
+        ),
+      );
       setRuntime('ready');
     } catch (error) {
       if (!(error instanceof ChatRequestError) || error.modelUnavailable)
@@ -299,27 +471,56 @@ export default function SupportPage() {
         <label className="search-box">
           <Search aria-hidden="true" />
           <span className="sr-only">Search service incidents</span>
-          <input type="search" placeholder="Search incidents" />
+          <input
+            type="search"
+            value={incidentSearch}
+            placeholder="Search incidents"
+            onChange={(event) => setIncidentSearch(event.target.value)}
+          />
         </label>
 
         <nav className="conversation-list" aria-label="Open service incidents">
           <p className="eyebrow">Open incidents</p>
-          {conversations.map((conversation, index) => (
-            <button
-              type="button"
-              key={conversation.label}
-              className={cn('conversation-item', index === 0 && 'is-active')}
-            >
-              <MessageCircleMore />
-              <span>
-                <strong>{conversation.label}</strong>
-                <small>{conversation.time}</small>
-              </span>
-              {index === 0 ? (
-                <MoreHorizontal className="conversation-more" />
-              ) : null}
-            </button>
+          {filteredIncidents.map((incident) => (
+            <div className="conversation-row" key={incident.id}>
+              <button
+                type="button"
+                className={cn(
+                  'conversation-item',
+                  incident.id === activeIncidentId && 'is-active',
+                )}
+                aria-current={
+                  incident.id === activeIncidentId ? 'page' : undefined
+                }
+                onClick={() => selectIncident(incident.id)}
+              >
+                <MessageCircleMore />
+                <span>
+                  <strong>{incident.title}</strong>
+                  <small>{incident.updatedAt}</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  'conversation-delete',
+                  incident.id === activeIncidentId && 'is-visible',
+                )}
+                aria-label={`Delete ${incident.title}`}
+                disabled={isSending && incident.id === activeIncidentId}
+                onClick={() => deleteIncident(incident)}
+              >
+                <Trash2 />
+              </button>
+            </div>
           ))}
+          {filteredIncidents.length === 0 ? (
+            <p className="conversation-empty">
+              {incidents.length === 0
+                ? 'No open incidents.'
+                : 'No incidents match this search.'}
+            </p>
+          ) : null}
         </nav>
 
         <div className="sidebar__footer">
