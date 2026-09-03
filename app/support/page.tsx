@@ -13,7 +13,6 @@ import {
 import {
   ArrowUp,
   BadgeCheck,
-  Bot,
   Check,
   CircleUserRound,
   Clock3,
@@ -27,11 +26,13 @@ import {
   Search,
   ShieldCheck,
   Sparkles,
+  TriangleAlert,
   X,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { buildChatRequestHistory } from '@/lib/chat-history';
 import { cn } from '@/lib/utils';
 
 type ChatMessage = {
@@ -39,10 +40,19 @@ type ChatMessage = {
   role: 'user' | 'assistant';
   content: string;
   createdAt: string;
-  failed?: boolean;
 };
 
 type RuntimeState = 'checking' | 'ready' | 'offline';
+
+class ChatRequestError extends Error {
+  constructor(
+    message: string,
+    readonly modelUnavailable = false,
+  ) {
+    super(message);
+    this.name = 'ChatRequestError';
+  }
+}
 
 type AccountSummary = {
   customerId: string;
@@ -107,6 +117,7 @@ export default function SupportPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([openingMessage]);
   const [draft, setDraft] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<RuntimeState>('checking');
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -166,6 +177,7 @@ export default function SupportPage() {
   function newConversation() {
     setMessages([openingMessage]);
     setDraft('');
+    setRequestError(null);
     setMobileMenuOpen(false);
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }
@@ -184,6 +196,7 @@ export default function SupportPage() {
 
     setMessages(nextMessages);
     setDraft('');
+    setRequestError(null);
     setIsSending(true);
 
     try {
@@ -191,10 +204,7 @@ export default function SupportPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: nextMessages.map(({ role, content: messageContent }) => ({
-            role,
-            content: messageContent,
-          })),
+          messages: buildChatRequestHistory(nextMessages),
         }),
       });
 
@@ -206,11 +216,17 @@ export default function SupportPage() {
         window.location.replace('/login?next=/support');
         return;
       }
-      if (!response.ok || !payload.message) {
-        throw new Error(
-          payload.error || 'The local assistant did not return a response.',
+      if (!response.ok) {
+        throw new ChatRequestError(
+          payload.error || 'The support request could not be completed.',
+          response.status >= 500,
         );
       }
+      if (!payload.message)
+        throw new ChatRequestError(
+          'The local assistant did not return a response.',
+          true,
+        );
       const reply = payload.message;
 
       setMessages((current) => [
@@ -224,20 +240,13 @@ export default function SupportPage() {
       ]);
       setRuntime('ready');
     } catch (error) {
-      setRuntime('offline');
-      setMessages((current) => [
-        ...current,
-        {
-          id: createId(),
-          role: 'assistant',
-          content:
-            error instanceof Error
-              ? error.message
-              : 'I couldn’t reach the local model. Please try again.',
-          createdAt: timestamp(),
-          failed: true,
-        },
-      ]);
+      if (!(error instanceof ChatRequestError) || error.modelUnavailable)
+        setRuntime('offline');
+      setRequestError(
+        error instanceof Error
+          ? error.message
+          : 'The support request could not be completed. Please try again.',
+      );
     } finally {
       setIsSending(false);
       window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -411,12 +420,11 @@ export default function SupportPage() {
                 className={cn(
                   'chat-message',
                   message.role === 'user' && 'chat-message--user',
-                  message.failed && 'chat-message--error',
                 )}
               >
                 {message.role === 'assistant' ? (
                   <div className="assistant-avatar">
-                    {message.failed ? <Bot /> : <Sparkles />}
+                    <Sparkles />
                   </div>
                 ) : null}
                 <div className="chat-message__body">
@@ -424,7 +432,7 @@ export default function SupportPage() {
                     <strong>
                       {message.role === 'assistant' ? 'COV-E' : 'CALDER PIKE'}
                     </strong>
-                    {message.role === 'assistant' && !message.failed ? (
+                    {message.role === 'assistant' ? (
                       <BadgeCheck aria-label="Verified assistant" />
                     ) : null}
                     <time>{message.createdAt}</time>
@@ -467,6 +475,16 @@ export default function SupportPage() {
                   </div>
                 </div>
               </article>
+            ) : null}
+
+            {requestError ? (
+              <div className="chat-notice" role="alert">
+                <TriangleAlert aria-hidden="true" />
+                <div>
+                  <strong>Support request interrupted</strong>
+                  <p>{requestError}</p>
+                </div>
+              </div>
             ) : null}
 
             {messages.length === 1 ? (

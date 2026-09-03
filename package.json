@@ -10,6 +10,7 @@
     "dev:web": "vinext dev --hostname 127.0.0.1 --port 8016",
     "build": "vinext build",
     "validate:data": "node --experimental-strip-types scripts/validate-seed.mjs",
+    "test:chat-history": "node --experimental-strip-types --test tests/chat-history.test.ts",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
     "format": "oxfmt"
