@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { SyntheticEvent, useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, LockKeyhole, ShieldCheck } from 'lucide-react';
 
+import { BrandWordmark } from '@/components/brand-wordmark';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { safeLoginDestination } from '@/lib/auth-navigation';
@@ -60,13 +61,7 @@ export default function LoginPage() {
   return (
     <main className="login-page">
       <section className="login-brand" aria-label="SABLE distributor access">
-        <Link className="wordmark" href="/" aria-label="SABLE home">
-          <span className="wordmark__sigil" aria-hidden="true" />
-          <span>
-            <strong>SABLE</strong>
-            <small>Morrow Vale Holdings</small>
-          </span>
-        </Link>
+        <BrandWordmark />
         <div className="login-brand__signal" aria-hidden="true">
           <span />
           <i />

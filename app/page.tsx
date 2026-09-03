@@ -12,6 +12,7 @@ import {
   Zap,
 } from 'lucide-react';
 
+import { BrandWordmark } from '@/components/brand-wordmark';
 import { getAuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { loginHref } from '@/lib/auth-navigation';
@@ -63,13 +64,7 @@ export default async function Home() {
   return (
     <main className="brand-page">
       <header className="brand-nav">
-        <Link className="wordmark" href="/" aria-label="SABLE home">
-          <span className="wordmark__sigil" aria-hidden="true" />
-          <span>
-            <strong>SABLE</strong>
-            <small>Morrow Vale Holdings</small>
-          </span>
-        </Link>
+        <BrandWordmark />
         <nav aria-label="Primary navigation">
           <Link href="#systems">Systems</Link>
           <Link href="#mandate">Mandate</Link>

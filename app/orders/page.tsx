@@ -15,6 +15,7 @@ import {
   ShoppingBag,
 } from 'lucide-react';
 
+import { BrandWordmark } from '@/components/brand-wordmark';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -148,13 +149,7 @@ export default function OrdersPage() {
   return (
     <main className="orders-page">
       <header className="shop-nav orders-nav">
-        <Link className="wordmark" href="/" aria-label="SABLE home">
-          <span className="wordmark__sigil" aria-hidden="true" />
-          <span>
-            <strong>SABLE</strong>
-            <small>Morrow Vale Holdings</small>
-          </span>
-        </Link>
+        <BrandWordmark />
         <div className="shop-account">
           <span>AUTHORIZED USER</span>
           <strong>

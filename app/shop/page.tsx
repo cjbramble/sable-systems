@@ -28,6 +28,7 @@ import {
   Zap,
 } from 'lucide-react';
 
+import { BrandWordmark } from '@/components/brand-wordmark';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -312,13 +313,7 @@ export default function ShopPage() {
   return (
     <main className="shop-page">
       <header className="shop-nav">
-        <Link className="wordmark" href="/" aria-label="SABLE home">
-          <span className="wordmark__sigil" aria-hidden="true" />
-          <span>
-            <strong>SABLE</strong>
-            <small>Morrow Vale Holdings</small>
-          </span>
-        </Link>
+        <BrandWordmark />
         <div className="shop-account">
           <span>AUTHORIZED USER</span>
           <strong>

@@ -32,6 +32,7 @@ import {
   X,
 } from 'lucide-react';
 
+import { BrandWordmark } from '@/components/brand-wordmark';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { buildChatRequestHistory } from '@/lib/chat-history';
@@ -269,13 +270,7 @@ export default function SupportPage() {
     <main className="app-shell">
       <aside className={cn('sidebar', mobileMenuOpen && 'sidebar--open')}>
         <div className="sidebar__brand">
-          <Link className="wordmark" href="/" aria-label="SABLE home">
-            <span className="wordmark__sigil" aria-hidden="true" />
-            <span>
-              <strong>SABLE</strong>
-              <small>Morrow Vale Holdings</small>
-            </span>
-          </Link>
+          <BrandWordmark />
           <Button
             className="sidebar__close md:hidden"
             variant="ghost"
