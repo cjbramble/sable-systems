@@ -1,5 +1,6 @@
 import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
 import { getDatabase } from '@/db/database';
+import { getOrderHistory, parseOrderHistoryInput } from '@/db/orders';
 import {
   CheckoutError,
   parseCheckoutInput,
@@ -7,6 +8,28 @@ import {
 } from '@/db/shop';
 
 export const dynamic = 'force-dynamic';
+
+export async function GET(request: Request) {
+  const input = parseOrderHistoryInput(new URL(request.url));
+  if (!input)
+    return Response.json(
+      { error: 'Enter a valid page, status, and search query.' },
+      { status: 400 },
+    );
+
+  try {
+    const db = await getDatabase();
+    const user = await getAuthenticatedUser(db, request);
+    if (!user)
+      return Response.json({ error: 'Authentication required.' }, { status: 401 });
+    return Response.json(await getOrderHistory(db, user, input));
+  } catch {
+    return Response.json(
+      { error: 'Order history is not available.' },
+      { status: 503 },
+    );
+  }
+}
 
 export async function POST(request: Request) {
   if (!isTrustedMutation(request))

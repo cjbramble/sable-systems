@@ -9,6 +9,7 @@ Primary routes:
 
 - `/` — SABLE marketing and brand identity
 - `/shop` — live wholesale inventory, case-pack cart, and charge-account checkout
+- `/orders` — authenticated, distributor-scoped order history with search and status filters
 - `/support` — private COV-E support for authorized orders and inventory
 
 Checkout creates durable orders, order lines, customer-safe events, and account-ledger records.

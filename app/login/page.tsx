@@ -11,7 +11,7 @@ import { isCatalogCategory } from '@/lib/catalog-categories';
 function requestedDestination() {
   if (typeof window === 'undefined') return '/shop';
   const next = new URLSearchParams(window.location.search).get('next');
-  if (next === '/support' || next === '/shop') return next;
+  if (next === '/support' || next === '/shop' || next === '/orders') return next;
   if (!next) return '/shop';
 
   const destination = new URL(next, 'http://sable.local');

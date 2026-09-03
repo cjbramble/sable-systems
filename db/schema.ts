@@ -37,6 +37,9 @@ export const SESSIONS_USER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_sessions_
 export const ORDER_USER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_orders_placed_by_user
   ON orders(placed_by_user_id)`;
 
+export const ORDER_HISTORY_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_orders_customer_created
+  ON orders(customer_id, created_on DESC, order_id DESC)`;
+
 export const ORDER_USER_INSERT_TRIGGER_SQL = `CREATE TRIGGER IF NOT EXISTS orders_validate_user_insert
   BEFORE INSERT ON orders
   FOR EACH ROW
@@ -207,6 +210,7 @@ export const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS idx_orders_customer_open
     ON orders(customer_id, status)
     WHERE status NOT IN ('delivered', 'cancelled')`,
+  ORDER_HISTORY_INDEX_SQL,
   ORDER_USER_INDEX_SQL,
   SESSIONS_USER_INDEX_SQL,
   `CREATE INDEX IF NOT EXISTS idx_order_items_item_number

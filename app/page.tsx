@@ -51,6 +51,7 @@ export default async function Home() {
   }
   const shopHref = authenticated ? '/shop' : '/login?next=/shop';
   const supportHref = authenticated ? '/support' : '/login?next=/support';
+  const ordersHref = authenticated ? '/orders' : '/login?next=/orders';
   const categoryHref = (category: CatalogCategory) => {
     const destination = `/shop?category=${encodeURIComponent(category)}`;
     return authenticated
@@ -71,6 +72,7 @@ export default async function Home() {
         <nav aria-label="Primary navigation">
           <Link href="#systems">Systems</Link>
           <Link href="#mandate">Mandate</Link>
+          <Link href={ordersHref}>Orders</Link>
           <Link href={supportHref}>COV-E Support</Link>
         </nav>
         <Link className="nav-cta" href={shopHref}>

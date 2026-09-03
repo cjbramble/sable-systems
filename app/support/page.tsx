@@ -17,6 +17,7 @@ import {
   CircleUserRound,
   Clock3,
   Headphones,
+  History,
   LogOut,
   Menu,
   MessageCircleMore,
@@ -25,6 +26,7 @@ import {
   RotateCcw,
   Search,
   ShieldCheck,
+  ShoppingBag,
   Sparkles,
   TriangleAlert,
   X,
@@ -305,6 +307,15 @@ export default function SupportPage() {
           <Plus />
           New service incident
         </Button>
+
+        <nav className="support-destinations" aria-label="Account navigation">
+          <Link href="/shop">
+            <ShoppingBag /> Procurement
+          </Link>
+          <Link href="/orders">
+            <History /> Order history
+          </Link>
+        </nav>
 
         <label className="search-box">
           <Search aria-hidden="true" />

@@ -366,6 +366,7 @@ export default function ShopPage() {
           </strong>
         </div>
         <div className="shop-nav__actions">
+          <Link href="/orders">Order history</Link>
           <Link href="/support">COV-E Support</Link>
           <Button
             className="shop-logout"
@@ -632,6 +633,9 @@ export default function ShopPage() {
                 The order has been posted to the {account?.displayName} charge
                 account and inventory is reserved.
               </p>
+              <Link className="order-history-link" href="/orders">
+                View order history <ArrowRight />
+              </Link>
               <Button onClick={() => setConfirmation(null)}>
                 Build another order <ArrowRight />
               </Button>
