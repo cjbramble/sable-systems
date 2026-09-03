@@ -3,16 +3,11 @@ import { headers } from 'next/headers';
 import {
   ArrowRight,
   Boxes,
-  CircleDot,
-  Cpu,
   MoveUpRight,
-  ScanLine,
-  ShieldCheck,
-  Sparkles,
-  Zap,
 } from 'lucide-react';
 
 import { BrandWordmark } from '@/components/brand-wordmark';
+import { CategoryOrbitGlyph } from '@/components/category-orbit-glyph';
 import { getAuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { loginHref } from '@/lib/auth-navigation';
@@ -23,19 +18,9 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-const categoryIcons: Record<CatalogCategory, typeof Cpu> = {
-  Compute: Cpu,
-  Cybernetics: CircleDot,
-  Interface: ScanLine,
-  Power: Zap,
-  Security: ShieldCheck,
-  Software: Sparkles,
-};
-
 const divisions = CATALOG_CATEGORIES.map((label, index) => ({
   code: String(index + 1).padStart(2, '0'),
   label,
-  icon: categoryIcons[label],
 }));
 
 export default async function Home() {
@@ -134,10 +119,10 @@ export default async function Home() {
           <span>Designed in the North Atlantic Trade District. Deployed everywhere.</span>
         </div>
         <div className="division-grid">
-          {divisions.map(({ code, label, icon: Icon }) => (
+          {divisions.map(({ code, label }) => (
             <Link href={categoryHref(label)} key={code}>
               <span className="division-code">SBL / {code}</span>
-              <Icon />
+              <CategoryOrbitGlyph category={label} className="division-glyph" />
               <strong>{label}</strong>
               <ArrowRight />
             </Link>

@@ -11,24 +11,19 @@ import {
 import {
   ArrowLeft,
   ArrowRight,
-  Box,
   ChevronRight,
-  CircleDot,
-  Cpu,
   LogOut,
   Minus,
   PackageCheck,
   Plus,
-  ScanLine,
   Search,
   ShieldCheck,
   ShoppingBag,
-  Sparkles,
   Trash2,
-  Zap,
 } from 'lucide-react';
 
 import { BrandWordmark } from '@/components/brand-wordmark';
+import { CategoryOrbitGlyph } from '@/components/category-orbit-glyph';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -57,15 +52,6 @@ type Confirmation = {
   totalCents: number;
   requestedShipDate: string;
 };
-
-const categoryIcons = {
-  Compute: Cpu,
-  Interface: ScanLine,
-  Cybernetics: CircleDot,
-  Security: ShieldCheck,
-  Software: Sparkles,
-  Power: Zap,
-} as const;
 
 const productNotes: Record<string, string> = {
   'SBL-M14-CW': 'Cryogenic wafer-scale compute for dense autonomous systems.',
@@ -412,9 +398,6 @@ export default function ShopPage() {
         ) : (
           <div className="product-grid">
             {filteredProducts.map((product, index) => {
-              const Icon =
-                categoryIcons[product.category as keyof typeof categoryIcons] ||
-                Box;
               const unavailable = product.availableQuantity === 0;
               const inCart = cart[product.itemNumber] || 0;
               return (
@@ -432,11 +415,7 @@ export default function ShopPage() {
                       {String(filteredProducts.length).padStart(2, '0')}
                     </span>
                   </div>
-                  <div className="product-glyph">
-                    <Icon />
-                    <i />
-                    <i />
-                  </div>
+                  <CategoryOrbitGlyph category={product.category} />
                   <Badge variant="outline">{product.category}</Badge>
                   <h2>{product.name}</h2>
                   <p>
