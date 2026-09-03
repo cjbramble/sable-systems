@@ -1,7 +1,13 @@
 import type { AuthenticatedUser } from './auth';
+import { listSupportIncidents } from './incidents';
 import { AS_OF_DATE } from './seed';
+import type { ChatHistoryMessage } from '@/lib/chat-history';
 import type { AccountSummary } from '@/lib/contracts';
 import { formatCurrency } from '@/lib/format';
+import {
+  classifySupportQuery,
+  type SupportOrderStatus,
+} from '@/lib/support-query';
 
 type ProductRow = {
   item_number: string;
@@ -63,23 +69,68 @@ export async function getAccountSummary(
 
 export async function buildAuthorizedContext(
   db: D1Database,
-  message: string,
+  messages: ChatHistoryMessage[],
   user: AuthenticatedUser,
 ) {
-  const normalized = message.toLowerCase();
-  const orderIdentifier =
-    message.toUpperCase().match(/\bSBL-\d{4}-\d{6}\b/)?.[0] ??
-    message.toUpperCase().match(/\b[A-Z]{3}-(?:PO|REL)-\d{6}\b/)?.[0];
+  const intent = classifySupportQuery(messages);
+  switch (intent.kind) {
+    case 'order':
+      return orderContext(db, intent.identifier, user);
+    case 'shipment':
+      return shipmentContext(db, intent.identifier, user);
+    case 'return':
+      return returnContext(db, intent.identifier, user);
+    case 'orders': {
+      const products = await matchProducts(db, intent.message);
+      return orderSearchContext(
+        db,
+        user,
+        intent.status,
+        intent.year,
+        intent.yearField,
+        products[0],
+      );
+    }
+    case 'incidents':
+      return incidentHistoryContext(db, user);
+    case 'account':
+      return accountContext(db, user, intent.includeCharges);
+    case 'catalog': {
+      const products = await matchProducts(db, intent.message);
+      if (products.length > 0 && (!intent.category || products.length <= 3)) {
+        const selected = intent.compare ? products.slice(0, 3) : products.slice(0, 1);
+        return productComparisonContext(
+          db,
+          selected,
+          intent.quantity,
+          intent.includeLocations,
+        );
+      }
+      if (intent.category) return categoryInventoryContext(db, intent.category);
+      return inventoryAlertContext(db);
+    }
+    case 'summary': {
+      const products = await matchProducts(db, intent.message);
+      if (products.length > 0)
+        return productComparisonContext(db, products.slice(0, 1));
+      return summaryContext(db, user);
+    }
+  }
+}
 
-  if (orderIdentifier) return orderContext(db, orderIdentifier, user);
-  if (/scheduled|future|upcoming|release/.test(normalized))
-    return scheduledOrderContext(db, user);
+async function incidentHistoryContext(
+  db: D1Database,
+  user: AuthenticatedUser,
+) {
+  const incidents = (await listSupportIncidents(db, user)).slice(0, 8);
+  return `<authorized_records>
+Support incidents for authenticated user ${user.userDisplayName} (${user.userId}); showing up to 8 most recent.
+${incidents.map((incident) => `- ${incident.id}: ${incident.title}; updated ${incident.updatedAt}; ${incident.messages.length} messages.`).join('\n') || '- No support incidents recorded.'}
+Do not reveal incidents belonging to other users or distributors.
+</authorized_records>`;
+}
 
-  const matchedProduct = await matchProduct(db, normalized);
-  if (matchedProduct) return productContext(db, matchedProduct);
-  if (/inventory|availability|available|stock|backorder/.test(normalized))
-    return inventoryAlertContext(db);
-
+async function summaryContext(db: D1Database, user: AuthenticatedUser) {
   const summary = await getAccountSummary(db, user);
   return `<authorized_records>
 Account: ${summary.displayName} (${summary.customerId}), ${summary.accountTier}
@@ -133,6 +184,11 @@ No order matching ${identifier} is available within ${user.distributorDisplayNam
       FROM returns WHERE order_id = ? ORDER BY requested_on DESC LIMIT 1`)
     .bind(order.order_id)
     .first<Record<string, string | null>>();
+  const charge = await db
+    .prepare(`SELECT status, amount_cents, currency, authorization_code,
+      authorized_at FROM account_charges WHERE order_id = ?`)
+    .bind(order.order_id)
+    .first<Record<string, string | number>>();
 
   return `<authorized_records>
 Authorization: ${user.distributorDisplayName} (${user.distributorId}) only.
@@ -147,28 +203,155 @@ ${shipments.results.length ? shipments.results.map((shipment) => `- ${shipment.s
 Recent customer-safe events:
 ${events.results.map((event) => `- ${event.occurred_at}: ${event.customer_safe_description}`).join('\n')}
 Return: ${returnRow ? `${returnRow.return_id}, ${returnRow.status}, reason ${returnRow.reason_code}, requested ${returnRow.requested_on}.` : 'No return recorded.'}
+Charge account: ${charge ? `${charge.status}; ${formatCurrency(Number(charge.amount_cents), String(charge.currency))}; authorization ${charge.authorization_code}; ${charge.authorized_at}.` : 'No charge-account authorization recorded.'}
 </authorized_records>`;
 }
 
-async function scheduledOrderContext(db: D1Database, user: AuthenticatedUser) {
-  const rows = await db
-    .prepare(`SELECT order_id, customer_po_number, requested_ship_date, status, order_total_cents, currency
-      FROM orders
-      WHERE customer_id = ? AND requested_ship_date > ? AND status IN ('scheduled', 'confirmed')
-      ORDER BY requested_ship_date LIMIT 8`)
-    .bind(user.distributorId, AS_OF_DATE)
+async function shipmentContext(
+  db: D1Database,
+  identifier: string,
+  user: AuthenticatedUser,
+) {
+  const shipment = await db
+    .prepare(`SELECT s.shipment_id, s.status, s.carrier_name,
+      s.tracking_reference, s.shipped_on, s.estimated_delivery_date,
+      s.delivered_on, o.order_id, o.customer_po_number
+      FROM shipments s
+      JOIN orders o ON o.order_id = s.order_id
+      WHERE o.customer_id = ?
+        AND (s.shipment_id = ? OR s.tracking_reference = ?)`)
+    .bind(user.distributorId, identifier, identifier)
+    .first<Record<string, string | null>>();
+  if (!shipment)
+    return `<authorized_records>
+No shipment matching ${identifier} is available within ${user.distributorDisplayName}'s authorization scope. Do not confirm or deny whether it belongs to another customer.
+</authorized_records>`;
+
+  return `<authorized_records>
+Authorization: ${user.distributorDisplayName} (${user.distributorId}) only.
+Shipment: ${shipment.shipment_id}; status: ${shipment.status}; carrier: ${shipment.carrier_name}; tracking: ${shipment.tracking_reference}.
+Order: ${shipment.order_id}; customer PO: ${shipment.customer_po_number}.
+Shipped: ${shipment.shipped_on ?? 'not yet'}; estimated delivery: ${shipment.estimated_delivery_date ?? 'not assigned'}; delivered: ${shipment.delivered_on ?? 'not yet'}.
+</authorized_records>`;
+}
+
+async function returnContext(
+  db: D1Database,
+  identifier: string,
+  user: AuthenticatedUser,
+) {
+  const returnRow = await db
+    .prepare(`SELECT r.return_id, r.status, r.reason_code, r.requested_on,
+      r.authorized_on, r.received_on, o.order_id, o.customer_po_number
+      FROM returns r
+      JOIN orders o ON o.order_id = r.order_id
+      WHERE o.customer_id = ? AND r.return_id = ?`)
+    .bind(user.distributorId, identifier)
+    .first<Record<string, string | null>>();
+  if (!returnRow)
+    return `<authorized_records>
+No return matching ${identifier} is available within ${user.distributorDisplayName}'s authorization scope. Do not confirm or deny whether it belongs to another customer.
+</authorized_records>`;
+
+  const items = await db
+    .prepare(`SELECT ri.line_number, ri.return_quantity, ri.disposition,
+      oi.item_number, oi.product_name_snapshot
+      FROM return_items ri
+      JOIN order_items oi
+        ON oi.order_id = ri.order_id AND oi.line_number = ri.line_number
+      WHERE ri.return_id = ? ORDER BY ri.line_number`)
+    .bind(identifier)
     .all<Record<string, string | number>>();
   return `<authorized_records>
-Upcoming ${user.distributorDisplayName} releases after ${AS_OF_DATE}:
-${rows.results.map((row) => `- ${row.order_id} / ${row.customer_po_number}: ${row.status}; requested ${row.requested_ship_date}; ${formatCurrency(Number(row.order_total_cents), String(row.currency))}.`).join('\n')}
+Authorization: ${user.distributorDisplayName} (${user.distributorId}) only.
+Return: ${returnRow.return_id}; status: ${returnRow.status}; reason: ${returnRow.reason_code}.
+Order: ${returnRow.order_id}; customer PO: ${returnRow.customer_po_number}.
+Requested: ${returnRow.requested_on}; authorized: ${returnRow.authorized_on ?? 'not yet'}; received: ${returnRow.received_on ?? 'not yet'}.
+Items:
+${items.results.map((item) => `- ${item.item_number} ${item.product_name_snapshot}: quantity ${item.return_quantity}; disposition ${item.disposition}.`).join('\n') || '- No return lines recorded.'}
 </authorized_records>`;
 }
 
-async function matchProduct(db: D1Database, message: string) {
+async function orderSearchContext(
+  db: D1Database,
+  user: AuthenticatedUser,
+  status?: SupportOrderStatus,
+  year?: number,
+  yearField?: 'created' | 'requested',
+  product?: ProductRow,
+) {
+  const clauses = ['o.customer_id = ?'];
+  const params: unknown[] = [user.distributorId];
+  if (status === 'active') {
+    clauses.push("o.status NOT IN ('scheduled', 'delivered', 'cancelled')");
+  } else if (status) {
+    clauses.push('o.status = ?');
+    params.push(status);
+  }
+  if (year) {
+    const column = yearField === 'requested' ? 'o.requested_ship_date' : 'o.created_on';
+    clauses.push(`${column} >= ? AND ${column} < ?`);
+    params.push(`${year}-01-01`, `${year + 1}-01-01`);
+  }
+  if (product) {
+    clauses.push(`EXISTS (
+      SELECT 1 FROM order_items oi
+      WHERE oi.order_id = o.order_id AND oi.item_number = ?
+    )`);
+    params.push(product.item_number);
+  }
+  const rows = await db
+    .prepare(`SELECT o.order_id, o.customer_po_number, o.created_on,
+      o.requested_ship_date, o.status, o.order_total_cents, o.currency
+      FROM orders o
+      WHERE ${clauses.join(' AND ')}
+      ORDER BY o.created_on DESC, o.order_id DESC LIMIT 6`)
+    .bind(...params)
+    .all<Record<string, string | number>>();
+  const criteria = [
+    status ? `status ${status.replaceAll('_', ' ')}` : null,
+    year ? `${yearField === 'requested' ? 'requested' : 'created'} in ${year}` : null,
+    product ? `containing ${product.item_number}` : null,
+  ].filter(Boolean);
+  return `<authorized_records>
+Authorization: ${user.distributorDisplayName} (${user.distributorId}) only.
+Order search${criteria.length ? ` for ${criteria.join(', ')}` : ''}; showing up to 6 most recent matches.
+${rows.results.map((row) => `- ${row.order_id} / ${row.customer_po_number}: ${row.status}; created ${row.created_on}; requested ${row.requested_ship_date}; ${formatCurrency(Number(row.order_total_cents), String(row.currency))}.`).join('\n') || '- No matching orders.'}
+</authorized_records>`;
+}
+
+async function accountContext(
+  db: D1Database,
+  user: AuthenticatedUser,
+  includeCharges: boolean,
+) {
+  const summary = await getAccountSummary(db, user);
+  const charges = includeCharges
+    ? await db
+        .prepare(`SELECT c.order_id, c.status, c.amount_cents, c.currency,
+          c.authorization_code, c.authorized_at
+          FROM account_charges c
+          JOIN orders o ON o.order_id = c.order_id
+          WHERE o.customer_id = ?
+          ORDER BY c.authorized_at DESC LIMIT 8`)
+        .bind(user.distributorId)
+        .all<Record<string, string | number>>()
+    : { results: [] };
+  return `<authorized_records>
+Authorization: ${summary.displayName} (${summary.customerId}) only.
+Account tier: ${summary.accountTier}; payment terms: ${summary.paymentTerms}; currency: ${summary.currency}; region: ${summary.region}.
+Authenticated user: ${summary.userDisplayName} (${summary.userId}); role: ${summary.userRole}.
+Orders: ${summary.totalOrders} total; ${summary.activeOrders} active; ${summary.scheduledOrders} scheduled.
+Recent charge-account authorizations:
+${charges.results.map((charge) => `- ${charge.order_id}: ${charge.status}; ${formatCurrency(Number(charge.amount_cents), String(charge.currency))}; authorization ${charge.authorization_code}; ${charge.authorized_at}.`).join('\n') || '- No charge-account authorizations recorded.'}
+</authorized_records>`;
+}
+
+async function matchProducts(db: D1Database, message: string) {
   const rows = await db
     .prepare('SELECT * FROM products ORDER BY product_name')
     .all<ProductRow>();
-  return rows.results.find((product) => {
+  return rows.results.filter((product) => {
     const terms = [
       product.item_number.toLowerCase(),
       product.product_name.toLowerCase(),
@@ -180,13 +363,36 @@ async function matchProduct(db: D1Database, message: string) {
   });
 }
 
-async function productContext(db: D1Database, product: ProductRow) {
-  if (product.fulfillment_type === 'license') {
-    return `<authorized_records>
-Product: ${product.item_number} — ${product.product_name}; category ${product.category}.
-Wholesale price: ${formatCurrency(product.unit_price_cents)} per ${product.unit_label}; minimum block ${product.case_pack}.
-This is a digitally allocated license and does not have a physical stock balance.
+async function productComparisonContext(
+  db: D1Database,
+  products: ProductRow[],
+  quantity?: number,
+  includeLocations = false,
+) {
+  const records = await Promise.all(
+    products.map((product) =>
+      productContext(db, product, quantity, includeLocations),
+    ),
+  );
+  return `<authorized_records>
+${records.join('\n')}
 </authorized_records>`;
+}
+
+async function productContext(
+  db: D1Database,
+  product: ProductRow,
+  quantity?: number,
+  includeLocations = false,
+) {
+  if (product.fulfillment_type === 'license') {
+    const quantityNote = quantity
+      ? `Requested quantity ${quantity}: ${quantity % product.case_pack === 0 ? 'valid minimum-block multiple' : `must be adjusted to a multiple of ${product.case_pack}`}.
+`
+      : '';
+    return `Product: ${product.item_number} — ${product.product_name}; category ${product.category}.
+Wholesale price: ${formatCurrency(product.unit_price_cents)} per ${product.unit_label}; minimum block ${product.case_pack}.
+${quantityNote}This is a digitally allocated license and does not have a physical stock balance.`;
   }
   const inventory = await db
     .prepare(`SELECT
@@ -203,11 +409,46 @@ This is a digitally allocated license and does not have a physical stock balance
     Number(inventory?.on_hand ?? 0) -
     Number(inventory?.reserved ?? 0) -
     Number(inventory?.quarantined ?? 0);
-  return `<authorized_records>
-Product: ${product.item_number} — ${product.product_name}; category ${product.category}.
+  const quantityNote = quantity
+    ? `Requested quantity ${quantity}: ${quantity % product.case_pack === 0 ? 'valid case-pack multiple' : `not a multiple of case pack ${product.case_pack}`}; ${available >= quantity ? 'currently within available-to-promise stock' : `exceeds current available-to-promise stock by ${quantity - available}`}.
+`
+    : '';
+  let locationNote = '';
+  if (includeLocations) {
+    const locations = await db
+      .prepare(`SELECT l.location_name, l.service_region,
+        i.on_hand_quantity - i.reserved_quantity - i.quarantined_quantity AS available,
+        i.inbound_quantity, i.expected_restock_date
+        FROM inventory_balances i
+        JOIN fulfillment_locations l ON l.location_id = i.location_id
+        WHERE i.item_number = ? ORDER BY available DESC, l.location_name`)
+      .bind(product.item_number)
+      .all<Record<string, string | number | null>>();
+    locationNote = `\nFulfillment locations:\n${locations.results.map((location) => `- ${location.location_name} (${location.service_region}): ${location.available} available; ${location.inbound_quantity} inbound; restock ${location.expected_restock_date ?? 'not scheduled'}.`).join('\n') || '- No physical fulfillment locations recorded.'}`;
+  }
+  return `Product: ${product.item_number} — ${product.product_name}; category ${product.category}.
 Wholesale price: ${formatCurrency(product.unit_price_cents)} per ${product.unit_label}; case pack ${product.case_pack}; standard lead time ${product.lead_time_days} days.
-Available to promise as of ${AS_OF_DATE}: ${available}. Inbound: ${inventory?.inbound ?? 0}. Expected restock: ${inventory?.expected_restock_date ?? 'none scheduled'}.
-Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
+${quantityNote}Available to promise as of ${AS_OF_DATE}: ${available}. Inbound: ${inventory?.inbound ?? 0}. Expected restock: ${inventory?.expected_restock_date ?? 'none scheduled'}.
+Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.${locationNote}`;
+}
+
+async function categoryInventoryContext(db: D1Database, category: string) {
+  const rows = await db
+    .prepare(`SELECT p.item_number, p.product_name, p.fulfillment_type,
+      p.unit_price_cents, p.unit_label, p.case_pack, p.lead_time_days,
+      CASE WHEN p.fulfillment_type = 'license' THEN NULL
+        ELSE COALESCE(SUM(i.on_hand_quantity - i.reserved_quantity - i.quarantined_quantity), 0)
+      END AS available,
+      COALESCE(SUM(i.inbound_quantity), 0) AS inbound
+      FROM products p
+      LEFT JOIN inventory_balances i ON i.item_number = p.item_number
+      WHERE p.active_to IS NULL AND p.category = ?
+      GROUP BY p.item_number ORDER BY p.product_name LIMIT 12`)
+    .bind(category)
+    .all<Record<string, string | number | null>>();
+  return `<authorized_records>
+Active ${category} catalog as of ${AS_OF_DATE}:
+${rows.results.map((row) => `- ${row.item_number} ${row.product_name}: ${formatCurrency(Number(row.unit_price_cents), 'USD')} per ${row.unit_label}; pack ${row.case_pack}; lead ${row.lead_time_days} days; ${row.fulfillment_type === 'license' ? 'digital allocation' : `${row.available} available, ${row.inbound} inbound`}.`).join('\n') || '- No active products in this category.'}
 </authorized_records>`;
 }
 

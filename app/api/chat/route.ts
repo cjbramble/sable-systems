@@ -1,5 +1,10 @@
 import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
 import { getDatabase } from '@/db/database';
+import {
+  parseIncidentId,
+  parseMessageId,
+  saveSupportExchange,
+} from '@/db/incidents';
 import { buildAuthorizedContext } from '@/db/support';
 import { parseChatMessages } from '@/lib/chat-request';
 
@@ -33,17 +38,27 @@ export async function POST(request: Request) {
     );
   }
 
-  const messages = parseChatMessages(
-    body && typeof body === 'object'
-      ? (body as Record<string, unknown>).messages
-      : null,
-  );
+  const candidate =
+    body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  const messages = parseChatMessages(candidate.messages);
   if (!messages) {
     return Response.json(
       {
         error:
           'Send 1–12 valid messages, with the latest message from the customer.',
       },
+      { status: 400 },
+    );
+  }
+  const incidentId = parseIncidentId(candidate.incidentId);
+  const messageId = parseMessageId(candidate.messageId);
+  if (
+    (candidate.incidentId !== undefined && !incidentId) ||
+    (candidate.messageId !== undefined && !messageId) ||
+    Boolean(incidentId) !== Boolean(messageId)
+  ) {
+    return Response.json(
+      { error: 'Enter a valid incident and message ID.' },
       { status: 400 },
     );
   }
@@ -55,7 +70,7 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Authentication required.' }, { status: 401 });
     const authorizedContext = await buildAuthorizedContext(
       db,
-      messages.at(-1)?.content ?? '',
+      messages,
       user,
     );
     const modelResponse = await fetch(MODEL_SERVER_URL, {
@@ -102,6 +117,17 @@ export async function POST(request: Request) {
             'The local model returned an empty response. Please try again.',
         },
         { status: 502 },
+      );
+    }
+
+    if (incidentId && messageId) {
+      await saveSupportExchange(
+        db,
+        user,
+        incidentId,
+        messageId,
+        messages.at(-1)?.content ?? '',
+        content.trim(),
       );
     }
 

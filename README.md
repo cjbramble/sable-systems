@@ -10,7 +10,7 @@ Primary routes:
 - `/` — SABLE marketing and brand identity
 - `/shop` — live wholesale inventory, case-pack cart, and charge-account checkout
 - `/orders` — authenticated, distributor-scoped order history with search and status filters
-- `/support` — private COV-E support for authorized orders and inventory
+- `/support` — private COV-E support with durable per-user incident history
 
 Checkout creates durable orders, order lines, customer-safe events, and account-ledger records.
 Physical inventory is reserved atomically and can be exhausted; the server rejects over-allocation,
@@ -23,8 +23,13 @@ The seed is deterministic and contains:
 - one active purchasing user for each distributor, with every order tied to its placing user
 - 18 catalog records, including one retired product and one fully quarantined product
 - inventory balances, order lines, events, shipments, and returns
+- three starter support incidents per user, with later conversations stored in D1
 
-Other-distributor records are never included in COV-E's authorized context.
+COV-E uses a typed, read-only query router for tenant-scoped order searches,
+shipments, returns, charge-account records, support incidents, and catalog or
+inventory questions. Other-distributor records are never included in its
+authorized context, and the model never receives a database handle or raw SQL
+capability.
 
 ## Local access
 

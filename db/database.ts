@@ -37,6 +37,7 @@ async function initializeDatabase() {
     .prepare("SELECT value FROM metadata WHERE key = 'schema_version'")
     .first<{ value: string }>();
   if (currentSeed?.value === SEED_VERSION) {
+    await seedSupportIncidents(db);
     if (currentSchema?.value !== SCHEMA_VERSION) {
       await db
         .prepare(`INSERT INTO metadata (key, value) VALUES (?, ?)
@@ -56,6 +57,7 @@ async function initializeDatabase() {
       .map((statement) => db.prepare(statement.sql).bind(...statement.params));
     await db.batch(batch);
   }
+  await seedSupportIncidents(db);
   await db.batch([
     db
       .prepare('INSERT INTO metadata (key, value) VALUES (?, ?)')
@@ -66,6 +68,92 @@ async function initializeDatabase() {
   ]);
   await db.prepare('PRAGMA optimize').run();
   return db;
+}
+
+async function seedSupportIncidents(db: D1Database) {
+  const markerKey = 'support_incidents_seed_version';
+  const marker = await db
+    .prepare('SELECT value FROM metadata WHERE key = ?')
+    .bind(markerKey)
+    .first<{ value: string }>();
+  if (marker?.value === '1') return;
+
+  const users = await db.prepare('SELECT user_id FROM users').all<{
+    user_id: string;
+  }>();
+  if (users.results.length === 0) return;
+
+  const templates = [
+    {
+      suffix: '01',
+      title: 'Priority shipment trace',
+      timestamp: '2026-09-03T08:42:00Z',
+      customer: 'Trace the priority shipment on our latest release.',
+      assistant:
+        'The latest priority release is allocated and queued for carrier handoff. I can provide the order-level milestones if you share the order number.',
+    },
+    {
+      suffix: '02',
+      title: 'Nerveline allocation',
+      timestamp: '2026-08-29T15:18:00Z',
+      customer: 'Check Nerveline hub availability for our account.',
+      assistant:
+        'I can check current Nerveline allocation, inbound quantities, and lead times against your authorized account.',
+    },
+    {
+      suffix: '03',
+      title: '2030 contract releases',
+      timestamp: '2026-08-24T11:06:00Z',
+      customer: 'Show our scheduled contract releases for 2030.',
+      assistant:
+        'Your 2030 releases can be reviewed by requested ship date, allocation state, or customer purchase order.',
+    },
+  ];
+  const statements: D1PreparedStatement[] = [];
+  for (const user of users.results) {
+    for (const template of templates) {
+      const incidentId = `INC-${user.user_id}-${template.suffix}`;
+      statements.push(
+        db
+          .prepare(`INSERT OR IGNORE INTO support_incidents (
+            incident_id, user_id, title, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?)`)
+          .bind(
+            incidentId,
+            user.user_id,
+            template.title,
+            template.timestamp,
+            template.timestamp,
+          ),
+        db
+          .prepare(`INSERT OR IGNORE INTO support_messages (
+            message_id, incident_id, sequence_number, role, content, created_at
+          ) VALUES (?, ?, 1, 'user', ?, ?)`)
+          .bind(
+            `MSG-${user.user_id}-${template.suffix}-01`,
+            incidentId,
+            template.customer,
+            template.timestamp,
+          ),
+        db
+          .prepare(`INSERT OR IGNORE INTO support_messages (
+            message_id, incident_id, sequence_number, role, content, created_at
+          ) VALUES (?, ?, 2, 'assistant', ?, ?)`)
+          .bind(
+            `MSG-${user.user_id}-${template.suffix}-02`,
+            incidentId,
+            template.assistant,
+            template.timestamp,
+          ),
+      );
+    }
+  }
+  statements.push(
+    db
+      .prepare('INSERT INTO metadata (key, value) VALUES (?, ?)')
+      .bind(markerKey, '1'),
+  );
+  await db.batch(statements);
 }
 
 async function migrateDistributorTable(db: D1Database) {

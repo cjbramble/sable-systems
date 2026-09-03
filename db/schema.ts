@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = '7';
+export const SCHEMA_VERSION = '8';
 export const SEED_VERSION = 'sable-distribution-2026-09-02-v7';
 
 export const USERS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS users (
@@ -39,6 +39,27 @@ export const ORDER_USER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_orders_place
 
 export const ORDER_HISTORY_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_orders_customer_created
   ON orders(customer_id, created_on DESC, order_id DESC)`;
+
+export const SUPPORT_INCIDENTS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS support_incidents (
+  incident_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 120),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+) STRICT`;
+
+export const SUPPORT_MESSAGES_TABLE_SQL = `CREATE TABLE IF NOT EXISTS support_messages (
+  message_id TEXT PRIMARY KEY,
+  incident_id TEXT NOT NULL REFERENCES support_incidents(incident_id) ON DELETE CASCADE,
+  sequence_number INTEGER NOT NULL CHECK (sequence_number > 0),
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  content TEXT NOT NULL CHECK (length(content) BETWEEN 1 AND 8000),
+  created_at TEXT NOT NULL,
+  UNIQUE (incident_id, sequence_number)
+) STRICT`;
+
+export const SUPPORT_INCIDENTS_USER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_support_incidents_user_updated
+  ON support_incidents(user_id, updated_at DESC)`;
 
 export const ORDER_USER_INSERT_TRIGGER_SQL = `CREATE TRIGGER IF NOT EXISTS orders_validate_user_insert
   BEFORE INSERT ON orders
@@ -98,6 +119,8 @@ export const schemaStatements = [
   USERS_TABLE_SQL,
   USER_CREDENTIALS_TABLE_SQL,
   SESSIONS_TABLE_SQL,
+  SUPPORT_INCIDENTS_TABLE_SQL,
+  SUPPORT_MESSAGES_TABLE_SQL,
   `CREATE TABLE IF NOT EXISTS products (
     item_number TEXT PRIMARY KEY,
     product_name TEXT NOT NULL,
@@ -213,6 +236,7 @@ export const schemaStatements = [
   ORDER_HISTORY_INDEX_SQL,
   ORDER_USER_INDEX_SQL,
   SESSIONS_USER_INDEX_SQL,
+  SUPPORT_INCIDENTS_USER_INDEX_SQL,
   `CREATE INDEX IF NOT EXISTS idx_order_items_item_number
     ON order_items(item_number)`,
   `CREATE INDEX IF NOT EXISTS idx_order_events_order_time
@@ -226,6 +250,8 @@ export const schemaStatements = [
 
 export const seedCleanupStatements = [
   'DELETE FROM sessions',
+  'DELETE FROM support_messages',
+  'DELETE FROM support_incidents',
   'DELETE FROM account_charges',
   'DELETE FROM return_items',
   'DELETE FROM returns',

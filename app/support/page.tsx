@@ -42,7 +42,6 @@ import type { AccountSummary } from '@/lib/contracts';
 import {
   createIncidentTitle,
   filterSupportIncidents,
-  parseStoredIncidents,
   removeSupportIncident,
   type SupportChatMessage,
   type SupportIncident,
@@ -75,69 +74,6 @@ const openingMessage: SupportChatMessage = {
   createdAt: 'Now',
 };
 
-const initialIncidents: SupportIncident[] = [
-  {
-    id: 'priority-shipment-trace',
-    title: 'Priority shipment trace',
-    updatedAt: 'Today',
-    messages: [
-      {
-        id: 'priority-customer',
-        role: 'user',
-        content: 'Trace the priority shipment on our latest release.',
-        createdAt: '8:42 AM',
-      },
-      {
-        id: 'priority-cove',
-        role: 'assistant',
-        content:
-          'The latest priority release is allocated and queued for carrier handoff. I can provide the order-level milestones if you share the order number.',
-        createdAt: '8:42 AM',
-      },
-    ],
-  },
-  {
-    id: 'nerveline-allocation',
-    title: 'Nerveline allocation',
-    updatedAt: 'Aug 29',
-    messages: [
-      {
-        id: 'nerveline-customer',
-        role: 'user',
-        content: 'Check Nerveline hub availability for our account.',
-        createdAt: '3:18 PM',
-      },
-      {
-        id: 'nerveline-cove',
-        role: 'assistant',
-        content:
-          'I can check current Nerveline allocation, inbound quantities, and lead times against your authorized account.',
-        createdAt: '3:18 PM',
-      },
-    ],
-  },
-  {
-    id: 'contract-releases-2030',
-    title: '2030 contract releases',
-    updatedAt: 'Aug 24',
-    messages: [
-      {
-        id: 'releases-customer',
-        role: 'user',
-        content: 'Show our scheduled contract releases for 2030.',
-        createdAt: '11:06 AM',
-      },
-      {
-        id: 'releases-cove',
-        role: 'assistant',
-        content:
-          'Your 2030 releases can be reviewed by requested ship date, allocation state, or customer purchase order.',
-        createdAt: '11:06 AM',
-      },
-    ],
-  },
-];
-
 function timestamp() {
   return new Intl.DateTimeFormat('en', {
     hour: 'numeric',
@@ -164,14 +100,14 @@ function createId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function createIncidentId() {
+  return `INC-${crypto.randomUUID().toUpperCase()}`;
+}
+
 export default function SupportPage() {
-  const [incidents, setIncidents] =
-    useState<SupportIncident[]>(initialIncidents);
-  const [activeIncidentId, setActiveIncidentId] = useState<string | null>(
-    initialIncidents[0].id,
-  );
+  const [incidents, setIncidents] = useState<SupportIncident[]>([]);
+  const [activeIncidentId, setActiveIncidentId] = useState<string | null>(null);
   const [incidentSearch, setIncidentSearch] = useState('');
-  const [incidentStorageReady, setIncidentStorageReady] = useState(false);
   const [draft, setDraft] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
@@ -216,30 +152,26 @@ export default function SupportPage() {
 
   useEffect(() => {
     let active = true;
-    fetch('/api/account', { cache: 'no-store' })
-      .then(async (response) => {
-        if (response.status === 401) {
+    Promise.all([
+      fetch('/api/account', { cache: 'no-store' }),
+      fetch('/api/incidents', { cache: 'no-store' }),
+    ])
+      .then(async ([accountResponse, incidentsResponse]) => {
+        if (accountResponse.status === 401 || incidentsResponse.status === 401) {
           redirectToLogin('/support');
           throw new Error('Authentication required');
         }
-        if (!response.ok) throw new Error('Account summary unavailable');
-        return (await response.json()) as AccountSummary;
+        if (!accountResponse.ok || !incidentsResponse.ok)
+          throw new Error('Support account data is unavailable');
+        return Promise.all([
+          accountResponse.json() as Promise<AccountSummary>,
+          incidentsResponse.json() as Promise<{ incidents: SupportIncident[] }>,
+        ]);
       })
-      .then((summary) => {
+      .then(([summary, incidentPayload]) => {
         if (active) {
-          const storageKey = `sable:support-incidents:${summary.userId}`;
-          let restored = initialIncidents;
-          try {
-            restored = parseStoredIncidents(
-              window.localStorage.getItem(storageKey),
-              initialIncidents,
-            );
-          } catch {
-            // Incident history remains usable in memory when storage is blocked.
-          }
-          setIncidents(restored);
-          setActiveIncidentId(restored[0]?.id ?? null);
-          setIncidentStorageReady(true);
+          setIncidents(incidentPayload.incidents);
+          setActiveIncidentId(incidentPayload.incidents[0]?.id ?? null);
           setAccount(summary);
           setAuthChecked(true);
         }
@@ -256,16 +188,6 @@ export default function SupportPage() {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isSending]);
 
-  useEffect(() => {
-    if (!account?.userId || !incidentStorageReady) return;
-    const storageKey = `sable:support-incidents:${account.userId}`;
-    try {
-      window.localStorage.setItem(storageKey, JSON.stringify(incidents));
-    } catch {
-      // Private browsing may block persistence; the current session still works.
-    }
-  }, [account?.userId, incidentStorageReady, incidents]);
-
   function newConversation() {
     if (
       activeIncident?.title === 'New service incident' &&
@@ -276,7 +198,7 @@ export default function SupportPage() {
       return;
     }
     const incident: SupportIncident = {
-      id: createId(),
+      id: createIncidentId(),
       title: 'New service incident',
       updatedAt: 'Now',
       messages: [openingMessage],
@@ -297,14 +219,35 @@ export default function SupportPage() {
     setMobileMenuOpen(false);
   }
 
-  function deleteIncident(incident: SupportIncident) {
+  async function deleteIncident(incident: SupportIncident) {
     if (!window.confirm(`Delete “${incident.title}”?`)) return;
-    const remaining = removeSupportIncident(incidents, incident.id);
-    setIncidents(remaining);
-    if (activeIncidentId === incident.id) {
-      setActiveIncidentId(remaining[0]?.id ?? null);
-      setDraft('');
+    try {
+      const response = await fetch('/api/incidents', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ incidentId: incident.id }),
+      });
+      if (response.status === 401) {
+        redirectToLogin('/support');
+        return;
+      }
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error || 'The incident could not be deleted.');
+      }
+      const remaining = removeSupportIncident(incidents, incident.id);
+      setIncidents(remaining);
+      if (activeIncidentId === incident.id) {
+        setActiveIncidentId(remaining[0]?.id ?? null);
+        setDraft('');
+      }
       setRequestError(null);
+    } catch (error) {
+      setRequestError(
+        error instanceof Error
+          ? error.message
+          : 'The incident could not be deleted.',
+      );
     }
   }
 
@@ -318,7 +261,7 @@ export default function SupportPage() {
       content,
       createdAt: timestamp(),
     };
-    const incidentId = activeIncident?.id ?? createId();
+    const incidentId = activeIncident?.id ?? createIncidentId();
     const nextMessages = [...messages, userMessage];
 
     if (activeIncident) {
@@ -358,6 +301,8 @@ export default function SupportPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          incidentId,
+          messageId: userMessage.id,
           messages: buildChatRequestHistory(nextMessages),
         }),
       });
@@ -508,7 +453,7 @@ export default function SupportPage() {
                 )}
                 aria-label={`Delete ${incident.title}`}
                 disabled={isSending && incident.id === activeIncidentId}
-                onClick={() => deleteIncident(incident)}
+                onClick={() => void deleteIncident(incident)}
               >
                 <Trash2 />
               </button>
