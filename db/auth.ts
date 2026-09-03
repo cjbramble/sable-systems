@@ -7,7 +7,7 @@ export type AuthenticatedUser = {
   distributorId: string;
   userDisplayName: string;
   email: string;
-  role: 'account_admin' | 'buyer' | 'support';
+  role: AccountRole;
   distributorDisplayName: string;
   accountTier: string;
   paymentTerms: string;
@@ -259,3 +259,4 @@ function bytesToBase64Url(bytes: Uint8Array) {
     .replace(/\//g, '_')
     .replace(/=+$/, '');
 }
+import type { AccountRole } from '@/lib/contracts';

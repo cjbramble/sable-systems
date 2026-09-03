@@ -25,51 +25,18 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import type {
+  OrderHistoryFilter,
+  OrderHistoryResponse,
+  OrderStatus,
+} from '@/lib/contracts';
+import { redirectToLogin, signOut } from '@/lib/client-session';
+import { formatCurrency, formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 import './orders.css';
 
-type OrderFilter = 'all' | 'active' | 'scheduled' | 'fulfilled' | 'closed';
-
-type Order = {
-  orderId: string;
-  customerPoNumber: string;
-  createdOn: string;
-  requestedShipDate: string;
-  status: string;
-  currency: string;
-  orderTotalCents: number;
-  shippingRegion: string;
-  placedByUserId: string;
-  placedByName: string;
-  lineCount: number;
-  unitCount: number;
-  shippedQuantity: number;
-};
-
-type OrderHistoryResponse = {
-  account: {
-    customerId: string;
-    displayName: string;
-    userDisplayName: string;
-    accountTier: string;
-    currency: string;
-    region: string;
-  };
-  orders: Order[];
-  page: number;
-  pageSize: number;
-  total: number;
-  totalPages: number;
-  summary: {
-    totalOrders: number;
-    activeOrders: number;
-    scheduledOrders: number;
-    fulfilledOrders: number;
-  };
-};
-
-const filters: { value: OrderFilter; label: string }[] = [
+const filters: { value: OrderHistoryFilter; label: string }[] = [
   { value: 'all', label: 'All orders' },
   { value: 'active', label: 'Active' },
   { value: 'scheduled', label: 'Scheduled' },
@@ -77,28 +44,11 @@ const filters: { value: OrderFilter; label: string }[] = [
   { value: 'closed', label: 'Closed' },
 ];
 
-function formatMoney(cents: number, currency: string) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    maximumFractionDigits: 0,
-  }).format(cents / 100);
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: '2-digit',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(new Date(`${value.slice(0, 10)}T00:00:00Z`));
-}
-
-function statusLabel(status: string) {
+function statusLabel(status: OrderStatus) {
   return status.replaceAll('_', ' ');
 }
 
-function statusTone(status: string) {
+function statusTone(status: OrderStatus) {
   if (status === 'delivered') return 'is-fulfilled';
   if (status === 'scheduled') return 'is-scheduled';
   if (status === 'cancelled' || status === 'on_hold') return 'is-closed';
@@ -107,7 +57,7 @@ function statusTone(status: string) {
 
 export default function OrdersPage() {
   const [data, setData] = useState<OrderHistoryResponse | null>(null);
-  const [filter, setFilter] = useState<OrderFilter>('all');
+  const [filter, setFilter] = useState<OrderHistoryFilter>('all');
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState('');
   const [query, setQuery] = useState('');
@@ -131,7 +81,7 @@ export default function OrdersPage() {
           error?: string;
         };
         if (response.status === 401) {
-          window.location.replace('/login?next=/orders');
+          redirectToLogin('/orders');
           throw new Error('Authentication required.');
         }
         if (!response.ok)
@@ -168,7 +118,7 @@ export default function OrdersPage() {
     setQuery(nextQuery);
   }
 
-  function chooseFilter(nextFilter: OrderFilter) {
+  function chooseFilter(nextFilter: OrderHistoryFilter) {
     if (nextFilter === filter && page === 1) return;
     setLoading(true);
     setError('');
@@ -180,11 +130,6 @@ export default function OrdersPage() {
     setLoading(true);
     setError('');
     setPage(nextPage);
-  }
-
-  async function signOut() {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    window.location.replace('/login');
   }
 
   if (!data && loading) {
@@ -392,7 +337,7 @@ export default function OrdersPage() {
                         </span>
                       </TableCell>
                       <TableCell className="orders-money">
-                        {formatMoney(order.orderTotalCents, order.currency)}
+                        {formatCurrency(order.orderTotalCents, order.currency, 0)}
                       </TableCell>
                     </TableRow>
                   ))}

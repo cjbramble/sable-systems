@@ -6,6 +6,9 @@ import { cn } from '@/lib/utils';
 
 function Label({ className, ...props }: React.ComponentProps<'label'>) {
   return (
+    // A generic label primitive cannot know whether callers associate it with
+    // htmlFor or by nesting the control.
+    // oxlint-disable-next-line jsx-a11y/label-has-associated-control
     <label
       data-slot="label"
       className={cn(

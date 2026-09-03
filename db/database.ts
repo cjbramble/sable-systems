@@ -36,11 +36,17 @@ async function initializeDatabase() {
   const currentSchema = await db
     .prepare("SELECT value FROM metadata WHERE key = 'schema_version'")
     .first<{ value: string }>();
-  if (
-    currentSeed?.value === SEED_VERSION &&
-    currentSchema?.value === SCHEMA_VERSION
-  )
+  if (currentSeed?.value === SEED_VERSION) {
+    if (currentSchema?.value !== SCHEMA_VERSION) {
+      await db
+        .prepare(`INSERT INTO metadata (key, value) VALUES (?, ?)
+          ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+        .bind('schema_version', SCHEMA_VERSION)
+        .run();
+      await db.prepare('PRAGMA optimize').run();
+    }
     return db;
+  }
 
   await db.batch(seedCleanupStatements.map((sql) => db.prepare(sql)));
   const seedStatements = buildSeedStatements();

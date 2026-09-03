@@ -73,5 +73,17 @@ Validate the deterministic data contract with:
 npm run validate:data
 ```
 
+Run the complete local quality gate with:
+
+```bash
+npm run check
+```
+
+Schema upgrades and fixture changes have separate version markers. Increment
+`SCHEMA_VERSION` for migration-backed structure changes; increment
+`SEED_VERSION` only when an intentional deterministic fixture rebuild is
+required. This keeps orders placed through the application intact during
+ordinary schema upgrades.
+
 Model logs are written to `reports/server-logs/llama-server.log`. Local D1 state and generated
 runtime files remain under the ignored `.wrangler` directory.

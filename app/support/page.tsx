@@ -35,6 +35,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { buildChatRequestHistory } from '@/lib/chat-history';
+import { redirectToLogin, signOut } from '@/lib/client-session';
+import type { AccountSummary } from '@/lib/contracts';
 import { cn } from '@/lib/utils';
 
 type ChatMessage = {
@@ -55,19 +57,6 @@ class ChatRequestError extends Error {
     this.name = 'ChatRequestError';
   }
 }
-
-type AccountSummary = {
-  customerId: string;
-  displayName: string;
-  region: string;
-  userDisplayName: string;
-  userRole: string;
-  totalOrders: number;
-  activeOrders: number;
-  scheduledOrders: number;
-  inventoryAlerts: number;
-  asOfDate: string;
-};
 
 const starterPrompts = [
   'Help me trace an order',
@@ -152,7 +141,7 @@ export default function SupportPage() {
     fetch('/api/account', { cache: 'no-store' })
       .then(async (response) => {
         if (response.status === 401) {
-          window.location.replace('/login?next=/support');
+          redirectToLogin('/support');
           throw new Error('Authentication required');
         }
         if (!response.ok) throw new Error('Account summary unavailable');
@@ -215,7 +204,7 @@ export default function SupportPage() {
         error?: string;
       };
       if (response.status === 401) {
-        window.location.replace('/login?next=/support');
+        redirectToLogin('/support');
         return;
       }
       if (!response.ok) {
@@ -265,11 +254,6 @@ export default function SupportPage() {
       event.preventDefault();
       void sendMessage();
     }
-  }
-
-  async function signOut() {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    window.location.replace('/login');
   }
 
   if (!authChecked) {

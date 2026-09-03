@@ -6,28 +6,9 @@ import { ArrowLeft, ArrowRight, LockKeyhole, ShieldCheck } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { isCatalogCategory } from '@/lib/catalog-categories';
+import { safeLoginDestination } from '@/lib/auth-navigation';
 
-function requestedDestination() {
-  if (typeof window === 'undefined') return '/shop';
-  const next = new URLSearchParams(window.location.search).get('next');
-  if (next === '/support' || next === '/shop' || next === '/orders') return next;
-  if (!next) return '/shop';
-
-  const destination = new URL(next, 'http://sable.local');
-  const category = destination.searchParams.get('category');
-  const queryKeys = Array.from(destination.searchParams.keys());
-  if (
-    destination.origin === 'http://sable.local' &&
-    destination.pathname === '/shop' &&
-    queryKeys.length === 1 &&
-    queryKeys[0] === 'category' &&
-    isCatalogCategory(category)
-  ) {
-    return `/shop?category=${encodeURIComponent(category)}`;
-  }
-  return '/shop';
-}
+const requestedDestination = () => safeLoginDestination(window.location.search);
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');

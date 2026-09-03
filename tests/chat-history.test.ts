@@ -6,6 +6,10 @@ import {
   MAX_CHAT_REQUEST_MESSAGES,
   type ChatHistoryMessage,
 } from '../lib/chat-history.ts';
+import {
+  MAX_CHAT_MESSAGE_LENGTH,
+  parseChatMessages,
+} from '../lib/chat-request.ts';
 
 void test('drops the canned assistant greeting from a new request', () => {
   const history = buildChatRequestHistory([
@@ -47,5 +51,45 @@ void test('does not build a request unless the latest message is from the custom
   assert.deepEqual(
     buildChatRequestHistory([{ role: 'assistant', content: 'Welcome' }]),
     [],
+  );
+});
+
+void test('validates and normalizes the server chat payload', () => {
+  assert.deepEqual(
+    parseChatMessages([
+      { role: 'assistant', content: '  Prior answer  ' },
+      { role: 'user', content: '  Trace this order  ' },
+    ]),
+    [
+      { role: 'assistant', content: 'Prior answer' },
+      { role: 'user', content: 'Trace this order' },
+    ],
+  );
+});
+
+void test('rejects malformed, oversized, and assistant-final payloads', () => {
+  assert.equal(parseChatMessages([]), null);
+  assert.equal(parseChatMessages([{ role: 'user', content: '   ' }]), null);
+  assert.equal(
+    parseChatMessages([
+      { role: 'user', content: 'Question' },
+      { role: 'assistant', content: 'Answer' },
+    ]),
+    null,
+  );
+  assert.equal(
+    parseChatMessages([
+      { role: 'user', content: 'x'.repeat(MAX_CHAT_MESSAGE_LENGTH + 1) },
+    ]),
+    null,
+  );
+  assert.equal(
+    parseChatMessages(
+      Array.from({ length: MAX_CHAT_REQUEST_MESSAGES + 1 }, () => ({
+        role: 'user',
+        content: 'Question',
+      })),
+    ),
+    null,
   );
 });

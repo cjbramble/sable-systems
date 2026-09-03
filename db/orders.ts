@@ -1,4 +1,10 @@
 import type { AuthenticatedUser } from './auth';
+import type {
+  OrderHistoryEntry,
+  OrderHistoryFilter,
+  OrderHistoryResponse,
+  OrderStatus,
+} from '@/lib/contracts';
 
 export const ORDER_HISTORY_PAGE_SIZE = 25;
 
@@ -10,14 +16,12 @@ export const ORDER_HISTORY_FILTERS = [
   'closed',
 ] as const;
 
-export type OrderHistoryFilter = (typeof ORDER_HISTORY_FILTERS)[number];
-
 type OrderRow = {
   order_id: string;
   customer_po_number: string;
   created_on: string;
   requested_ship_date: string;
-  status: string;
+  status: OrderStatus;
   currency: string;
   order_total_cents: number;
   shipping_region: string;
@@ -33,22 +37,6 @@ type CountRow = {
   active_orders: number;
   scheduled_orders: number;
   fulfilled_orders: number;
-};
-
-export type OrderHistoryEntry = {
-  orderId: string;
-  customerPoNumber: string;
-  createdOn: string;
-  requestedShipDate: string;
-  status: string;
-  currency: string;
-  orderTotalCents: number;
-  shippingRegion: string;
-  placedByUserId: string;
-  placedByName: string;
-  lineCount: number;
-  unitCount: number;
-  shippedQuantity: number;
 };
 
 export type OrderHistoryInput = {
@@ -99,7 +87,7 @@ export async function getOrderHistory(
   db: D1Database,
   user: AuthenticatedUser,
   input: OrderHistoryInput,
-) {
+): Promise<OrderHistoryResponse> {
   const statusSql = statusClause(input.status);
   const searchSql = input.query
     ? `AND (

@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = '6';
+export const SCHEMA_VERSION = '7';
 export const SEED_VERSION = 'sable-distribution-2026-09-02-v7';
 
 export const USERS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS users (

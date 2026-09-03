@@ -1,16 +1,10 @@
 import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { buildAuthorizedContext } from '@/db/support';
-
-type ClientMessage = {
-  role: 'user' | 'assistant';
-  content: string;
-};
+import { parseChatMessages } from '@/lib/chat-request';
 
 const MODEL_SERVER_URL = 'http://127.0.0.1:8017/v1/chat/completions';
 const MODEL_ALIAS = 'customer-support-local';
-const MAX_MESSAGES = 12;
-const MAX_MESSAGE_LENGTH = 4_000;
 
 const systemPrompt = (distributorName: string, distributorId: string) => `You are COV-E, the Customer Operations and Verification Entity for SABLE Systems, a consumer and wholesale technology division of Morrow Vale Holdings.
 
@@ -26,33 +20,6 @@ You are serving exactly one authenticated distributor: ${distributorName}, custo
 - Use short paragraphs. Use a brief numbered list only when it makes next steps clearer.
 - Refer to yourself as COV-E and to the supplier as SABLE Systems.`;
 
-function parseMessages(value: unknown): ClientMessage[] | null {
-  if (
-    !Array.isArray(value) ||
-    value.length === 0 ||
-    value.length > MAX_MESSAGES
-  )
-    return null;
-
-  const messages: ClientMessage[] = [];
-  for (const item of value) {
-    if (!item || typeof item !== 'object') return null;
-    const candidate = item as Record<string, unknown>;
-    if (
-      (candidate.role !== 'user' && candidate.role !== 'assistant') ||
-      typeof candidate.content !== 'string'
-    )
-      return null;
-
-    const content = candidate.content.trim();
-    if (!content || content.length > MAX_MESSAGE_LENGTH) return null;
-    messages.push({ role: candidate.role, content });
-  }
-
-  if (messages.at(-1)?.role !== 'user') return null;
-  return messages;
-}
-
 export async function POST(request: Request) {
   if (!isTrustedMutation(request))
     return Response.json({ error: 'Cross-origin access denied.' }, { status: 403 });
@@ -66,7 +33,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const messages = parseMessages(
+  const messages = parseChatMessages(
     body && typeof body === 'object'
       ? (body as Record<string, unknown>).messages
       : null,

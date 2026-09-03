@@ -44,38 +44,17 @@ import {
   isCatalogCategory,
   type CatalogCategory,
 } from '@/lib/catalog-categories';
+import type { AccountSummary, CatalogProduct } from '@/lib/contracts';
+import { redirectToLogin, signOut } from '@/lib/client-session';
+import { formatCurrency } from '@/lib/format';
 
 type ShopCategory = 'All' | CatalogCategory;
-
-type Product = {
-  itemNumber: string;
-  name: string;
-  category: string;
-  fulfillmentType: 'physical' | 'license';
-  unitPriceCents: number;
-  unitLabel: string;
-  casePack: number;
-  leadTimeDays: number;
-  warrantyMonths: number;
-  availableQuantity: number | null;
-  inboundQuantity: number;
-  restockDate: string | null;
-};
 
 type Confirmation = {
   orderId: string;
   authorizationCode: string;
   totalCents: number;
   requestedShipDate: string;
-};
-
-type AccountIdentity = {
-  customerId: string;
-  displayName: string;
-  userDisplayName: string;
-  paymentTerms: string;
-  currency: string;
-  region: string;
 };
 
 const categoryIcons = {
@@ -99,13 +78,7 @@ const productNotes: Record<string, string> = {
   'SBL-RLY-1Y': 'Encrypted node orchestration across unreliable links.',
 };
 
-function money(cents: number) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(cents / 100);
-}
+const money = (cents: number) => formatCurrency(cents, 'USD', 0);
 
 function dateOffset(days: number) {
   const date = new Date();
@@ -113,9 +86,24 @@ function dateOffset(days: number) {
   return date.toISOString().slice(0, 10);
 }
 
+async function requestCatalog() {
+  const response = await fetch('/api/catalog', { cache: 'no-store' });
+  const payload = (await response.json()) as {
+    products?: CatalogProduct[];
+    error?: string;
+  };
+  if (response.status === 401) {
+    redirectToLogin('/shop');
+    return null;
+  }
+  if (!response.ok || !payload.products)
+    throw new Error(payload.error || 'Catalog unavailable.');
+  return payload.products;
+}
+
 export default function ShopPage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [account, setAccount] = useState<AccountIdentity | null>(null);
+  const [products, setProducts] = useState<CatalogProduct[]>([]);
+  const [account, setAccount] = useState<AccountSummary | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -133,18 +121,9 @@ export default function ShopPage() {
 
   const loadCatalog = useCallback(async () => {
     try {
-      const response = await fetch('/api/catalog', { cache: 'no-store' });
-      const payload = (await response.json()) as {
-        products?: Product[];
-        error?: string;
-      };
-      if (response.status === 401) {
-        window.location.replace('/login?next=/shop');
-        return;
-      }
-      if (!response.ok || !payload.products)
-        throw new Error(payload.error || 'Catalog unavailable.');
-      setProducts(payload.products);
+      const nextProducts = await requestCatalog();
+      if (!nextProducts) return;
+      setProducts(nextProducts);
       setLoadError('');
     } catch (error) {
       setLoadError(
@@ -157,22 +136,9 @@ export default function ShopPage() {
 
   useEffect(() => {
     let active = true;
-    fetch('/api/catalog', { cache: 'no-store' })
-      .then(async (response) => {
-        const payload = (await response.json()) as {
-          products?: Product[];
-          error?: string;
-        };
-        if (response.status === 401) {
-          window.location.replace('/login?next=/shop');
-          throw new Error('Authentication required.');
-        }
-        if (!response.ok || !payload.products)
-          throw new Error(payload.error || 'Catalog unavailable.');
-        return payload.products;
-      })
+    requestCatalog()
       .then((nextProducts) => {
-        if (!active) return;
+        if (!active || !nextProducts) return;
         const requestedCategory = new URLSearchParams(
           window.location.search,
         ).get('category');
@@ -201,11 +167,11 @@ export default function ShopPage() {
     fetch('/api/account', { cache: 'no-store' })
       .then(async (response) => {
         if (response.status === 401) {
-          window.location.replace('/login?next=/shop');
+          redirectToLogin('/shop');
           throw new Error('Authentication required.');
         }
         if (!response.ok) throw new Error('Account unavailable.');
-        return (await response.json()) as AccountIdentity;
+        return (await response.json()) as AccountSummary;
       })
       .then((identity) => {
         if (active) {
@@ -252,7 +218,7 @@ export default function ShopPage() {
     0,
   );
 
-  function changeQuantity(product: Product, delta: number) {
+  function changeQuantity(product: CatalogProduct, delta: number) {
     setCart((current) => {
       const nextQuantity = Math.max(
         0,
@@ -314,7 +280,7 @@ export default function ShopPage() {
         error?: string;
       };
       if (response.status === 401) {
-        window.location.replace('/login?next=/shop');
+        redirectToLogin('/shop');
         return;
       }
       if (!response.ok)
@@ -332,11 +298,6 @@ export default function ShopPage() {
     } finally {
       setSubmitting(false);
     }
-  }
-
-  async function signOut() {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    window.location.replace('/login');
   }
 
   if (!authChecked) {

@@ -1,19 +1,5 @@
 import type { AuthenticatedUser } from './auth';
-
-export type CatalogProduct = {
-  itemNumber: string;
-  name: string;
-  category: string;
-  fulfillmentType: 'physical' | 'license';
-  unitPriceCents: number;
-  unitLabel: string;
-  casePack: number;
-  leadTimeDays: number;
-  warrantyMonths: number;
-  availableQuantity: number | null;
-  inboundQuantity: number;
-  restockDate: string | null;
-};
+import type { CatalogProduct } from '@/lib/contracts';
 
 type CheckoutLine = { itemNumber: string; quantity: number };
 type CheckoutInput = {
@@ -196,7 +182,8 @@ export async function placeChargeAccountOrder(
   }
 
   const year = today.slice(0, 4);
-  const orderId = `SBL-${year}-${800000 + Math.floor(Math.random() * 100000)}`;
+  const randomValue = crypto.getRandomValues(new Uint32Array(1))[0];
+  const orderId = `SBL-${year}-${800000 + (randomValue % 200000)}`;
   const chargeId = `CHG-${crypto.randomUUID().slice(0, 12).toUpperCase()}`;
   const authorizationCode = `ACC-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
   const createdAt = `${today}T12:00:00Z`;
@@ -268,9 +255,18 @@ export async function placeChargeAccountOrder(
     await db.batch(statements);
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
-    if (message.includes('UNIQUE')) {
+    if (
+      message.includes('UNIQUE') &&
+      message.includes('customer_po_number')
+    ) {
       throw new CheckoutError(
         'That purchase-order reference is already in use.',
+        409,
+      );
+    }
+    if (message.includes('UNIQUE')) {
+      throw new CheckoutError(
+        'An order reference conflict occurred. Submit the order again.',
         409,
       );
     }

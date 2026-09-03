@@ -1,22 +1,7 @@
 import type { AuthenticatedUser } from './auth';
 import { AS_OF_DATE } from './seed';
-
-type AccountSummary = {
-  customerId: string;
-  displayName: string;
-  accountTier: string;
-  userId: string;
-  userDisplayName: string;
-  userRole: string;
-  paymentTerms: string;
-  currency: string;
-  region: string;
-  totalOrders: number;
-  activeOrders: number;
-  scheduledOrders: number;
-  inventoryAlerts: number;
-  asOfDate: string;
-};
+import type { AccountSummary } from '@/lib/contracts';
+import { formatCurrency } from '@/lib/format';
 
 type ProductRow = {
   item_number: string;
@@ -154,9 +139,9 @@ Authorization: ${user.distributorDisplayName} (${user.distributorId}) only.
 Order: ${order.order_id}; customer PO: ${order.customer_po_number}; status: ${order.status}.
 Placed by: ${order.placed_by_name} (${order.placed_by_user_id}).
 Created: ${order.created_on}; requested ship date: ${order.requested_ship_date}; destination: ${order.shipping_region}.
-Order total: ${money(Number(order.order_total_cents), String(order.currency))}.
+Order total: ${formatCurrency(Number(order.order_total_cents), String(order.currency))}.
 Lines:
-${items.results.map((item) => `- ${item.item_number} ${item.product_name_snapshot}: ordered ${item.ordered_quantity}, allocated ${item.allocated_quantity}, shipped ${item.shipped_quantity}, cancelled ${item.cancelled_quantity}; price ${money(Number(item.unit_price_cents), String(order.currency))} per unit.`).join('\n')}
+${items.results.map((item) => `- ${item.item_number} ${item.product_name_snapshot}: ordered ${item.ordered_quantity}, allocated ${item.allocated_quantity}, shipped ${item.shipped_quantity}, cancelled ${item.cancelled_quantity}; price ${formatCurrency(Number(item.unit_price_cents), String(order.currency))} per unit.`).join('\n')}
 Shipments:
 ${shipments.results.length ? shipments.results.map((shipment) => `- ${shipment.shipment_id}: ${shipment.status}; ${shipment.carrier_name}; tracking ${shipment.tracking_reference}; shipped ${shipment.shipped_on ?? 'not yet'}; estimated delivery ${shipment.estimated_delivery_date ?? 'not assigned'}; delivered ${shipment.delivered_on ?? 'not yet'}.`).join('\n') : '- No shipment record yet.'}
 Recent customer-safe events:
@@ -175,7 +160,7 @@ async function scheduledOrderContext(db: D1Database, user: AuthenticatedUser) {
     .all<Record<string, string | number>>();
   return `<authorized_records>
 Upcoming ${user.distributorDisplayName} releases after ${AS_OF_DATE}:
-${rows.results.map((row) => `- ${row.order_id} / ${row.customer_po_number}: ${row.status}; requested ${row.requested_ship_date}; ${money(Number(row.order_total_cents), String(row.currency))}.`).join('\n')}
+${rows.results.map((row) => `- ${row.order_id} / ${row.customer_po_number}: ${row.status}; requested ${row.requested_ship_date}; ${formatCurrency(Number(row.order_total_cents), String(row.currency))}.`).join('\n')}
 </authorized_records>`;
 }
 
@@ -199,7 +184,7 @@ async function productContext(db: D1Database, product: ProductRow) {
   if (product.fulfillment_type === 'license') {
     return `<authorized_records>
 Product: ${product.item_number} — ${product.product_name}; category ${product.category}.
-Wholesale price: ${money(product.unit_price_cents, 'USD')} per ${product.unit_label}; minimum block ${product.case_pack}.
+Wholesale price: ${formatCurrency(product.unit_price_cents)} per ${product.unit_label}; minimum block ${product.case_pack}.
 This is a digitally allocated license and does not have a physical stock balance.
 </authorized_records>`;
   }
@@ -220,7 +205,7 @@ This is a digitally allocated license and does not have a physical stock balance
     Number(inventory?.quarantined ?? 0);
   return `<authorized_records>
 Product: ${product.item_number} — ${product.product_name}; category ${product.category}.
-Wholesale price: ${money(product.unit_price_cents, 'USD')} per ${product.unit_label}; case pack ${product.case_pack}; standard lead time ${product.lead_time_days} days.
+Wholesale price: ${formatCurrency(product.unit_price_cents)} per ${product.unit_label}; case pack ${product.case_pack}; standard lead time ${product.lead_time_days} days.
 Available to promise as of ${AS_OF_DATE}: ${available}. Inbound: ${inventory?.inbound ?? 0}. Expected restock: ${inventory?.expected_restock_date ?? 'none scheduled'}.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
 </authorized_records>`;
@@ -243,10 +228,4 @@ Current SABLE physical inventory advisories as of ${AS_OF_DATE}:
 ${rows.results.map((row) => `- ${row.item_number} ${row.product_name}: ${row.available} available; ${row.inbound} inbound; restock ${row.restock ?? 'not scheduled'}.`).join('\n')}
 Ask which item the customer wants if a specific availability decision is required.
 </authorized_records>`;
-}
-
-function money(cents: number, currency: string) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(
-    cents / 100,
-  );
 }

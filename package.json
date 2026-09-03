@@ -10,7 +10,10 @@
     "dev:web": "vinext dev --hostname 127.0.0.1 --port 8016",
     "build": "vinext build",
     "validate:data": "node --experimental-strip-types scripts/validate-seed.mjs",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
     "test:chat-history": "node --experimental-strip-types --test tests/chat-history.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run lint && npm run typecheck && npm test && npm run validate:data && npm run build",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
     "format": "oxfmt"

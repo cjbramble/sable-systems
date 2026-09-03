@@ -14,6 +14,7 @@ import {
 
 import { getAuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
+import { loginHref } from '@/lib/auth-navigation';
 import {
   CATALOG_CATEGORIES,
   type CatalogCategory,
@@ -49,14 +50,14 @@ export default async function Home() {
   } catch {
     // The public landing page remains available when account storage is offline.
   }
-  const shopHref = authenticated ? '/shop' : '/login?next=/shop';
-  const supportHref = authenticated ? '/support' : '/login?next=/support';
-  const ordersHref = authenticated ? '/orders' : '/login?next=/orders';
+  const shopHref = authenticated ? '/shop' : loginHref('/shop');
+  const supportHref = authenticated ? '/support' : loginHref('/support');
+  const ordersHref = authenticated ? '/orders' : loginHref('/orders');
   const categoryHref = (category: CatalogCategory) => {
     const destination = `/shop?category=${encodeURIComponent(category)}`;
     return authenticated
       ? destination
-      : `/login?next=${encodeURIComponent(destination)}`;
+      : loginHref(destination);
   };
 
   return (
