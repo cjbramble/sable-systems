@@ -11,6 +11,7 @@
     "build": "vinext build",
     "validate:data": "node --experimental-strip-types scripts/validate-seed.mjs",
     "test": "vitest run",
+    "test:model": "node scripts/test-support-model.mjs",
     "typecheck": "tsc --noEmit",
     "check": "npm run lint && npm run typecheck && npm test && npm run validate:data && npm run build",
     "start": "wrangler dev --config dist/server/wrangler.json",
