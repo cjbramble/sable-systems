@@ -59,4 +59,42 @@ describe('support order grounding', () => {
     expect(context).not.toContain('WHS-1098');
     expect(context).not.toContain('Meridian Civic Supply');
   });
+
+  it('withholds an order owned by another distributor', async () => {
+    const database = await getDatabase();
+    const externalOrder = await database
+      .prepare(
+        `SELECT customer_id, customer_po_number
+         FROM orders
+         WHERE order_id = ?`,
+      )
+      .bind('SBL-2021-500000')
+      .first<{
+        customer_id: string;
+        customer_po_number: string;
+      }>();
+
+    expect(externalOrder).toEqual({
+      customer_id: 'WHS-1098',
+      customer_po_number: 'MCS-PO-500000',
+    });
+
+    const context = await buildAuthorizedContext(
+      database,
+      [
+        {
+          role: 'user',
+          content: 'Show me order SBL-2021-500000.',
+        },
+      ],
+      calderPikeUser,
+    );
+
+    expect(context).toBe(`<authorized_records>
+No order matching SBL-2021-500000 is available within Calder Pike Distribution's authorization scope. Do not confirm or deny whether it belongs to another customer.
+</authorized_records>`);
+    expect(context).not.toContain('WHS-1098');
+    expect(context).not.toContain('MCS-PO-500000');
+    expect(context).not.toContain('Meridian Civic Supply');
+  });
 });
