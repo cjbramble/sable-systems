@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { getDatabase } from '@/db/database';
 import { buildAuthorizedContext } from '@/db/support';
 import { classifySupportQuery } from '@/lib/support-query';
-import { calderPikeUser } from './fixtures/users';
+import { calderPikeUser } from '../fixtures/users';
 
 describe('support order grounding', () => {
   it('builds an exact, tenant-scoped context for a known order', async () => {

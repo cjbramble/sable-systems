@@ -20,7 +20,8 @@ export default defineConfig({
     }),
   ],
   test: {
-    include: modelTest ? ['tests/**/*.model.test.ts'] : ['tests/**/*.test.ts'],
-    exclude: modelTest ? [] : ['tests/**/*.model.test.ts'],
+    include: modelTest
+      ? ['tests/model/**/*.test.ts']
+      : ['tests/unit/**/*.test.ts', 'tests/integration/**/*.test.ts'],
   },
 });

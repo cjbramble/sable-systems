@@ -1,0 +1,130 @@
+import { describe, expect, it } from 'vitest';
+
+import { getDatabase } from '@/db/database';
+import { buildAuthorizedContext } from '@/db/support';
+import {
+  createSupportModelRequest,
+  extractSupportModelContent,
+} from '@/lib/support-model';
+import { calderPikeUser } from '../fixtures/users';
+
+function claimsMatching(value: string, pattern: RegExp) {
+  return new Set(value.match(pattern) ?? []);
+}
+
+const factualClaimPatterns = [
+  /\bSBL-\d{4}-\d{6}\b/g,
+  /\b[A-Z]{3}-(?:PO|REL)-\d{6}\b/g,
+  /\$\d[\d,]*(?:\.\d{2})?/g,
+  /\b20\d{2}-\d{2}-\d{2}\b/g,
+];
+
+function expectClaimsToComeFromContext(answer: string, context: string) {
+  for (const pattern of factualClaimPatterns) {
+    const authorizedClaims = claimsMatching(context, pattern);
+    for (const claim of claimsMatching(answer, pattern))
+      expect(authorizedClaims.has(claim), `Unsupported claim: ${claim}`).toBe(
+        true,
+      );
+  }
+}
+
+async function askSupportModel(
+  messages: Array<{ role: 'user'; content: string }>,
+  seed: number,
+) {
+  const database = await getDatabase();
+  const authorizedContext = await buildAuthorizedContext(
+    database,
+    messages,
+    calderPikeUser,
+  );
+  const [modelUrl, modelRequest] = createSupportModelRequest({
+    distributorName: calderPikeUser.distributorDisplayName,
+    distributorId: calderPikeUser.distributorId,
+    authorizedContext,
+    messages,
+    generation: {
+      temperature: 0,
+      topP: 1,
+      maxTokens: 300,
+      seed,
+    },
+  });
+
+  const response = await fetch(modelUrl, modelRequest);
+  expect(response.ok).toBe(true);
+  const answer = extractSupportModelContent(await response.json());
+  expect(answer).not.toBeNull();
+
+  return { answer: answer ?? '', authorizedContext, database };
+}
+
+describe('support model factuality', () => {
+  it('uses only authorized identifiers, amounts, and dates for an exact order', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content: 'What is the status of SBL-2026-000417?',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 417);
+
+    expect(answer).toContain('SBL-2026-000417');
+    expect(answer).toMatch(/partially[_ -]shipped/i);
+    expect(answer).not.toMatch(/WHS-1098|Meridian Civic Supply/i);
+
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
+  it('abstains without inventing facts for an unknown order', async () => {
+    const unknownOrderId = 'SBL-2031-999999';
+    const messages = [
+      {
+        role: 'user' as const,
+        content: `What is the status of ${unknownOrderId}?`,
+      },
+    ];
+    const { answer, authorizedContext, database } = await askSupportModel(
+      messages,
+      999_999,
+    );
+    const existingOrder = await database
+      .prepare('SELECT order_id FROM orders WHERE order_id = ?')
+      .bind(unknownOrderId)
+      .first<{ order_id: string }>();
+
+    expect(existingOrder).toBeNull();
+    expect(authorizedContext).toBe(`<authorized_records>
+No order matching ${unknownOrderId} is available within Calder Pike Distribution's authorization scope. Do not confirm or deny whether it belongs to another customer.
+</authorized_records>`);
+    expect(answer).toContain(unknownOrderId);
+
+    const normalizedAnswer = answer.toLowerCase();
+    expect(
+      [
+        'cannot locate',
+        "can't locate",
+        'can’t locate',
+        'unable to locate',
+        'could not locate',
+        'cannot find',
+        'unable to find',
+        'no order matching',
+        'no matching order',
+        'not available within',
+      ].some((phrase) => normalizedAnswer.includes(phrase)),
+      `Expected an authorization-scoped abstention, received: ${answer}`,
+    ).toBe(true);
+    expect(answer).not.toMatch(
+      /(?:status(?:\s+is|:)|marked as|currently|order\s+(?:is|was))\s+(?:scheduled|confirmed|allocating|backordered|partially[_ -]shipped|shipped|delivered|on[_ -]hold|cancelled)\b/i,
+    );
+    expect(answer).not.toMatch(
+      /\b(?:does not|doesn't|doesn’t)\s+belong\b|\bbelongs?\s+to\s+(?:another|a different)\b/i,
+    );
+    expect(answer).not.toMatch(
+      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
+    );
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+});
