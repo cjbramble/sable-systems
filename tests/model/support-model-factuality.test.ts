@@ -318,4 +318,55 @@ No shipment matching ${externalShipment.shipment_id} is available within Calder 
     );
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
+
+  it('abstains without inventing facts for an unknown return', async () => {
+    const unknownReturnId = 'RTN-2031-999999';
+    const messages = [
+      {
+        role: 'user' as const,
+        content: `What is the status of return ${unknownReturnId}?`,
+      },
+    ];
+    const { answer, authorizedContext, database } = await askSupportModel(
+      messages,
+      999_014,
+    );
+    const existingReturn = await database
+      .prepare('SELECT return_id FROM returns WHERE return_id = ?')
+      .bind(unknownReturnId)
+      .first<{ return_id: string }>();
+
+    expect(existingReturn).toBeNull();
+    expect(authorizedContext).toBe(`<authorized_records>
+No return matching ${unknownReturnId} is available within Calder Pike Distribution's authorization scope. Do not confirm or deny whether it belongs to another customer.
+</authorized_records>`);
+    expect(answer).toContain(unknownReturnId);
+
+    const normalizedAnswer = answer.toLowerCase();
+    expect(
+      [
+        'cannot locate',
+        "can't locate",
+        'can’t locate',
+        'unable to locate',
+        'could not locate',
+        'cannot find',
+        'unable to find',
+        'no return matching',
+        'no matching return',
+        'not available within',
+      ].some((phrase) => normalizedAnswer.includes(phrase)),
+      `Expected an authorization-scoped abstention, received: ${answer}`,
+    ).toBe(true);
+    expect(answer).not.toMatch(
+      /(?:status(?:\s+is|:)|marked as|currently|return\s+(?:is|was))\s+(?:requested|authorized|denied|in[_ -]transit|received|credited|closed)\b/i,
+    );
+    expect(answer).not.toMatch(
+      /\b(?:does not|doesn't|doesn’t)\s+belong\b|\bbelongs?\s+to\s+(?:another|a different)\b/i,
+    );
+    expect(answer).not.toMatch(
+      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
+    );
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
 });
