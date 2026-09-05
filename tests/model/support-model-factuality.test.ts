@@ -14,9 +14,13 @@ function claimsMatching(value: string, pattern: RegExp) {
 
 const orderIdPattern = /\bSBL-\d{4}-\d{6}\b/g;
 const itemNumberPattern = /\bSBL-(?!\d{4}-\d{6}\b)[A-Z0-9]+(?:-[A-Z0-9]+)+\b/g;
+const shipmentIdPattern = /\bSHP-\d{4}-\d{6}\b/g;
+const trackingReferencePattern = /\bAST-\d{10}\b/g;
 const factualClaimPatterns = [
   orderIdPattern,
   itemNumberPattern,
+  shipmentIdPattern,
+  trackingReferencePattern,
   /\b[A-Z]{3}-(?:PO|REL)-\d{6}\b/g,
   /\$\d[\d,]*(?:\.\d{2})?/g,
   /\b20\d{2}-\d{2}-\d{2}\b/g,
@@ -201,6 +205,29 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
       `Expected every authorized product-filtered order ID, received: ${answer}`,
     ).toEqual(authorizedOrderIds);
     expect(answer).toMatch(/SBL-RPC-12|Redline Power Cell R12/i);
+    expect(answer).not.toMatch(
+      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
+    );
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
+  it('reports only authorized facts for an exact shipment', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content: 'Where is shipment SHP-2026-000417?',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 6417);
+
+    expect(answer).toContain('SHP-2026-000417');
+    expect(answer).toMatch(/delayed/i);
+    expect(answer).toContain('Astra Freight Systems');
+    expect(answer).toContain('AST-2026000417');
+    expect(answer).toMatch(/2026-08-31|Aug(?:ust)? 31,? 2026/i);
+    expect(answer).not.toMatch(
+      /(?:status(?:\s+is|:)|marked as|currently|shipment\s+(?:is|was)|has been)\s+delivered\b/i,
+    );
     expect(answer).not.toMatch(
       /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
     );
