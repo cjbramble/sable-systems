@@ -146,4 +146,77 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     expect(context.match(/\bWHS-\d{4}\b/g)).toEqual(['WHS-0427']);
     expect(context.match(/: partially_shipped;/g)).toHaveLength(6);
   });
+
+  it('filters scheduled orders by requested ship year', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content: 'Show my scheduled orders for 2030.',
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'orders',
+      message: 'show my scheduled orders for 2030.',
+      status: 'scheduled',
+      year: 2030,
+      yearField: 'requested',
+    });
+
+    const database = await getDatabase();
+    const expectedRows = await database
+      .prepare(
+        `SELECT order_id, customer_id, status, created_on, requested_ship_date
+         FROM orders
+         WHERE customer_id = ? AND status = ?
+           AND requested_ship_date >= ? AND requested_ship_date < ?
+         ORDER BY created_on DESC, order_id DESC
+         LIMIT 7`,
+      )
+      .bind(
+        calderPikeUser.distributorId,
+        'scheduled',
+        '2030-01-01',
+        '2031-01-01',
+      )
+      .all<{
+        order_id: string;
+        customer_id: string;
+        status: string;
+        created_on: string;
+        requested_ship_date: string;
+      }>();
+
+    expect(expectedRows.results).toHaveLength(7);
+    expect(
+      expectedRows.results.every(
+        (row) =>
+          row.customer_id === calderPikeUser.distributorId &&
+          row.status === 'scheduled' &&
+          row.created_on.startsWith('2026-') &&
+          row.requested_ship_date.startsWith('2030-'),
+      ),
+    ).toBe(true);
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+    const contextOrderIds = context.match(/\bSBL-\d{4}-\d{6}\b/g) ?? [];
+
+    expect(context).toContain(
+      'Order search for status scheduled, requested in 2030; showing up to 6 most recent matches.',
+    );
+    expect(contextOrderIds).toEqual(
+      expectedRows.results.slice(0, 6).map((row) => row.order_id),
+    );
+    expect(context).not.toContain(expectedRows.results[6].order_id);
+    expect(context.match(/\bWHS-\d{4}\b/g)).toEqual(['WHS-0427']);
+    expect(
+      context.match(
+        /: scheduled; created 2026-\d{2}-\d{2}; requested 2030-\d{2}-\d{2};/g,
+      ),
+    ).toHaveLength(6);
+  });
 });
