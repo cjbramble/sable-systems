@@ -47,6 +47,66 @@ describe('support order grounding', () => {
     expect(context).not.toContain('Meridian Civic Supply');
   });
 
+  it('resolves a follow-up to the most recently discussed order', async () => {
+    const messages = [
+      { role: 'user' as const, content: 'Show me SBL-2026-000418.' },
+      { role: 'assistant' as const, content: 'Which details do you need?' },
+      { role: 'user' as const, content: 'Switch to SBL-2026-000417.' },
+      {
+        role: 'assistant' as const,
+        content: 'What would you like to know about it?',
+      },
+      { role: 'user' as const, content: 'What is the total for that order?' },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'order',
+      identifier: 'SBL-2026-000417',
+    });
+
+    const database = await getDatabase();
+    const orders = await database
+      .prepare(
+        `SELECT order_id, customer_id, order_total_cents
+         FROM orders WHERE order_id IN (?, ?) ORDER BY order_id`,
+      )
+      .bind('SBL-2026-000417', 'SBL-2026-000418')
+      .all<{
+        order_id: string;
+        customer_id: string;
+        order_total_cents: number;
+      }>();
+    expect(orders.results).toEqual([
+      {
+        order_id: 'SBL-2026-000417',
+        customer_id: 'WHS-0427',
+        order_total_cents: 7_832_000,
+      },
+      {
+        order_id: 'SBL-2026-000418',
+        customer_id: 'WHS-0427',
+        order_total_cents: 11_800_000,
+      },
+    ]);
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+
+    expect(context).toContain(
+      'Authorization: Calder Pike Distribution (WHS-0427) only.',
+    );
+    expect(context).toContain(
+      'Order: SBL-2026-000417; customer PO: CPD-PO-260417; status: partially_shipped.',
+    );
+    expect(context).toContain('Order total: $78,320.00.');
+    expect(context.match(/\bSBL-\d{4}-\d{6}\b/g)).toEqual(['SBL-2026-000417']);
+    expect(context).not.toContain('CPD-PO-260418');
+    expect(context).not.toContain('$118,000.00');
+  });
+
   it('withholds an order owned by another distributor', async () => {
     const database = await getDatabase();
     const externalOrder = await database
