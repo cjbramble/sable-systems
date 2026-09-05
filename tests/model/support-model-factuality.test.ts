@@ -497,6 +497,79 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
+  it('preserves each inventory advisory quantity and restock detail', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'Show current low-stock inventory advisories. Start each entry with its item number, followed by labeled Available, Inbound, and Restock fields.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(
+      messages,
+      48780,
+    );
+
+    console.info('Inventory advisory response:', answer);
+
+    const expectedAdvisories = [
+      {
+        item: 'SBL-CSR-R2',
+        available: 0,
+        inbound: 48,
+        restock: /2026-12-03|Dec(?:ember)?\.? 3,? 2026/i,
+      },
+      {
+        item: 'SBL-NL-4P',
+        available: 0,
+        inbound: 80,
+        restock: /2026-10-14|Oct(?:ober)?\.? 14,? 2026/i,
+      },
+      {
+        item: 'SBL-KTA-T7',
+        available: 7,
+        inbound: 0,
+        restock:
+          /\b(?:not scheduled|none scheduled|none|no scheduled restock)\b/i,
+      },
+    ];
+    expect([...claimsMatching(answer, itemNumberPattern)].sort()).toEqual(
+      expectedAdvisories.map((advisory) => advisory.item).sort(),
+    );
+    const sections = answer
+      .replaceAll('**', '')
+      .split(/(?=\bSBL-[A-Z0-9]+(?:-[A-Z0-9]+)+\b)/);
+    for (const advisory of expectedAdvisories) {
+      const productSections = sections.filter((section) =>
+        section.startsWith(advisory.item),
+      );
+      expect(productSections, answer).toHaveLength(1);
+      const section = productSections[0] ?? '';
+      for (const field of ['available', 'inbound'] as const) {
+        const pattern = new RegExp(
+          `\\b${field}(?: quantity| units)?\\s*:\\s*(\\d+)\\b|\\b(\\d+)\\s+(?:units?\\s+)?${field}\\b`,
+          'gi',
+        );
+        const quantities = section
+          .split('\n')
+          .flatMap((line) =>
+            [...line.matchAll(pattern)].map((match) =>
+              Number(match[1] ?? match[2]),
+            ),
+          );
+        expect(
+          new Set(quantities),
+          `Incorrect ${field} quantity: ${section}`,
+        ).toEqual(new Set([advisory[field]]));
+      }
+      const restock =
+        section.match(/\brestock(?: date)?\s*:\s*([^\n]+)/i)?.[1] ?? '';
+      expect(restock, section).toMatch(advisory.restock);
+    }
+    expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
   it('keeps comparison facts associated with the correct product', async () => {
     const messages = [
       {
