@@ -235,6 +235,55 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
+  it('keeps comparison facts associated with the correct product', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'Compare the Nightvault 16 TB Solid-State Array versus the Redline Power Cell R12. Use one line per product with these labeled fields: item number, price, case pack, lead time, available units.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 1612);
+
+    console.info('Catalog comparison response:', answer);
+
+    const expectedProducts = [
+      { item: 'SBL-NV-16T', price: 1940, pack: 4, lead: 35, available: 96 },
+      { item: 'SBL-RPC-12', price: 680, pack: 8, lead: 18, available: 312 },
+    ];
+    expect([...claimsMatching(answer, itemNumberPattern)].sort()).toEqual(
+      expectedProducts.map((product) => product.item).sort(),
+    );
+
+    const sections = answer
+      .replaceAll('**', '')
+      .split(/(?=\bitem number\s*:)/i);
+    for (const product of expectedProducts) {
+      const productSections = sections.filter((section) =>
+        section.includes(product.item),
+      );
+      expect(
+        productSections,
+        `Expected one section for ${product.item}: ${answer}`,
+      ).toHaveLength(1);
+      const section = productSections[0] ?? '';
+      const price = section.match(/\bprice\s*:\s*\$([\d,]+(?:\.\d{2})?)/i)?.[1];
+      expect(Number(price?.replaceAll(',', '')), section).toBe(product.price);
+      expect(section).toMatch(
+        new RegExp(`\\bcase pack\\s*:\\s*${product.pack}\\b`, 'i'),
+      );
+      expect(section).toMatch(
+        new RegExp(`\\blead time\\s*:\\s*${product.lead}\\s+days\\b`, 'i'),
+      );
+      expect(section).toMatch(
+        new RegExp(`\\bavailable units\\s*:\\s*${product.available}\\b`, 'i'),
+      );
+    }
+
+    expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
   it('reports only authorized facts for an exact shipment', async () => {
     const messages = [
       {
