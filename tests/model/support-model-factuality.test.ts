@@ -376,6 +376,40 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
+  it('explains why a digital-license quantity needs block adjustment', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'Are 60 licenses of Palisade Endpoint License, Annual available? Explain whether my requested quantity meets the allocation-block rule, what adjustment is required, and how physical inventory applies.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 6025);
+
+    console.info('Digital license block restriction response:', answer);
+
+    expect(authorizedContext).toContain(
+      'Requested quantity 60: must be adjusted to a multiple of 25.',
+    );
+    const normalizedAnswer = answer.replaceAll('**', '');
+    expect(normalizedAnswer).toMatch(/\b60\b/);
+    expect(normalizedAnswer).toMatch(
+      /\b(?:invalid|not (?:a )?(?:valid )?multiple|not (?:a )?valid|does not meet|doesn't meet|not divisible|must be adjusted)\b/i,
+    );
+    expect(normalizedAnswer).toMatch(
+      /\b(?:multiples?|blocks?|increments?)\s+(?:of\s+)?25\b|\b25[- ](?:seat|license)\s+blocks?\b/i,
+    );
+    expect(normalizedAnswer).toMatch(/\bdigital(?:ly)?\b/i);
+    expect(normalizedAnswer).toMatch(
+      /\b(?:no|not|without)\b[^.!?\n]{0,60}\bphysical\s+(?:stock|inventory)\b|\bphysical\s+(?:stock|inventory)\b[^.!?\n]{0,30}\b(?:none|not applicable|does not apply)\b/i,
+    );
+    expect(normalizedAnswer).not.toMatch(
+      /\bout of stock\b|\b(?:stock(?: balance)?|inventory|inbound)\s*:\s*\d+\b|\b60\s+(?:licenses?\s+|seats?\s+)?(?:is|are)\s+(?:a\s+)?valid\b/i,
+    );
+    expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
   it('keeps comparison facts associated with the correct product', async () => {
     const messages = [
       {
