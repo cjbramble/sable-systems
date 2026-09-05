@@ -150,6 +150,58 @@ Quarantined units are excluded from availability. Do not reveal other distributo
 </authorized_records>`);
   });
 
+  it('flags an invalid case-pack quantity despite sufficient stock', async () => {
+    const requestedQuantity = 310;
+    const messages = [
+      {
+        role: 'user' as const,
+        content: `Are ${requestedQuantity} units of the Redline Power Cell R12 available?`,
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'catalog',
+      message: 'are 310 units of the redline power cell r12 available?',
+      category: 'Power',
+      quantity: requestedQuantity,
+      includeLocations: false,
+      compare: false,
+    });
+
+    const database = await getDatabase();
+    const inventory = await database
+      .prepare(
+        `SELECT p.case_pack,
+          SUM(i.on_hand_quantity - i.reserved_quantity - i.quarantined_quantity) AS available
+         FROM products p
+         JOIN inventory_balances i ON i.item_number = p.item_number
+         WHERE p.item_number = ?
+         GROUP BY p.item_number`,
+      )
+      .bind('SBL-RPC-12')
+      .first<{ case_pack: number; available: number }>();
+
+    expect(inventory).toEqual({ case_pack: 8, available: 312 });
+    if (!inventory) throw new Error('Missing Redline inventory fixture');
+
+    expect(requestedQuantity).toBeLessThan(inventory.available);
+    expect(requestedQuantity % inventory.case_pack).toBe(6);
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+
+    expect(context).toBe(`<authorized_records>
+Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
+Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
+Requested quantity 310: not a multiple of case pack 8; currently within available-to-promise stock.
+Available to promise as of 2026-09-02: 312. Inbound: 0. Expected restock: none scheduled.
+Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
+</authorized_records>`);
+  });
+
   it('builds an exact comparison context for two products', async () => {
     const messages = [
       {
