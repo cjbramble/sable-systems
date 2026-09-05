@@ -30,6 +30,63 @@ describe('order data integrity', () => {
     ).toEqual([]);
   });
 
+  it('allows different distributors to use the same customer PO number', async () => {
+    const database = await getDatabase();
+    const temporaryOrderId = 'SBL-2021-999997';
+    const sharedPO = 'CPD-PO-260417';
+    const ordersForPO = () =>
+      database
+        .prepare(`SELECT order_id, customer_id, placed_by_user_id, customer_po_number
+        FROM orders WHERE customer_po_number = ? ORDER BY customer_id, order_id`)
+        .bind(sharedPO)
+        .all<Record<string, string>>();
+    const originalOrders = await ordersForPO();
+    expect(originalOrders.results).toEqual([
+      {
+        order_id: 'SBL-2026-000417',
+        customer_id: 'WHS-0427',
+        placed_by_user_id: 'USR-CPD-001',
+        customer_po_number: sharedPO,
+      },
+    ]);
+    expect(
+      await database
+        .prepare('SELECT order_id FROM orders WHERE order_id = ?')
+        .bind(temporaryOrderId)
+        .first(),
+    ).toBeNull();
+
+    try {
+      await database
+        .prepare(`INSERT INTO orders (
+          order_id, customer_id, placed_by_user_id, customer_po_number,
+          created_on, requested_ship_date, status, currency,
+          order_total_cents, shipping_region
+        ) SELECT ?, customer_id, placed_by_user_id, ?,
+          created_on, requested_ship_date, status, currency,
+          order_total_cents, shipping_region
+        FROM orders WHERE order_id = ?`)
+        .bind(temporaryOrderId, sharedPO, 'SBL-2021-500000')
+        .run();
+
+      expect((await ordersForPO()).results).toEqual([
+        ...originalOrders.results,
+        {
+          order_id: temporaryOrderId,
+          customer_id: 'WHS-1098',
+          placed_by_user_id: 'USR-MCS-001',
+          customer_po_number: sharedPO,
+        },
+      ]);
+    } finally {
+      await database
+        .prepare('DELETE FROM orders WHERE order_id = ?')
+        .bind(temporaryOrderId)
+        .run();
+    }
+    expect((await ordersForPO()).results).toEqual(originalOrders.results);
+  });
+
   it('rejects a duplicate distributor customer PO without changing the existing order', async () => {
     const database = await getDatabase();
     const duplicateOrderId = 'SBL-2026-999998';
