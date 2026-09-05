@@ -131,7 +131,7 @@ export function classifySupportQuery(
 
   const category = requestedCategory(normalized);
   const quantityMatch = normalized.match(
-    /\b(\d{1,6})(?:\s+[a-z-]+){0,2}\s+(?:units?|licenses?|controllers?|arrays?|modules?|hubs?|nodes?|packs?)\b/,
+    /\b(\d{1,6})(?!\s*(?:tb|gb|mb|kb|m)\b)(?:\s+[a-z-]+){0,2}\s+(?:units?|licenses?|controllers?|arrays?|modules?|hubs?|nodes?|packs?)\b/,
   );
   if (
     category ||

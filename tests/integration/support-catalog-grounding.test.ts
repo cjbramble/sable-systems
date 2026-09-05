@@ -81,4 +81,80 @@ Quarantined units are excluded from availability. Do not reveal other distributo
     expect(context).not.toContain('Calder Pike Distribution');
     expect(context).not.toContain('Meridian Civic Supply');
   });
+
+  it('builds an exact comparison context for two products', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'Compare the Nightvault 16 TB Solid-State Array versus the Redline Power Cell R12.',
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'catalog',
+      message:
+        'compare the nightvault 16 tb solid-state array versus the redline power cell r12.',
+      category: 'Power',
+      quantity: undefined,
+      includeLocations: false,
+      compare: true,
+    });
+
+    const database = await getDatabase();
+    const products = await database
+      .prepare(
+        `SELECT p.item_number, p.product_name, p.unit_price_cents,
+          p.unit_label, p.case_pack, p.lead_time_days,
+          SUM(i.on_hand_quantity - i.reserved_quantity - i.quarantined_quantity) AS available
+         FROM products p
+         JOIN inventory_balances i ON i.item_number = p.item_number
+         WHERE p.item_number IN (?, ?)
+         GROUP BY p.item_number
+         ORDER BY p.product_name`,
+      )
+      .bind('SBL-NV-16T', 'SBL-RPC-12')
+      .all<Record<string, string | number>>();
+
+    expect(products.results).toEqual([
+      {
+        item_number: 'SBL-NV-16T',
+        product_name: 'Nightvault 16 TB Solid-State Array',
+        unit_price_cents: 194_000,
+        unit_label: 'array',
+        case_pack: 4,
+        lead_time_days: 35,
+        available: 96,
+      },
+      {
+        item_number: 'SBL-RPC-12',
+        product_name: 'Redline Power Cell R12',
+        unit_price_cents: 68_000,
+        unit_label: 'cell',
+        case_pack: 8,
+        lead_time_days: 18,
+        available: 312,
+      },
+    ]);
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+
+    expect(context).toBe(`<authorized_records>
+Product: SBL-NV-16T — Nightvault 16 TB Solid-State Array; category Compute.
+Wholesale price: $1,940.00 per array; case pack 4; standard lead time 35 days.
+Available to promise as of 2026-09-02: 96. Inbound: 0. Expected restock: none scheduled.
+Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
+Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
+Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
+Available to promise as of 2026-09-02: 312. Inbound: 0. Expected restock: none scheduled.
+Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
+</authorized_records>`);
+    expect(context).not.toMatch(/\bWHS-\d{4}\b/);
+    expect(context).not.toContain('Calder Pike Distribution');
+    expect(context).not.toContain('Meridian Civic Supply');
+  });
 });
