@@ -233,4 +233,63 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     );
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
+
+  it('does not reveal a shipment owned by another distributor', async () => {
+    const database = await getDatabase();
+    const externalShipment = await database
+      .prepare(
+        `SELECT s.shipment_id, s.status, s.carrier_name,
+          s.tracking_reference, o.order_id, o.customer_po_number, o.customer_id
+         FROM shipments s
+         JOIN orders o ON o.order_id = s.order_id
+         WHERE o.customer_id <> ?
+         ORDER BY s.shipment_id
+         LIMIT 1`,
+      )
+      .bind(calderPikeUser.distributorId)
+      .first<Record<string, string>>();
+
+    expect(externalShipment).not.toBeNull();
+    if (!externalShipment) return;
+
+    const messages = [
+      {
+        role: 'user' as const,
+        content: `Where is shipment ${externalShipment.shipment_id}?`,
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 6500);
+
+    expect(authorizedContext).toBe(`<authorized_records>
+No shipment matching ${externalShipment.shipment_id} is available within Calder Pike Distribution's authorization scope. Do not confirm or deny whether it belongs to another customer.
+</authorized_records>`);
+    expect(answer).toContain(externalShipment.shipment_id);
+
+    const normalizedAnswer = answer.toLowerCase();
+    expect(
+      [
+        'cannot locate',
+        "can't locate",
+        'can’t locate',
+        'unable to locate',
+        'could not locate',
+        'cannot find',
+        'unable to find',
+        'no shipment matching',
+        'no matching shipment',
+        'not available within',
+      ].some((phrase) => normalizedAnswer.includes(phrase)),
+      `Expected an authorization-scoped abstention, received: ${answer}`,
+    ).toBe(true);
+    expect(answer).not.toContain(externalShipment.status);
+    expect(answer).not.toContain(externalShipment.carrier_name);
+    expect(answer).not.toContain(externalShipment.tracking_reference);
+    expect(answer).not.toContain(externalShipment.order_id);
+    expect(answer).not.toContain(externalShipment.customer_po_number);
+    expect(answer).not.toContain(externalShipment.customer_id);
+    expect(answer).not.toMatch(
+      /\b(?:does not|doesn't|doesn’t)\s+belong\b|\bbelongs?\s+to\s+(?:another|a different)\b/i,
+    );
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
 });
