@@ -235,6 +235,45 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
+  it('distinguishes zero current availability from an expected inbound restock', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'For SBL-CSR-R2, report the item number, current availability, inbound quantity, and expected restock date. Explain how quarantine affects availability.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(
+      messages,
+      481203,
+    );
+
+    console.info('Quarantine and inbound stock response:', answer);
+
+    expect(authorizedContext).toContain(
+      'Available to promise as of 2026-09-02: 0. Inbound: 48. Expected restock: 2026-12-03.',
+    );
+    const normalizedAnswer = answer.replaceAll('**', '');
+    expect(normalizedAnswer).toContain('SBL-CSR-R2');
+    expect(normalizedAnswer).toMatch(
+      /\b(?:availability|available(?: to promise)?)\b[^.!?\n]{0,50}\b(?:0|zero|none)\b|\b(?:0|zero|no)\s+(?:units?\s+)?(?:currently\s+)?available\b|\bout of stock\b/i,
+    );
+    expect(normalizedAnswer).toMatch(
+      /\binbound(?:\s+(?:quantity|units?|stock))?\s*:\s*48\b|\b48\s+(?:units?\s+)?inbound\b/i,
+    );
+    expect(normalizedAnswer).toMatch(
+      /\b(?:expected|estimated|anticipated)\b[^.!?\n]{0,60}(?:2026-12-03|Dec(?:ember)?\.? 3,? 2026)\b/i,
+    );
+    expect(normalizedAnswer).toMatch(
+      /\bquarantin(?:e|ed)\b[^.!?\n]{0,80}\b(?:excluded|not counted|not included|unavailable)\b|\b(?:excludes?|excluding)\b[^.!?\n]{0,50}\bquarantin(?:e|ed)\b/i,
+    );
+    expect(normalizedAnswer).not.toMatch(
+      /\b(?:36|48|84)\s+(?:units?\s+)?(?:currently\s+)?available\b|\bguaranteed\b/i,
+    );
+    expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
   it('explains a stock shortfall despite a valid case-pack quantity', async () => {
     const messages = [
       {
