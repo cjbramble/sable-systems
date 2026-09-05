@@ -60,4 +60,51 @@ Shipped: 2026-08-26; estimated delivery: 2026-08-31; delivered: not yet.
     expect(context.match(/\bWHS-\d{4}\b/g)).toEqual(['WHS-0427']);
     expect(context).not.toContain('Meridian Civic Supply');
   });
+
+  it('withholds a shipment owned by another distributor', async () => {
+    const database = await getDatabase();
+    const externalShipment = await database
+      .prepare(
+        `SELECT s.shipment_id, s.tracking_reference,
+          o.order_id, o.customer_po_number, o.customer_id
+         FROM shipments s
+         JOIN orders o ON o.order_id = s.order_id
+         WHERE o.customer_id <> ?
+         ORDER BY s.shipment_id
+         LIMIT 1`,
+      )
+      .bind(calderPikeUser.distributorId)
+      .first<Record<string, string>>();
+
+    expect(externalShipment).not.toBeNull();
+    if (!externalShipment) return;
+
+    expect(externalShipment.customer_id).not.toBe(calderPikeUser.distributorId);
+
+    const messages = [
+      {
+        role: 'user' as const,
+        content: `Where is shipment ${externalShipment.shipment_id}?`,
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'shipment',
+      identifier: externalShipment.shipment_id,
+    });
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+
+    expect(context).toBe(`<authorized_records>
+No shipment matching ${externalShipment.shipment_id} is available within Calder Pike Distribution's authorization scope. Do not confirm or deny whether it belongs to another customer.
+</authorized_records>`);
+    expect(context).not.toContain(externalShipment.tracking_reference);
+    expect(context).not.toContain(externalShipment.order_id);
+    expect(context).not.toContain(externalShipment.customer_po_number);
+    expect(context).not.toContain(externalShipment.customer_id);
+  });
 });
