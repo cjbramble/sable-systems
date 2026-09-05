@@ -82,6 +82,74 @@ Quarantined units are excluded from availability. Do not reveal other distributo
     expect(context).not.toContain('Meridian Civic Supply');
   });
 
+  it('reports a stock shortfall for a valid case-pack quantity', async () => {
+    const requestedQuantity = 320;
+    const messages = [
+      {
+        role: 'user' as const,
+        content: `Are ${requestedQuantity} units of the Redline Power Cell R12 available?`,
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'catalog',
+      message: 'are 320 units of the redline power cell r12 available?',
+      category: 'Power',
+      quantity: requestedQuantity,
+      includeLocations: false,
+      compare: false,
+    });
+
+    const database = await getDatabase();
+    const inventory = await database
+      .prepare(
+        `SELECT p.case_pack,
+          SUM(i.on_hand_quantity) AS on_hand,
+          SUM(i.reserved_quantity) AS reserved,
+          SUM(i.quarantined_quantity) AS quarantined
+         FROM products p
+         JOIN inventory_balances i ON i.item_number = p.item_number
+         WHERE p.item_number = ?
+         GROUP BY p.item_number`,
+      )
+      .bind('SBL-RPC-12')
+      .first<{
+        case_pack: number;
+        on_hand: number;
+        reserved: number;
+        quarantined: number;
+      }>();
+
+    expect(inventory).toEqual({
+      case_pack: 8,
+      on_hand: 376,
+      reserved: 64,
+      quarantined: 0,
+    });
+    if (!inventory) throw new Error('Missing Redline inventory fixture');
+
+    const available =
+      inventory.on_hand - inventory.reserved - inventory.quarantined;
+    expect(requestedQuantity % inventory.case_pack).toBe(0);
+    expect(requestedQuantity).toBeLessThan(inventory.on_hand);
+    expect(available).toBe(312);
+    expect(requestedQuantity - available).toBe(8);
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+
+    expect(context).toBe(`<authorized_records>
+Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
+Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
+Requested quantity 320: valid case-pack multiple; exceeds current available-to-promise stock by 8.
+Available to promise as of 2026-09-02: 312. Inbound: 0. Expected restock: none scheduled.
+Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
+</authorized_records>`);
+  });
+
   it('builds an exact comparison context for two products', async () => {
     const messages = [
       {
