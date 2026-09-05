@@ -16,12 +16,14 @@ const orderIdPattern = /\bSBL-\d{4}-\d{6}\b/g;
 const itemNumberPattern = /\bSBL-(?!\d{4}-\d{6}\b)[A-Z0-9]+(?:-[A-Z0-9]+)+\b/g;
 const shipmentIdPattern = /\bSHP-\d{4}-\d{6}\b/g;
 const returnIdPattern = /\bRTN-\d{4}-\d{6}\b/g;
+const incidentIdPattern = /\bINC-[A-Za-z0-9-]{6,100}\b/g;
 const trackingReferencePattern = /\bAST-\d{10}\b/g;
 const factualClaimPatterns = [
   orderIdPattern,
   itemNumberPattern,
   shipmentIdPattern,
   returnIdPattern,
+  incidentIdPattern,
   trackingReferencePattern,
   /\b[A-Z]{3}-(?:PO|REL)-\d{6}\b/g,
   /\$\d[\d,]*(?:\.\d{2})?/g,
@@ -394,6 +396,38 @@ No return matching ${unknownReturnId} is available within Calder Pike Distributi
     );
     expect(answer).not.toMatch(
       /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
+    );
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
+  it("lists only the authenticated user's support incidents", async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'List my support incident history newest first. Include each incident ID, title, and message count.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 8301);
+    const authorizedIncidentIds = [
+      ...claimsMatching(authorizedContext, incidentIdPattern),
+    ];
+    const answerIncidentIds = [...claimsMatching(answer, incidentIdPattern)];
+
+    expect(authorizedIncidentIds).toEqual([
+      'INC-USR-CPD-001-01',
+      'INC-USR-CPD-001-02',
+      'INC-USR-CPD-001-03',
+    ]);
+    expect(answerIncidentIds).toEqual(authorizedIncidentIds);
+    expect(answer).toContain('Priority shipment trace');
+    expect(answer).toContain('Nerveline allocation');
+    expect(answer).toContain('2030 contract releases');
+    expect(answer.match(/(?:2\s+messages|messages?\s*:\s*2)/gi)).toHaveLength(
+      3,
+    );
+    expect(answer).not.toMatch(
+      /INC-USR-(?:MCS|NPC|HIX)|WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
     );
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
