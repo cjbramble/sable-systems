@@ -547,6 +547,113 @@ Active Software catalog as of 2026-09-02:
     expect(context).not.toMatch(/\b\d+ available\b|\binbound\b|\bWHS-\d{4}\b/);
   });
 
+  it('lists only active products meeting the low-stock advisory threshold', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content: 'Show current low-stock inventory advisories.',
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'catalog',
+      message: 'show current low-stock inventory advisories.',
+      category: undefined,
+      quantity: undefined,
+      includeLocations: false,
+      compare: false,
+    });
+
+    const database = await getDatabase();
+    const inventory = await database
+      .prepare(
+        `SELECT p.item_number, p.case_pack, p.active_to,
+          SUM(i.on_hand_quantity) AS on_hand,
+          SUM(i.reserved_quantity) AS reserved,
+          SUM(i.quarantined_quantity) AS quarantined,
+          SUM(i.inbound_quantity) AS inbound,
+          MIN(i.expected_restock_date) AS restock
+         FROM products p
+         JOIN inventory_balances i ON i.item_number = p.item_number
+         GROUP BY p.item_number`,
+      )
+      .all<{
+        item_number: string;
+        case_pack: number;
+        active_to: string | null;
+        on_hand: number;
+        reserved: number;
+        quarantined: number;
+        inbound: number;
+        restock: string | null;
+      }>();
+
+    const balances = inventory.results.map((product) => ({
+      ...product,
+      available: product.on_hand - product.reserved - product.quarantined,
+    }));
+    expect(
+      balances.find((product) => product.item_number === 'SBL-GLV-V5'),
+    ).toMatchObject({
+      active_to: '2025-06-30',
+      case_pack: 4,
+      available: 8,
+    });
+    expect(
+      balances.find((product) => product.item_number === 'SBL-RPC-12'),
+    ).toMatchObject({
+      active_to: null,
+      case_pack: 8,
+      available: 312,
+    });
+    const advisories = balances
+      .filter(
+        (product) =>
+          product.active_to === null &&
+          product.available <= product.case_pack * 8,
+      )
+      .sort(
+        (first, second) =>
+          first.available - second.available ||
+          first.item_number.localeCompare(second.item_number),
+      )
+      .map(({ item_number, available, inbound, restock }) => ({
+        item_number,
+        available,
+        inbound,
+        restock,
+      }));
+    expect(advisories).toEqual([
+      {
+        item_number: 'SBL-CSR-R2',
+        available: 0,
+        inbound: 48,
+        restock: '2026-12-03',
+      },
+      {
+        item_number: 'SBL-NL-4P',
+        available: 0,
+        inbound: 80,
+        restock: '2026-10-14',
+      },
+      { item_number: 'SBL-KTA-T7', available: 7, inbound: 0, restock: null },
+    ]);
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+
+    expect(context).toBe(`<authorized_records>
+Current SABLE physical inventory advisories as of 2026-09-02:
+- SBL-CSR-R2 Coldstart Rack Controller R2: 0 available; 48 inbound; restock 2026-12-03.
+- SBL-NL-4P Nerveline Four-Port Neural I/O Hub: 0 available; 80 inbound; restock 2026-10-14.
+- SBL-KTA-T7 Kestrel Tendon Assembly T7: 7 available; 0 inbound; restock not scheduled.
+Ask which item the customer wants if a specific availability decision is required.
+</authorized_records>`);
+  });
+
   it('builds an exact comparison context for two products', async () => {
     const messages = [
       {
