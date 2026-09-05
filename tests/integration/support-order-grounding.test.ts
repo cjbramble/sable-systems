@@ -219,4 +219,64 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
       ),
     ).toHaveLength(6);
   });
+
+  it('returns only authorized orders containing the requested product', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content: 'Show my orders containing the Redline Power Cell R12.',
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'orders',
+      message: 'show my orders containing the redline power cell r12.',
+      status: undefined,
+      year: undefined,
+      yearField: undefined,
+    });
+
+    const database = await getDatabase();
+    const expectedRows = await database
+      .prepare(
+        `SELECT o.order_id, o.customer_id
+         FROM orders o
+         WHERE o.customer_id = ?
+           AND EXISTS (
+             SELECT 1 FROM order_items oi
+             WHERE oi.order_id = o.order_id AND oi.item_number = ?
+           )
+         ORDER BY o.created_on DESC, o.order_id DESC
+         LIMIT 7`,
+      )
+      .bind(calderPikeUser.distributorId, 'SBL-RPC-12')
+      .all<{
+        order_id: string;
+        customer_id: string;
+      }>();
+
+    expect(expectedRows.results).toHaveLength(7);
+    expect(
+      expectedRows.results.every(
+        (row) => row.customer_id === calderPikeUser.distributorId,
+      ),
+    ).toBe(true);
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+    const contextOrderIds = context.match(/\bSBL-\d{4}-\d{6}\b/g) ?? [];
+
+    expect(context).toContain(
+      'Order search for containing SBL-RPC-12; showing up to 6 most recent matches.',
+    );
+    expect(contextOrderIds).toEqual(
+      expectedRows.results.slice(0, 6).map((row) => row.order_id),
+    );
+    expect(context).not.toContain(expectedRows.results[6].order_id);
+    expect(context.match(/\bWHS-\d{4}\b/g)).toEqual(['WHS-0427']);
+    expect(context.match(/\bSBL-RPC-12\b/g)).toEqual(['SBL-RPC-12']);
+  });
 });
