@@ -115,6 +115,53 @@ describe('support model factuality', () => {
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
+  it('refuses another distributor customer PO without revealing order details', async () => {
+    const messages: ChatHistoryMessage[] = [
+      {
+        role: 'user',
+        content: 'What is the status and total of customer PO MCS-PO-500000?',
+      },
+    ];
+    const { answer, authorizedContext, database } = await askSupportModel(
+      messages,
+      500002,
+    );
+
+    console.info('Unauthorized customer PO response:', answer);
+
+    const externalOrder = await database
+      .prepare(
+        'SELECT order_id, customer_id FROM orders WHERE customer_po_number = ?',
+      )
+      .bind('MCS-PO-500000')
+      .first<{ order_id: string; customer_id: string }>();
+    expect(externalOrder).toEqual({
+      order_id: 'SBL-2021-500000',
+      customer_id: 'WHS-1098',
+    });
+    expect(authorizedContext).toBe(`<authorized_records>
+No order matching MCS-PO-500000 is available within Calder Pike Distribution's authorization scope. Do not confirm or deny whether it belongs to another customer.
+</authorized_records>`);
+
+    const normalizedAnswer = answer.replaceAll('**', '');
+    expect(normalizedAnswer).toMatch(
+      /\b(?:cannot|can't|can’t|unable to|could not)\s+(?:locate|find|provide|access|disclose)\b|\bno (?:matching order|order matching)\b|\bnot available within\b/i,
+    );
+    expect(normalizedAnswer).toMatch(
+      /\b(?:authorization scope|authorized|account)\b/i,
+    );
+    expect(normalizedAnswer).not.toMatch(
+      /\$\s*\d|\b\d[\d,.]*\s*(?:USD|dollars?)\b/i,
+    );
+    expect(normalizedAnswer).not.toMatch(
+      /SBL-2021-500000|WHS-1098|Meridian Civic Supply|\b(?:does not|doesn't|doesn’t)\s+belong\b|\bbelongs?\s+to\s+(?:another|a different)\b/i,
+    );
+    expect(normalizedAnswer).not.toMatch(
+      /(?:status(?:\s+is|:)|marked as|currently|order\s+(?:is|was))\s+(?:scheduled|confirmed|allocating|backordered|partially[_ -]shipped|shipped|delivered|on[_ -]hold|cancelled)\b/i,
+    );
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
   it('answers a follow-up about the most recently discussed order', async () => {
     const messages: ChatHistoryMessage[] = [
       { role: 'user', content: 'Show me SBL-2026-000418.' },
