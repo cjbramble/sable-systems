@@ -69,4 +69,40 @@ Items:
     expect(context.match(/\bWHS-\d{4}\b/g)).toEqual(['WHS-0427']);
     expect(context).not.toContain('Meridian Civic Supply');
   });
+
+  it('withholds facts for an unknown return', async () => {
+    const unknownReturnId = 'RTN-2031-999999';
+    const messages = [
+      {
+        role: 'user' as const,
+        content: `What is the status of return ${unknownReturnId}?`,
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'return',
+      identifier: unknownReturnId,
+    });
+
+    const database = await getDatabase();
+    const returnRecord = await database
+      .prepare('SELECT return_id FROM returns WHERE return_id = ?')
+      .bind(unknownReturnId)
+      .first<{ return_id: string }>();
+
+    expect(returnRecord).toBeNull();
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+
+    expect(context).toBe(`<authorized_records>
+No return matching ${unknownReturnId} is available within Calder Pike Distribution's authorization scope. Do not confirm or deny whether it belongs to another customer.
+</authorized_records>`);
+    expect(context.match(/\bRTN-\d{4}-\d{6}\b/g)).toEqual([unknownReturnId]);
+    expect(context).not.toMatch(/\bWHS-\d{4}\b/);
+    expect(context).not.toContain('Meridian Civic Supply');
+  });
 });
