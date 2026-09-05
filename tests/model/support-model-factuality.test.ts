@@ -150,4 +150,32 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     );
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
+
+  it('preserves requested-year meaning for scheduled order results', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'List the order IDs for my scheduled orders requested for shipment in 2030.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 2030);
+    const authorizedOrderIds = [
+      ...claimsMatching(authorizedContext, orderIdPattern),
+    ];
+    const answerOrderIds = [...claimsMatching(answer, orderIdPattern)];
+
+    expect(authorizedOrderIds).toHaveLength(6);
+    expect(answerOrderIds).toEqual(authorizedOrderIds);
+    expect(answer).toMatch(
+      /(?:requested|scheduled)[\s\S]{0,40}2030|2030[\s\S]{0,40}(?:requested|scheduled)/i,
+    );
+    expect(answer).not.toMatch(
+      /\bcreated(?:\s+(?:in|during|for)|:)?\s+2030\b|\b2030\b[\s\S]{0,20}\bcreat(?:ed|ion)\b/i,
+    );
+    expect(answer).not.toMatch(
+      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
+    );
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
 });

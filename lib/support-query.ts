@@ -66,7 +66,7 @@ function orderStatus(message: string): SupportOrderStatus | undefined {
   if (/\bbackorder(?:ed)?\b/.test(message)) return 'backordered';
   if (/\bcancel(?:led|ed)?\b/.test(message)) return 'cancelled';
   if (/\bdeliver(?:ed|ies|y)?\b/.test(message)) return 'delivered';
-  if (/\bship(?:ped|ment)?\b/.test(message)) return 'shipped';
+  if (/\bshipped\b/.test(message)) return 'shipped';
   if (/\ballocat(?:ing|ion)\b/.test(message)) return 'allocating';
   if (/\bconfirm(?:ed|ation)?\b/.test(message)) return 'confirmed';
   if (/\bschedul(?:ed|e)\b|\bfuture\b|\bupcoming\b/.test(message))

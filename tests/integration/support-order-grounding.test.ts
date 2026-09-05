@@ -151,13 +151,13 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     const messages = [
       {
         role: 'user' as const,
-        content: 'Show my scheduled orders for 2030.',
+        content: 'Show my scheduled orders requested for shipment in 2030.',
       },
     ];
 
     expect(classifySupportQuery(messages)).toEqual({
       kind: 'orders',
-      message: 'show my scheduled orders for 2030.',
+      message: 'show my scheduled orders requested for shipment in 2030.',
       status: 'scheduled',
       year: 2030,
       yearField: 'requested',
