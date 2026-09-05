@@ -47,6 +47,44 @@ describe('support order grounding', () => {
     expect(context).not.toContain('Meridian Civic Supply');
   });
 
+  it('resolves a customer PO to the same authorized order as its order number', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content: 'What is the status of customer PO CPD-PO-260417?',
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'order',
+      identifier: 'CPD-PO-260417',
+    });
+
+    const database = await getDatabase();
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+    const orderNumberContext = await buildAuthorizedContext(
+      database,
+      [{ role: 'user', content: 'What is the status of SBL-2026-000417?' }],
+      calderPikeUser,
+    );
+
+    expect(context).toBe(orderNumberContext);
+    expect(context).toContain(
+      'Authorization: Calder Pike Distribution (WHS-0427) only.',
+    );
+    expect(context).toContain(
+      'Order: SBL-2026-000417; customer PO: CPD-PO-260417; status: partially_shipped.',
+    );
+    expect(context).toContain('Order total: $78,320.00.');
+    expect(context.match(/\bSBL-\d{4}-\d{6}\b/g)).toEqual(['SBL-2026-000417']);
+    expect(context).not.toContain('WHS-1098');
+    expect(context).not.toContain('Meridian Civic Supply');
+  });
+
   it('resolves a follow-up to the most recently discussed order', async () => {
     const messages = [
       { role: 'user' as const, content: 'Show me SBL-2026-000418.' },
