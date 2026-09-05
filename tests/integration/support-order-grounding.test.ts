@@ -270,7 +270,7 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     const contextOrderIds = context.match(/\bSBL-\d{4}-\d{6}\b/g) ?? [];
 
     expect(context).toContain(
-      'Order search for containing SBL-RPC-12; showing up to 6 most recent matches.',
+      'Order search for containing product Redline Power Cell R12 (SBL-RPC-12); showing up to 6 most recent matches.',
     );
     expect(contextOrderIds).toEqual(
       expectedRows.results.slice(0, 6).map((row) => row.order_id),

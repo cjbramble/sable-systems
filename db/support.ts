@@ -311,7 +311,9 @@ async function orderSearchContext(
   const criteria = [
     status ? `status ${status.replaceAll('_', ' ')}` : null,
     year ? `${yearField === 'requested' ? 'requested' : 'created'} in ${year}` : null,
-    product ? `containing ${product.item_number}` : null,
+    product
+      ? `containing product ${product.product_name} (${product.item_number})`
+      : null,
   ].filter(Boolean);
   return `<authorized_records>
 Authorization: ${user.distributorDisplayName} (${user.distributorId}) only.

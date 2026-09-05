@@ -13,8 +13,10 @@ function claimsMatching(value: string, pattern: RegExp) {
 }
 
 const orderIdPattern = /\bSBL-\d{4}-\d{6}\b/g;
+const itemNumberPattern = /\bSBL-(?!\d{4}-\d{6}\b)[A-Z0-9]+(?:-[A-Z0-9]+)+\b/g;
 const factualClaimPatterns = [
   orderIdPattern,
+  itemNumberPattern,
   /\b[A-Z]{3}-(?:PO|REL)-\d{6}\b/g,
   /\$\d[\d,]*(?:\.\d{2})?/g,
   /\b20\d{2}-\d{2}-\d{2}\b/g,
@@ -173,6 +175,32 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expect(answer).not.toMatch(
       /\bcreated(?:\s+(?:in|during|for)|:)?\s+2030\b|\b2030\b[\s\S]{0,20}\bcreat(?:ed|ion)\b/i,
     );
+    expect(answer).not.toMatch(
+      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
+    );
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
+  it('lists every authorized order containing the requested product', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'List the order IDs for my orders containing the Redline Power Cell R12.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 1212);
+    const authorizedOrderIds = [
+      ...claimsMatching(authorizedContext, orderIdPattern),
+    ];
+    const answerOrderIds = [...claimsMatching(answer, orderIdPattern)];
+
+    expect(authorizedOrderIds).toHaveLength(6);
+    expect(
+      answerOrderIds,
+      `Expected every authorized product-filtered order ID, received: ${answer}`,
+    ).toEqual(authorizedOrderIds);
+    expect(answer).toMatch(/SBL-RPC-12|Redline Power Cell R12/i);
     expect(answer).not.toMatch(
       /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
     );
