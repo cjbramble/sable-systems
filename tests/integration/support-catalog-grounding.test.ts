@@ -300,6 +300,76 @@ Fulfillment locations:
     expect(context).not.toMatch(/\bWHS-\d{4}\b/);
   });
 
+  it('grounds a valid digital-license quantity without physical inventory', async () => {
+    const requestedQuantity = 50;
+    const messages = [
+      {
+        role: 'user' as const,
+        content: `Are ${requestedQuantity} licenses of Palisade Endpoint License, Annual available?`,
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'catalog',
+      message:
+        'are 50 licenses of palisade endpoint license, annual available?',
+      category: undefined,
+      quantity: requestedQuantity,
+      includeLocations: false,
+      compare: false,
+    });
+
+    const database = await getDatabase();
+    const product = await database
+      .prepare(
+        `SELECT p.product_name, p.category, p.fulfillment_type,
+          p.unit_price_cents, p.unit_label, p.case_pack,
+          COUNT(i.item_number) AS inventory_rows
+         FROM products p
+         LEFT JOIN inventory_balances i ON i.item_number = p.item_number
+         WHERE p.item_number = ?
+         GROUP BY p.item_number`,
+      )
+      .bind('SBL-PAL-1Y')
+      .first<{
+        product_name: string;
+        category: string;
+        fulfillment_type: string;
+        unit_price_cents: number;
+        unit_label: string;
+        case_pack: number;
+        inventory_rows: number;
+      }>();
+
+    expect(product).toEqual({
+      product_name: 'Palisade Endpoint License, Annual',
+      category: 'Software',
+      fulfillment_type: 'license',
+      unit_price_cents: 39_000,
+      unit_label: 'seat',
+      case_pack: 25,
+      inventory_rows: 0,
+    });
+    if (!product) throw new Error('Missing Palisade license fixture');
+    expect(requestedQuantity % product.case_pack).toBe(0);
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+
+    expect(context).toBe(`<authorized_records>
+Product: SBL-PAL-1Y — Palisade Endpoint License, Annual; category Software.
+Wholesale price: $390.00 per seat; minimum block 25.
+Requested quantity 50: valid minimum-block multiple.
+This is a digitally allocated license and does not have a physical stock balance.
+</authorized_records>`);
+    expect(context).not.toMatch(
+      /Available to promise|Inbound:|Expected restock:|Fulfillment locations:/,
+    );
+  });
+
   it('builds an exact comparison context for two products', async () => {
     const messages = [
       {
