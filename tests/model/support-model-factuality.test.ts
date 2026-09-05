@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { getDatabase } from '@/db/database';
 import { buildAuthorizedContext } from '@/db/support';
+import type { ChatHistoryMessage } from '@/lib/chat-history';
 import {
   createSupportModelRequest,
   extractSupportModelContent,
@@ -40,10 +41,7 @@ function expectClaimsToComeFromContext(answer: string, context: string) {
   }
 }
 
-async function askSupportModel(
-  messages: Array<{ role: 'user'; content: string }>,
-  seed: number,
-) {
+async function askSupportModel(messages: ChatHistoryMessage[], seed: number) {
   const database = await getDatabase();
   const authorizedContext = await buildAuthorizedContext(
     database,
@@ -85,6 +83,35 @@ describe('support model factuality', () => {
     expect(answer).toMatch(/partially[_ -]shipped/i);
     expect(answer).not.toMatch(/WHS-1098|Meridian Civic Supply/i);
 
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
+  it('answers a follow-up about the most recently discussed order', async () => {
+    const messages: ChatHistoryMessage[] = [
+      { role: 'user', content: 'Show me SBL-2026-000418.' },
+      { role: 'assistant', content: 'Which details do you need?' },
+      { role: 'user', content: 'Switch to SBL-2026-000417.' },
+      { role: 'assistant', content: 'What would you like to know about it?' },
+      {
+        role: 'user',
+        content: 'What is the total for that order? Include the order ID.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(
+      messages,
+      418417,
+    );
+
+    console.info('Follow-up order total response:', answer);
+
+    expect(authorizedContext).toContain('Order total: $78,320.00.');
+    expect(authorizedContext).not.toContain('SBL-2026-000418');
+    expect([...claimsMatching(answer, orderIdPattern)]).toEqual([
+      'SBL-2026-000417',
+    ]);
+    expect(answer).toContain('$78,320.00');
+    expect(answer).not.toContain('CPD-PO-260418');
+    expect(answer).not.toMatch(/\$118,?000(?:\.00)?\b/);
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
