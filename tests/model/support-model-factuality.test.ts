@@ -369,4 +369,32 @@ No return matching ${unknownReturnId} is available within Calder Pike Distributi
     );
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
+
+  it('reports only authorized account summary facts', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'Give me my account tier, payment terms, currency, region, total order count, active order count, scheduled order count, and recent charge-account authorizations.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 4545);
+
+    expect(answer).toContain('Obsidian Preferred');
+    expect(answer).toMatch(/Net\s*45/i);
+    expect(answer).toMatch(/\bUSD\b/);
+    expect(answer).toContain('North Atlantic Trade District');
+    expect(answer).toMatch(/(?:total(?:\s+orders?)?\D{0,12}648|648\s+total)/i);
+    expect(answer).toMatch(/(?:active(?:\s+orders?)?\D{0,12}57|57\s+active)/i);
+    expect(answer).toMatch(
+      /(?:scheduled(?:\s+orders?)?\D{0,12}161|161\s+scheduled)/i,
+    );
+    expect(answer).toMatch(
+      /(?:recent )?charge[ -]account authorizations?\s*:\s*(?:none|no(?:ne)? (?:are )?)recorded/i,
+    );
+    expect(answer).not.toMatch(
+      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
+    );
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
 });
