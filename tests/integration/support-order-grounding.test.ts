@@ -84,4 +84,66 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     expect(context).not.toContain('MCS-PO-500000');
     expect(context).not.toContain('Meridian Civic Supply');
   });
+
+  it('returns only the six newest authorized partially shipped orders', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content: 'Show my partially shipped orders.',
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'orders',
+      message: 'show my partially shipped orders.',
+      status: 'partially_shipped',
+      year: undefined,
+      yearField: undefined,
+    });
+
+    const database = await getDatabase();
+    const expectedRows = await database
+      .prepare(
+        `SELECT order_id, customer_id, status
+         FROM orders
+         WHERE customer_id = ? AND status = ?
+         ORDER BY created_on DESC, order_id DESC
+         LIMIT 7`,
+      )
+      .bind(calderPikeUser.distributorId, 'partially_shipped')
+      .all<{
+        order_id: string;
+        customer_id: string;
+        status: string;
+      }>();
+
+    expect(expectedRows.results).toHaveLength(7);
+    expect(
+      expectedRows.results.every(
+        (row) =>
+          row.customer_id === calderPikeUser.distributorId &&
+          row.status === 'partially_shipped',
+      ),
+    ).toBe(true);
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+    const contextOrderIds = context.match(/\bSBL-\d{4}-\d{6}\b/g) ?? [];
+
+    expect(context).toContain(
+      'Authorization: Calder Pike Distribution (WHS-0427) only.',
+    );
+    expect(context).toContain(
+      'Order search for status partially shipped; showing up to 6 most recent matches.',
+    );
+    expect(contextOrderIds).toEqual(
+      expectedRows.results.slice(0, 6).map((row) => row.order_id),
+    );
+    expect(context).not.toContain(expectedRows.results[6].order_id);
+    expect(context.match(/\bWHS-\d{4}\b/g)).toEqual(['WHS-0427']);
+    expect(context.match(/: partially_shipped;/g)).toHaveLength(6);
+  });
 });
