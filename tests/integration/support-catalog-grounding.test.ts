@@ -370,6 +370,55 @@ This is a digitally allocated license and does not have a physical stock balance
     );
   });
 
+  it('requires a digital-license quantity to be a whole allocation block', async () => {
+    const requestedQuantity = 60;
+    const messages = [
+      {
+        role: 'user' as const,
+        content: `Are ${requestedQuantity} licenses of Palisade Endpoint License, Annual available?`,
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'catalog',
+      message:
+        'are 60 licenses of palisade endpoint license, annual available?',
+      category: undefined,
+      quantity: requestedQuantity,
+      includeLocations: false,
+      compare: false,
+    });
+
+    const database = await getDatabase();
+    const product = await database
+      .prepare(
+        'SELECT fulfillment_type, case_pack FROM products WHERE item_number = ?',
+      )
+      .bind('SBL-PAL-1Y')
+      .first<{ fulfillment_type: string; case_pack: number }>();
+
+    expect(product).toEqual({ fulfillment_type: 'license', case_pack: 25 });
+    if (!product) throw new Error('Missing Palisade license fixture');
+    expect(requestedQuantity).toBeGreaterThan(product.case_pack);
+    expect(requestedQuantity % product.case_pack).toBe(10);
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+
+    expect(context).toBe(`<authorized_records>
+Product: SBL-PAL-1Y — Palisade Endpoint License, Annual; category Software.
+Wholesale price: $390.00 per seat; minimum block 25.
+Requested quantity 60: must be adjusted to a multiple of 25.
+This is a digitally allocated license and does not have a physical stock balance.
+</authorized_records>`);
+    expect(context).not.toMatch(
+      /valid minimum-block multiple|Available to promise|Inbound:|Expected restock:|Fulfillment locations:/,
+    );
+  });
+
   it('builds an exact comparison context for two products', async () => {
     const messages = [
       {
