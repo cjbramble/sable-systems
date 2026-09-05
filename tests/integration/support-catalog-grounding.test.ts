@@ -202,6 +202,104 @@ Quarantined units are excluded from availability. Do not reveal other distributo
 </authorized_records>`);
   });
 
+  it('grounds warehouse availability in each location inventory balance', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content: 'Where is the Redline Power Cell R12 stocked?',
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'catalog',
+      message: 'where is the redline power cell r12 stocked?',
+      category: 'Power',
+      quantity: undefined,
+      includeLocations: true,
+      compare: false,
+    });
+
+    const database = await getDatabase();
+    const locations = await database
+      .prepare(
+        `SELECT l.location_name, l.service_region,
+          i.on_hand_quantity, i.reserved_quantity, i.quarantined_quantity,
+          i.inbound_quantity, i.expected_restock_date
+         FROM inventory_balances i
+         JOIN fulfillment_locations l ON l.location_id = i.location_id
+         WHERE i.item_number = ?
+         ORDER BY l.location_id`,
+      )
+      .bind('SBL-RPC-12')
+      .all<{
+        location_name: string;
+        service_region: string;
+        on_hand_quantity: number;
+        reserved_quantity: number;
+        quarantined_quantity: number;
+        inbound_quantity: number;
+        expected_restock_date: string | null;
+      }>();
+
+    expect(locations.results).toEqual([
+      {
+        location_name: 'Atlantic Stack Fulfillment Hub',
+        service_region: 'North Atlantic Trade District',
+        on_hand_quantity: 188,
+        reserved_quantity: 32,
+        quarantined_quantity: 0,
+        inbound_quantity: 0,
+        expected_restock_date: null,
+      },
+      {
+        location_name: 'Great Lakes Technical Depot',
+        service_region: 'Great Lakes District',
+        on_hand_quantity: 112,
+        reserved_quantity: 19,
+        quarantined_quantity: 0,
+        inbound_quantity: 0,
+        expected_restock_date: null,
+      },
+      {
+        location_name: 'Pacific Rim Bonded Yard',
+        service_region: 'Pacific Trade Zone',
+        on_hand_quantity: 76,
+        reserved_quantity: 13,
+        quarantined_quantity: 0,
+        inbound_quantity: 0,
+        expected_restock_date: null,
+      },
+    ]);
+    const availableByLocation = locations.results.map(
+      (location) =>
+        location.on_hand_quantity -
+        location.reserved_quantity -
+        location.quarantined_quantity,
+    );
+    expect(availableByLocation).toEqual([156, 93, 63]);
+    expect(
+      availableByLocation.reduce((total, available) => total + available, 0),
+    ).toBe(312);
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+
+    expect(context).toBe(`<authorized_records>
+Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
+Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
+Available to promise as of 2026-09-02: 312. Inbound: 0. Expected restock: none scheduled.
+Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
+Fulfillment locations:
+- Atlantic Stack Fulfillment Hub (North Atlantic Trade District): 156 available; 0 inbound; restock not scheduled.
+- Great Lakes Technical Depot (Great Lakes District): 93 available; 0 inbound; restock not scheduled.
+- Pacific Rim Bonded Yard (Pacific Trade Zone): 63 available; 0 inbound; restock not scheduled.
+</authorized_records>`);
+    expect(context).not.toMatch(/\bWHS-\d{4}\b/);
+  });
+
   it('builds an exact comparison context for two products', async () => {
     const messages = [
       {
