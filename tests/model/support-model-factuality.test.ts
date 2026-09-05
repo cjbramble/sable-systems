@@ -449,6 +449,54 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
+  it('lists both Software products with the correct allocation details', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'List the Software catalog. Start each product entry with its item number, then give its unit price, allocation block, and fulfillment type.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 2510);
+
+    console.info('Software category response:', answer);
+
+    const expectedProducts = [
+      { item: 'SBL-PAL-1Y', price: 390, unit: 'seat', block: 25 },
+      { item: 'SBL-RLY-1Y', price: 620, unit: 'node', block: 10 },
+    ];
+    expect([...claimsMatching(answer, itemNumberPattern)].sort()).toEqual(
+      expectedProducts.map((product) => product.item).sort(),
+    );
+    const sections = answer
+      .replaceAll('**', '')
+      .split(/(?=\bSBL-[A-Z0-9]+(?:-[A-Z0-9]+)+\b)/);
+    for (const product of expectedProducts) {
+      const productSections = sections.filter((section) =>
+        section.startsWith(product.item),
+      );
+      expect(productSections, answer).toHaveLength(1);
+      const section = productSections[0] ?? '';
+      expect(section).toMatch(
+        new RegExp(
+          `\\$${product.price}(?:\\.00)?\\s*(?:per|/)\\s*${product.unit}\\b`,
+          'i',
+        ),
+      );
+      expect(section).toMatch(
+        new RegExp(
+          `\\b(?:block|pack)\\b[^.!?\\n]{0,25}\\b${product.block}\\b`,
+          'i',
+        ),
+      );
+      expect(section).toMatch(/\bdigital(?:ly)?\s+allocat(?:ion|ed)\b/i);
+    }
+    expect(answer).not.toMatch(
+      /\b\d+\s+(?:available|inbound)\b|\bWHS-\d{4}\b/i,
+    );
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
   it('keeps comparison facts associated with the correct product', async () => {
     const messages = [
       {
