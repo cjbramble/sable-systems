@@ -342,6 +342,40 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
+  it('explains digital license allocation without inventing physical stock', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'Are 50 licenses of Palisade Endpoint License, Annual available? Include the unit price, minimum allocation block, whether my requested quantity meets that rule, and how physical inventory applies.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 5025);
+
+    console.info('Digital license allocation response:', answer);
+
+    expect(authorizedContext).toContain(
+      'Requested quantity 50: valid minimum-block multiple.',
+    );
+    const normalizedAnswer = answer.replaceAll('**', '');
+    expect(normalizedAnswer).toMatch(/\$390(?:\.00)?\s*(?:per|\/)\s*seat\b/i);
+    expect(normalizedAnswer).toMatch(
+      /\b(?:minimum|block|multiple)\b[^.!?\n]{0,45}\b25\b|\b25[- ](?:seat|license)\s+blocks?\b/i,
+    );
+    expect(normalizedAnswer).toMatch(
+      /\b50\b[^.!?\n]{0,70}\b(?:valid|meets|satisfies|multiple)\b|\b(?:valid|meets|satisfies)\b[^.!?\n]{0,70}\b50\b/i,
+    );
+    expect(normalizedAnswer).toMatch(/\bdigital(?:ly)?\b/i);
+    expect(normalizedAnswer).toMatch(
+      /\b(?:no|not|without)\b[^.!?\n]{0,60}\bphysical\s+(?:stock|inventory)\b|\bphysical\s+(?:stock|inventory)\b[^.!?\n]{0,30}\b(?:none|not applicable|does not apply)\b/i,
+    );
+    expect(normalizedAnswer).not.toMatch(
+      /\bunlimited\b|\bout of stock\b|\b(?:stock(?: balance)?|inventory|inbound)\s*:\s*\d+\b|\b\d+\s+(?:units?|seats?|licenses?)\s+(?:in stock|on hand)\b/i,
+    );
+    expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
   it('keeps comparison facts associated with the correct product', async () => {
     const messages = [
       {
