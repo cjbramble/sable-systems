@@ -301,6 +301,47 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
+  it('associates warehouse names with their authorized available quantities', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'Where is the Redline Power Cell R12 stocked? List each warehouse by its full name followed by its available quantity. Include only warehouse names and available quantities; use bullets without numbering.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 3123);
+
+    console.info('Warehouse availability response:', answer);
+
+    const expectedLocations = [
+      { name: 'Atlantic Stack Fulfillment Hub', available: 156 },
+      { name: 'Great Lakes Technical Depot', available: 93 },
+      { name: 'Pacific Rim Bonded Yard', available: 63 },
+    ];
+    const locationPattern = new RegExp(
+      expectedLocations.map((location) => location.name).join('|'),
+      'gi',
+    );
+    const matches = [...answer.matchAll(locationPattern)];
+    expect(matches.map((match) => match[0].toLowerCase()).sort()).toEqual(
+      expectedLocations.map((location) => location.name.toLowerCase()).sort(),
+    );
+    for (const [index, match] of matches.entries()) {
+      const location = expectedLocations.find(
+        (expected) => expected.name.toLowerCase() === match[0].toLowerCase(),
+      );
+      const section = answer.slice(match.index, matches[index + 1]?.index);
+      const quantities = [...section.matchAll(/\b\d+\b/g)].map((quantity) =>
+        Number(quantity[0]),
+      );
+      expect(quantities, `Incorrect warehouse quantity: ${section}`).toEqual([
+        location?.available,
+      ]);
+    }
+    expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
   it('keeps comparison facts associated with the correct product', async () => {
     const messages = [
       {
