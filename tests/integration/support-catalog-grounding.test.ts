@@ -82,6 +82,70 @@ Quarantined units are excluded from availability. Do not reveal other distributo
     expect(context).not.toContain('Meridian Civic Supply');
   });
 
+  it('excludes quarantined and inbound units from current availability', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'What is the availability and expected restock for SBL-CSR-R2?',
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'catalog',
+      message: 'what is the availability and expected restock for sbl-csr-r2?',
+      category: undefined,
+      quantity: undefined,
+      includeLocations: false,
+      compare: false,
+    });
+
+    const database = await getDatabase();
+    const inventory = await database
+      .prepare(
+        `SELECT SUM(on_hand_quantity) AS on_hand,
+          SUM(reserved_quantity) AS reserved,
+          SUM(quarantined_quantity) AS quarantined,
+          SUM(inbound_quantity) AS inbound,
+          MIN(expected_restock_date) AS expected_restock_date
+         FROM inventory_balances WHERE item_number = ?`,
+      )
+      .bind('SBL-CSR-R2')
+      .first<{
+        on_hand: number;
+        reserved: number;
+        quarantined: number;
+        inbound: number;
+        expected_restock_date: string | null;
+      }>();
+
+    expect(inventory).toEqual({
+      on_hand: 36,
+      reserved: 0,
+      quarantined: 36,
+      inbound: 48,
+      expected_restock_date: '2026-12-03',
+    });
+    if (!inventory) throw new Error('Missing Coldstart inventory fixture');
+    expect(inventory.on_hand - inventory.reserved - inventory.quarantined).toBe(
+      0,
+    );
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+
+    expect(context).toBe(`<authorized_records>
+Product: SBL-CSR-R2 — Coldstart Rack Controller R2; category Compute.
+Wholesale price: $2,250.00 per controller; case pack 4; standard lead time 90 days.
+Available to promise as of 2026-09-02: 0. Inbound: 48. Expected restock: 2026-12-03.
+Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
+</authorized_records>`);
+    expect(context).not.toMatch(/\bWHS-\d{4}\b/);
+  });
+
   it('reports a stock shortfall for a valid case-pack quantity', async () => {
     const requestedQuantity = 320;
     const messages = [
