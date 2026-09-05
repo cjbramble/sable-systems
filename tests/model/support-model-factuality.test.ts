@@ -235,6 +235,39 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
+  it('explains a stock shortfall despite a valid case-pack quantity', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'Are 320 units of the Redline Power Cell R12 available? Include the available quantity, case-pack validity, and any stock shortfall.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 3208);
+
+    console.info('Stock shortfall response:', answer);
+
+    expect(authorizedContext).toContain(
+      'Requested quantity 320: valid case-pack multiple; exceeds current available-to-promise stock by 8.',
+    );
+    const normalizedAnswer = answer.replaceAll('**', '');
+    expect(normalizedAnswer).toMatch(/\b320\b/);
+    expect(normalizedAnswer).toMatch(
+      /\b(?:available(?:[- ]to[- ]promise)?|availability|stock)\b[^.!?\n]{0,50}\b312\b|\b312\b[^.!?\n]{0,50}\b(?:available|availability|stock)\b/i,
+    );
+    expect(normalizedAnswer).toMatch(
+      /\bvalid\b[^.!?\n]{0,60}\b(?:case[- ]pack|multiple)\b|\bcase[- ]pack\b[^.!?\n]{0,60}\bvalid\b/i,
+    );
+    expect(normalizedAnswer).toMatch(
+      /\b(?:shortfall|shortage|short|exceeds?)\b[^.!?\n]{0,60}\b8\b|\b8\s+(?:units?|cells?)\s+short\b/i,
+    );
+    expect(normalizedAnswer).not.toMatch(
+      /\b(?:invalid|not (?:a )?valid|not a multiple)\b|\b(?:no|zero)\s+(?:stock\s+)?(?:shortfall|shortage)\b/i,
+    );
+    expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
   it('keeps comparison facts associated with the correct product', async () => {
     const messages = [
       {
