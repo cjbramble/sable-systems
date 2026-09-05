@@ -268,6 +268,39 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
+  it('explains an invalid case-pack quantity despite sufficient stock', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'Are 310 units of the Redline Power Cell R12 available? Include the available quantity, case-pack validity, and any stock shortfall.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 3108);
+
+    console.info('Case-pack restriction response:', answer);
+
+    expect(authorizedContext).toContain(
+      'Requested quantity 310: not a multiple of case pack 8; currently within available-to-promise stock.',
+    );
+    const normalizedAnswer = answer.replaceAll('**', '');
+    expect(normalizedAnswer).toMatch(/\b310\b/);
+    expect(normalizedAnswer).toMatch(
+      /\b(?:available(?:[- ]to[- ]promise)?|availability|stock)\b[^.!?\n]{0,50}\b312\b|\b312\b[^.!?\n]{0,50}\b(?:available|availability|stock)\b/i,
+    );
+    expect(normalizedAnswer).toMatch(
+      /\b(?:case[- ]pack|multiples?|packs?)\b[^.!?\n]{0,25}\b8\b/i,
+    );
+    expect(normalizedAnswer).toMatch(
+      /\b(?:invalid|not (?:a )?(?:valid )?multiple|not (?:a )?valid|not divisible)\b/i,
+    );
+    expect(normalizedAnswer).not.toMatch(
+      /\bout of stock\b|\b(?:shortfall|shortage)\s*(?:of|is|:)?\s*[1-9]\d*\b/i,
+    );
+    expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
   it('keeps comparison facts associated with the correct product', async () => {
     const messages = [
       {
