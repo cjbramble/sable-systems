@@ -483,6 +483,70 @@ This is a digitally allocated license and does not have a physical stock balance
     );
   });
 
+  it('returns both Software products with their digital allocation details', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content: 'List the Software catalog.',
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'catalog',
+      message: 'list the software catalog.',
+      category: 'Software',
+      quantity: undefined,
+      includeLocations: false,
+      compare: false,
+    });
+
+    const database = await getDatabase();
+    const products = await database
+      .prepare(
+        `SELECT item_number, product_name, fulfillment_type,
+          unit_price_cents, unit_label, case_pack, lead_time_days, active_to
+         FROM products WHERE category = ? ORDER BY product_name`,
+      )
+      .bind('Software')
+      .all<Record<string, string | number | null>>();
+
+    expect(products.results).toEqual([
+      {
+        item_number: 'SBL-PAL-1Y',
+        product_name: 'Palisade Endpoint License, Annual',
+        fulfillment_type: 'license',
+        unit_price_cents: 39_000,
+        unit_label: 'seat',
+        case_pack: 25,
+        lead_time_days: 0,
+        active_to: null,
+      },
+      {
+        item_number: 'SBL-RLY-1Y',
+        product_name: 'RelayMesh Node License, Annual',
+        fulfillment_type: 'license',
+        unit_price_cents: 62_000,
+        unit_label: 'node',
+        case_pack: 10,
+        lead_time_days: 0,
+        active_to: null,
+      },
+    ]);
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+
+    expect(context).toBe(`<authorized_records>
+Active Software catalog as of 2026-09-02:
+- SBL-PAL-1Y Palisade Endpoint License, Annual: $390.00 per seat; pack 25; lead 0 days; digital allocation.
+- SBL-RLY-1Y RelayMesh Node License, Annual: $620.00 per node; pack 10; lead 0 days; digital allocation.
+</authorized_records>`);
+    expect(context).not.toMatch(/\b\d+ available\b|\binbound\b|\bWHS-\d{4}\b/);
+  });
+
   it('builds an exact comparison context for two products', async () => {
     const messages = [
       {
