@@ -215,6 +215,26 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
+  it('reports the authorized available-to-promise quantity for a product', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'Repeat the product name or item number, then tell me how many Redline Power Cell R12 units are available.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 1213);
+
+    expect(answer).toMatch(/SBL-RPC-12|Redline Power Cell R12/i);
+    expect(answer).toMatch(/\b312\b/);
+    expect(answer).toMatch(/available(?: to promise)?|availability/i);
+    expect(answer).not.toMatch(/\b376\b|\b64\b/);
+    expect(answer).not.toMatch(
+      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
+    );
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
   it('reports only authorized facts for an exact shipment', async () => {
     const messages = [
       {
