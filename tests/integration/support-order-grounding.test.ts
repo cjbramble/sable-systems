@@ -244,6 +244,49 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     expect(context).not.toContain('Meridian Civic Supply');
   });
 
+  it('withholds an order looked up by another distributor customer PO', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content: 'What is the status and total of customer PO MCS-PO-500000?',
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'order',
+      identifier: 'MCS-PO-500000',
+    });
+
+    const database = await getDatabase();
+    const externalOrder = await database
+      .prepare(
+        `SELECT order_id, customer_id
+         FROM orders WHERE customer_po_number = ?`,
+      )
+      .bind('MCS-PO-500000')
+      .first<{ order_id: string; customer_id: string }>();
+
+    expect(externalOrder).toEqual({
+      order_id: 'SBL-2021-500000',
+      customer_id: 'WHS-1098',
+    });
+    expect(externalOrder?.customer_id).not.toBe(calderPikeUser.distributorId);
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+
+    expect(context).toBe(`<authorized_records>
+No order matching MCS-PO-500000 is available within Calder Pike Distribution's authorization scope. Do not confirm or deny whether it belongs to another customer.
+</authorized_records>`);
+    expect(context).not.toContain('SBL-2021-500000');
+    expect(context).not.toContain('WHS-1098');
+    expect(context).not.toContain('Meridian Civic Supply');
+    expect(context).not.toMatch(/\$\d/);
+  });
+
   it('withholds another distributor order referenced through conversation history', async () => {
     const messages = [
       { role: 'user' as const, content: 'Show me order SBL-2021-500000.' },
