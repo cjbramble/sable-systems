@@ -115,6 +115,37 @@ describe('support model factuality', () => {
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
+  it('answers for an explicit order instead of the previously discussed order', async () => {
+    const messages: ChatHistoryMessage[] = [
+      { role: 'user', content: 'Show me SBL-2026-000417.' },
+      {
+        role: 'assistant',
+        content: 'What would you like to know about SBL-2026-000417?',
+      },
+      {
+        role: 'user',
+        content:
+          'For that order total question, use SBL-2026-000418 instead. Include the order ID.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(
+      messages,
+      417418,
+    );
+
+    console.info('Explicit order switch response:', answer);
+
+    expect(authorizedContext).toContain('Order total: $118,000.00.');
+    expect(authorizedContext).not.toContain('SBL-2026-000417');
+    expect([...claimsMatching(answer, orderIdPattern)]).toEqual([
+      'SBL-2026-000418',
+    ]);
+    expect(answer).toContain('$118,000.00');
+    expect(answer).not.toContain('CPD-PO-260417');
+    expect(answer).not.toMatch(/\$78,?320(?:\.00)?\b/);
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
   it('maintains an authorization refusal when asked for the order total again', async () => {
     const messages: ChatHistoryMessage[] = [
       { role: 'user', content: 'Show me order SBL-2021-500000.' },
