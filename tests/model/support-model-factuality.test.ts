@@ -15,11 +15,13 @@ function claimsMatching(value: string, pattern: RegExp) {
 const orderIdPattern = /\bSBL-\d{4}-\d{6}\b/g;
 const itemNumberPattern = /\bSBL-(?!\d{4}-\d{6}\b)[A-Z0-9]+(?:-[A-Z0-9]+)+\b/g;
 const shipmentIdPattern = /\bSHP-\d{4}-\d{6}\b/g;
+const returnIdPattern = /\bRTN-\d{4}-\d{6}\b/g;
 const trackingReferencePattern = /\bAST-\d{10}\b/g;
 const factualClaimPatterns = [
   orderIdPattern,
   itemNumberPattern,
   shipmentIdPattern,
+  returnIdPattern,
   trackingReferencePattern,
   /\b[A-Z]{3}-(?:PO|REL)-\d{6}\b/g,
   /\$\d[\d,]*(?:\.\d{2})?/g,
@@ -289,6 +291,30 @@ No shipment matching ${externalShipment.shipment_id} is available within Calder 
     expect(answer).not.toContain(externalShipment.customer_id);
     expect(answer).not.toMatch(
       /\b(?:does not|doesn't|doesn’t)\s+belong\b|\bbelongs?\s+to\s+(?:another|a different)\b/i,
+    );
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
+  it('reports only authorized facts for an exact return', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'Repeat the return ID exactly, then give me the status, reason, linked order, customer PO, dates, and item details for return RTN-2022-000014.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 2014);
+
+    expect(answer).toContain('RTN-2022-000014');
+    expect(answer).toMatch(/\bclosed\b/i);
+    expect(answer).toMatch(/sealed[_ -]surplus/i);
+    expect(answer).toContain('SBL-2022-000118');
+    expect(answer).toMatch(/SBL-DMK-A9|Dermal Maintenance Kit A9/i);
+    expect(answer).toMatch(/\b12\b/);
+    expect(answer).toMatch(/\brestock\b/i);
+    expect(answer).toMatch(/2022-07-21|Jul(?:y)? 21,? 2022/i);
+    expect(answer).not.toMatch(
+      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
     );
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
