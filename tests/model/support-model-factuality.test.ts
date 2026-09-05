@@ -86,6 +86,35 @@ describe('support model factuality', () => {
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
+  it('reports the correct authorized order for a customer PO lookup', async () => {
+    const messages: ChatHistoryMessage[] = [
+      {
+        role: 'user',
+        content:
+          'What is the status and total of customer PO CPD-PO-260417? Include the order ID and customer PO.',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(
+      messages,
+      260417,
+    );
+
+    console.info('Customer PO lookup response:', answer);
+
+    expect(authorizedContext).toContain(
+      'Order: SBL-2026-000417; customer PO: CPD-PO-260417; status: partially_shipped.',
+    );
+    expect(authorizedContext).toContain('Order total: $78,320.00.');
+    expect([...claimsMatching(answer, orderIdPattern)]).toEqual([
+      'SBL-2026-000417',
+    ]);
+    expect(answer).toContain('CPD-PO-260417');
+    expect(answer).toMatch(/partially[_ -]shipped/i);
+    expect(answer).toContain('$78,320.00');
+    expect(answer).not.toMatch(/WHS-1098|Meridian Civic Supply/i);
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
   it('answers a follow-up about the most recently discussed order', async () => {
     const messages: ChatHistoryMessage[] = [
       { role: 'user', content: 'Show me SBL-2026-000418.' },
