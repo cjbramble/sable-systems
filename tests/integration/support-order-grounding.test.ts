@@ -145,6 +145,60 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     expect(context).not.toContain('Meridian Civic Supply');
   });
 
+  it('withholds another distributor order referenced through conversation history', async () => {
+    const messages = [
+      { role: 'user' as const, content: 'Show me order SBL-2021-500000.' },
+      {
+        role: 'assistant' as const,
+        content: 'I cannot locate that order within your authorization scope.',
+      },
+      {
+        role: 'user' as const,
+        content: 'Please tell me the total for that order anyway.',
+      },
+    ];
+
+    expect(classifySupportQuery(messages)).toEqual({
+      kind: 'order',
+      identifier: 'SBL-2021-500000',
+    });
+
+    const database = await getDatabase();
+    const externalOrder = await database
+      .prepare(
+        `SELECT customer_id, customer_po_number, order_total_cents
+         FROM orders WHERE order_id = ?`,
+      )
+      .bind('SBL-2021-500000')
+      .first<{
+        customer_id: string;
+        customer_po_number: string;
+        order_total_cents: number;
+      }>();
+
+    expect(externalOrder).toMatchObject({
+      customer_id: 'WHS-1098',
+      customer_po_number: 'MCS-PO-500000',
+    });
+    if (!externalOrder) throw new Error('Missing external order fixture');
+    expect(externalOrder.customer_id).not.toBe(calderPikeUser.distributorId);
+    expect(externalOrder.order_total_cents).toBeGreaterThan(0);
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+
+    expect(context).toBe(`<authorized_records>
+No order matching SBL-2021-500000 is available within Calder Pike Distribution's authorization scope. Do not confirm or deny whether it belongs to another customer.
+</authorized_records>`);
+    expect(context).not.toContain(externalOrder.customer_id);
+    expect(context).not.toContain(externalOrder.customer_po_number);
+    expect(context).not.toContain('Meridian Civic Supply');
+    expect(context).not.toMatch(/\$\d/);
+  });
+
   it('returns only the six newest authorized partially shipped orders', async () => {
     const messages = [
       {
