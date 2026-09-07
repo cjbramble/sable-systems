@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { AuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { buildAuthorizedContext } from '@/db/support';
 import { classifySupportQuery } from '@/lib/support-query';
@@ -83,6 +84,100 @@ describe('support order grounding', () => {
     expect(context.match(/\bSBL-\d{4}-\d{6}\b/g)).toEqual(['SBL-2026-000417']);
     expect(context).not.toContain('WHS-1098');
     expect(context).not.toContain('Meridian Civic Supply');
+  });
+
+  it('scopes a shared customer PO lookup to each authenticated distributor', async () => {
+    const database = await getDatabase();
+    const sharedPO = 'CPD-PO-260417';
+    const externalOrderId = 'SBL-2021-500000';
+    const externalOrder = await database
+      .prepare(
+        'SELECT customer_id, customer_po_number FROM orders WHERE order_id = ?',
+      )
+      .bind(externalOrderId)
+      .first<{ customer_id: string; customer_po_number: string }>();
+    expect(externalOrder).toEqual({
+      customer_id: 'WHS-1098',
+      customer_po_number: 'MCS-PO-500000',
+    });
+    if (!externalOrder) throw new Error('Missing external order fixture');
+
+    const meridianUser = await database
+      .prepare(`SELECT u.user_id AS userId, u.distributor_id AS distributorId,
+        u.display_name AS userDisplayName, u.email, u.role,
+        d.display_name AS distributorDisplayName, d.account_tier AS accountTier,
+        d.payment_terms AS paymentTerms, d.currency, d.region
+        FROM users u JOIN distributors d ON d.customer_id = u.distributor_id
+        WHERE u.user_id = ? AND u.status = 'active' AND d.account_status = 'active'`)
+      .bind('USR-MCS-001')
+      .first<AuthenticatedUser>();
+    expect(meridianUser?.distributorId).toBe('WHS-1098');
+    if (!meridianUser) throw new Error('Missing Meridian user fixture');
+
+    const calderContext = await buildAuthorizedContext(
+      database,
+      [{ role: 'user', content: 'Show order SBL-2026-000417.' }],
+      calderPikeUser,
+    );
+    const meridianContext = await buildAuthorizedContext(
+      database,
+      [{ role: 'user', content: `Show order ${externalOrderId}.` }],
+      meridianUser,
+    );
+    expect(calderContext).toContain('Order: SBL-2026-000417;');
+    expect(calderContext).toContain('Order total: $78,320.00.');
+    expect(meridianContext).toContain(`Order: ${externalOrderId};`);
+
+    try {
+      await database
+        .prepare('UPDATE orders SET customer_po_number = ? WHERE order_id = ?')
+        .bind(sharedPO, externalOrderId)
+        .run();
+      const matches = await database
+        .prepare(
+          'SELECT order_id, customer_id FROM orders WHERE customer_po_number = ? ORDER BY customer_id',
+        )
+        .bind(sharedPO)
+        .all<{ order_id: string; customer_id: string }>();
+      expect(matches.results).toEqual([
+        { order_id: 'SBL-2026-000417', customer_id: 'WHS-0427' },
+        { order_id: externalOrderId, customer_id: 'WHS-1098' },
+      ]);
+
+      const messages = [
+        { role: 'user' as const, content: `Show customer PO ${sharedPO}.` },
+      ];
+      const calderResult = await buildAuthorizedContext(
+        database,
+        messages,
+        calderPikeUser,
+      );
+      const meridianResult = await buildAuthorizedContext(
+        database,
+        messages,
+        meridianUser,
+      );
+      expect(calderResult).toBe(calderContext);
+      expect(meridianResult).toBe(
+        meridianContext.replace(
+          `customer PO: ${externalOrder.customer_po_number};`,
+          `customer PO: ${sharedPO};`,
+        ),
+      );
+      expect(calderResult).not.toContain(externalOrderId);
+      expect(meridianResult).not.toContain('SBL-2026-000417');
+    } finally {
+      await database
+        .prepare('UPDATE orders SET customer_po_number = ? WHERE order_id = ?')
+        .bind(externalOrder.customer_po_number, externalOrderId)
+        .run();
+    }
+    expect(
+      await database
+        .prepare('SELECT customer_po_number FROM orders WHERE order_id = ?')
+        .bind(externalOrderId)
+        .first('customer_po_number'),
+    ).toBe(externalOrder.customer_po_number);
   });
 
   it('resolves a follow-up to the most recently discussed order', async () => {
