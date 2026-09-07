@@ -3,9 +3,84 @@ import { describe, expect, it, vi } from 'vitest';
 import { POST } from '@/app/api/chat/route';
 import { createSession, revokeSession } from '@/db/auth';
 import { getDatabase } from '@/db/database';
+import { deleteSupportIncident } from '@/db/incidents';
 import { calderPikeUser } from '../fixtures/users';
 
 describe('support response safety', () => {
+  it('returns and saves a grounded response under the authenticated user incident', async () => {
+    const database = await getDatabase();
+    const url = 'http://localhost/api/chat';
+    const incidentId = 'INC-VALID-RESPONSE-REGRESSION';
+    const messageId = 'MSG-VALID-RESPONSE-REGRESSION';
+    const customerMessage = 'Show return RTN-2022-000014.';
+    const assistantMessage =
+      'Return **RTN-2022-000014** is closed. Linked order: `SBL-2022-000118`; customer PO: `CPD-PO-220118`.';
+    const findIncident = () =>
+      database
+        .prepare('SELECT user_id FROM support_incidents WHERE incident_id = ?')
+        .bind(incidentId)
+        .first<{ user_id: string }>();
+    const savedMessages = () =>
+      database
+        .prepare(`SELECT message_id, sequence_number, role, content
+        FROM support_messages WHERE incident_id = ? ORDER BY sequence_number`)
+        .bind(incidentId)
+        .all();
+    expect(await findIncident()).toBeNull();
+    expect((await savedMessages()).results).toEqual([]);
+
+    const cookie = await createSession(
+      database,
+      calderPikeUser.userId,
+      new Request(url),
+    );
+    const request = new Request(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: cookie.split(';')[0],
+      },
+      body: JSON.stringify({
+        incidentId,
+        messageId,
+        messages: [{ role: 'user', content: customerMessage }],
+      }),
+    });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json({
+        choices: [{ message: { content: assistantMessage } }],
+      }),
+    );
+
+    try {
+      const response = await POST(request);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ message: assistantMessage });
+      expect(await findIncident()).toEqual({ user_id: calderPikeUser.userId });
+      expect((await savedMessages()).results).toEqual([
+        {
+          message_id: messageId,
+          sequence_number: 1,
+          role: 'user',
+          content: customerMessage,
+        },
+        {
+          message_id: `AST-${messageId}`,
+          sequence_number: 2,
+          role: 'assistant',
+          content: assistantMessage,
+        },
+      ]);
+    } finally {
+      fetchMock.mockRestore();
+      await deleteSupportIncident(database, calderPikeUser, incidentId);
+      await revokeSession(database, request);
+    }
+    expect(await findIncident()).toBeNull();
+    expect((await savedMessages()).results).toEqual([]);
+  });
+
   it('blocks a corrupted order ID before returning or persisting the response', async () => {
     const database = await getDatabase();
     const url = 'http://localhost/api/chat';
