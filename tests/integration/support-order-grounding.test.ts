@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import type { AuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { buildAuthorizedContext } from '@/db/support';
 import { classifySupportQuery } from '@/lib/support-query';
-import { calderPikeUser } from '../fixtures/users';
+import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support order grounding', () => {
   it('builds an exact, tenant-scoped context for a known order', async () => {
@@ -102,17 +101,8 @@ describe('support order grounding', () => {
     });
     if (!externalOrder) throw new Error('Missing external order fixture');
 
-    const meridianUser = await database
-      .prepare(`SELECT u.user_id AS userId, u.distributor_id AS distributorId,
-        u.display_name AS userDisplayName, u.email, u.role,
-        d.display_name AS distributorDisplayName, d.account_tier AS accountTier,
-        d.payment_terms AS paymentTerms, d.currency, d.region
-        FROM users u JOIN distributors d ON d.customer_id = u.distributor_id
-        WHERE u.user_id = ? AND u.status = 'active' AND d.account_status = 'active'`)
-      .bind('USR-MCS-001')
-      .first<AuthenticatedUser>();
-    expect(meridianUser?.distributorId).toBe('WHS-1098');
-    if (!meridianUser) throw new Error('Missing Meridian user fixture');
+    const meridianUser = await loadActiveUserFixture(database, 'USR-MCS-001');
+    expect(meridianUser.distributorId).toBe('WHS-1098');
 
     const calderContext = await buildAuthorizedContext(
       database,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { AuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { buildAuthorizedContext } from '@/db/support';
 import type { ChatHistoryMessage } from '@/lib/chat-history';
@@ -7,7 +8,7 @@ import {
   createSupportModelRequest,
   extractSupportModelContent,
 } from '@/lib/support-model';
-import { calderPikeUser } from '../fixtures/users';
+import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 function claimsMatching(value: string, pattern: RegExp) {
   return new Set(value.match(pattern) ?? []);
@@ -41,16 +42,20 @@ function expectClaimsToComeFromContext(answer: string, context: string) {
   }
 }
 
-async function askSupportModel(messages: ChatHistoryMessage[], seed: number) {
+async function askSupportModel(
+  messages: ChatHistoryMessage[],
+  seed: number,
+  user: AuthenticatedUser = calderPikeUser,
+) {
   const database = await getDatabase();
   const authorizedContext = await buildAuthorizedContext(
     database,
     messages,
-    calderPikeUser,
+    user,
   );
   const [modelUrl, modelRequest] = createSupportModelRequest({
-    distributorName: calderPikeUser.distributorDisplayName,
-    distributorId: calderPikeUser.distributorId,
+    distributorName: user.distributorDisplayName,
+    distributorId: user.distributorId,
     authorizedContext,
     messages,
     generation: {
@@ -114,6 +119,113 @@ describe('support model factuality', () => {
     expect(answer).not.toMatch(/WHS-1098|Meridian Civic Supply/i);
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
+
+  it('keeps shared customer PO responses isolated between distributors', async () => {
+    const database = await getDatabase();
+    const sharedPO = 'CPD-PO-260417';
+    const externalOrderId = 'SBL-2021-500000';
+    const externalOrder = await database
+      .prepare(`SELECT customer_id, customer_po_number, order_total_cents, currency
+        FROM orders WHERE order_id = ?`)
+      .bind(externalOrderId)
+      .first<{
+        customer_id: string;
+        customer_po_number: string;
+        order_total_cents: number;
+        currency: string;
+      }>();
+    expect(externalOrder).toMatchObject({
+      customer_id: 'WHS-1098',
+      customer_po_number: 'MCS-PO-500000',
+      currency: 'USD',
+    });
+    if (!externalOrder) throw new Error('Missing external order fixture');
+    expect(externalOrder.order_total_cents).toBeGreaterThan(0);
+    expect(externalOrder.order_total_cents).not.toBe(7_832_000);
+    const meridianUser = await loadActiveUserFixture(database, 'USR-MCS-001');
+    expect(meridianUser.distributorId).toBe(externalOrder.customer_id);
+    const meridianTotal = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+    }).format(externalOrder.order_total_cents / 100);
+    const scenarios = [
+      {
+        user: calderPikeUser,
+        orderId: 'SBL-2026-000417',
+        total: '$78,320.00',
+        otherOrderId: externalOrderId,
+        otherTotal: meridianTotal,
+        otherUser: meridianUser,
+        seed: 4271098,
+      },
+      {
+        user: meridianUser,
+        orderId: externalOrderId,
+        total: meridianTotal,
+        otherOrderId: 'SBL-2026-000417',
+        otherTotal: '$78,320.00',
+        otherUser: calderPikeUser,
+        seed: 1098427,
+      },
+    ];
+
+    try {
+      await database
+        .prepare('UPDATE orders SET customer_po_number = ? WHERE order_id = ?')
+        .bind(sharedPO, externalOrderId)
+        .run();
+      const matches = await database
+        .prepare(
+          'SELECT order_id, customer_id FROM orders WHERE customer_po_number = ? ORDER BY customer_id',
+        )
+        .bind(sharedPO)
+        .all<{ order_id: string; customer_id: string }>();
+      expect(matches.results).toEqual([
+        { order_id: 'SBL-2026-000417', customer_id: 'WHS-0427' },
+        { order_id: externalOrderId, customer_id: 'WHS-1098' },
+      ]);
+
+      for (const scenario of scenarios) {
+        const { answer, authorizedContext } = await askSupportModel(
+          [
+            {
+              role: 'user',
+              content: `What is the order ID and total for customer PO ${sharedPO}? Include the customer PO.`,
+            },
+          ],
+          scenario.seed,
+          scenario.user,
+        );
+        console.info(
+          `Shared PO response for ${scenario.user.distributorId}:`,
+          answer,
+        );
+        expect(authorizedContext).toContain(`Order: ${scenario.orderId};`);
+        expect(authorizedContext).toContain(`Order total: ${scenario.total}.`);
+        expect(authorizedContext).not.toContain(scenario.otherOrderId);
+        expect([...claimsMatching(answer, orderIdPattern)]).toEqual([
+          scenario.orderId,
+        ]);
+        expect(answer).toContain(sharedPO);
+        expect(answer).toContain(scenario.total);
+        expect(answer).not.toContain(scenario.otherTotal);
+        expect(answer).not.toContain(scenario.otherUser.distributorId);
+        expect(answer).not.toContain(scenario.otherUser.distributorDisplayName);
+        expectClaimsToComeFromContext(answer, authorizedContext);
+      }
+    } finally {
+      await database
+        .prepare('UPDATE orders SET customer_po_number = ? WHERE order_id = ?')
+        .bind(externalOrder.customer_po_number, externalOrderId)
+        .run();
+    }
+    expect(
+      await database
+        .prepare('SELECT customer_po_number FROM orders WHERE order_id = ?')
+        .bind(externalOrderId)
+        .first('customer_po_number'),
+    ).toBe(externalOrder.customer_po_number);
+  }, 240_000);
 
   it('refuses another distributor customer PO without revealing order details', async () => {
     const messages: ChatHistoryMessage[] = [
