@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { POST } from '@/app/api/chat/route';
 import { createSession, revokeSession } from '@/db/auth';
 import { getDatabase } from '@/db/database';
-import { deleteSupportIncident } from '@/db/incidents';
-import { calderPikeUser } from '../fixtures/users';
+import { deleteSupportIncident, saveSupportExchange } from '@/db/incidents';
+import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support response safety', () => {
   it('returns and saves a grounded response under the authenticated user incident', async () => {
@@ -240,6 +240,95 @@ describe('support response safety', () => {
       await deleteSupportIncident(database, calderPikeUser, incidentId);
       await revokeSession(database, makeRequest());
     }
+    expect((await savedMessages()).results).toEqual([]);
+  });
+
+  it('denies another user replaying a saved reply with the same incident and message IDs', async () => {
+    const database = await getDatabase();
+    const otherUser = await loadActiveUserFixture(database, 'USR-MCS-001');
+    expect(otherUser.distributorId).not.toBe(calderPikeUser.distributorId);
+    const url = 'http://localhost/api/chat';
+    const incidentId = 'INC-REPLAY-ISOLATION-REGRESSION';
+    const messageId = 'MSG-REPLAY-ISOLATION-REGRESSION';
+    const customerMessage = 'Show return RTN-2022-000014.';
+    const privateReply =
+      'Return RTN-2022-000014 is closed. Linked order: SBL-2022-000118.';
+    const findIncident = () =>
+      database
+        .prepare('SELECT * FROM support_incidents WHERE incident_id = ?')
+        .bind(incidentId)
+        .first();
+    const savedMessages = () =>
+      database
+        .prepare(
+          'SELECT * FROM support_messages WHERE incident_id = ? ORDER BY sequence_number',
+        )
+        .bind(incidentId)
+        .all();
+    expect(await findIncident()).toBeNull();
+    expect((await savedMessages()).results).toEqual([]);
+
+    const cookies: string[] = [];
+    const makeRequest = (cookie: string) =>
+      new Request(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: cookie.split(';')[0],
+        },
+        body: JSON.stringify({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content: customerMessage }],
+        }),
+      });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(
+        Response.json({
+          choices: [{ message: { content: 'No authorized return was found.' } }],
+        }),
+      ),
+    );
+
+    try {
+      for (const user of [calderPikeUser, otherUser]) {
+        cookies.push(await createSession(database, user.userId, new Request(url)));
+      }
+      await saveSupportExchange(
+        database,
+        calderPikeUser,
+        incidentId,
+        messageId,
+        customerMessage,
+        privateReply,
+      );
+      const originalIncident = await findIncident();
+      const originalMessages = await savedMessages();
+      expect(originalIncident).toMatchObject({ user_id: calderPikeUser.userId });
+      expect(originalMessages.results).toHaveLength(2);
+
+      // Positive control: this exact request replays successfully for its owner.
+      const ownerResponse = await POST(makeRequest(cookies[0]));
+      expect(ownerResponse.status).toBe(200);
+      expect(await ownerResponse.json()).toEqual({ message: privateReply });
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      // Only the session changes; knowing the IDs and prompt grants no access.
+      const otherResponse = await POST(makeRequest(cookies[1]));
+      expect(otherResponse.status).toBe(403);
+      expect(await otherResponse.json()).toEqual({
+        error: 'Incident access denied.',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(await findIncident()).toEqual(originalIncident);
+      expect((await savedMessages()).results).toEqual(originalMessages.results);
+    } finally {
+      fetchMock.mockRestore();
+      await deleteSupportIncident(database, calderPikeUser, incidentId);
+      for (const cookie of cookies)
+        await revokeSession(database, makeRequest(cookie));
+    }
+    expect(await findIncident()).toBeNull();
     expect((await savedMessages()).results).toEqual([]);
   });
 

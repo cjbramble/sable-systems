@@ -81,6 +81,19 @@ export async function listSupportIncidents(
   return [...incidents.values()];
 }
 
+export async function canAccessSupportIncident(
+  db: D1Database,
+  user: AuthenticatedUser,
+  incidentId: string,
+): Promise<boolean> {
+  const incident = await db
+    .prepare('SELECT user_id FROM support_incidents WHERE incident_id = ?')
+    .bind(incidentId)
+    .first<{ user_id: string }>();
+  // A new incident can be created; an existing one belongs only to its owner.
+  return incident === null || incident.user_id === user.userId;
+}
+
 export async function getSavedSupportReply(
   db: D1Database,
   user: AuthenticatedUser,

@@ -1,6 +1,7 @@
 import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import {
+  canAccessSupportIncident,
   getSavedSupportReply,
   parseIncidentId,
   parseMessageId,
@@ -65,6 +66,11 @@ export async function POST(request: Request) {
       );
     const customerMessage = messages.at(-1)?.content ?? '';
     if (incidentId && messageId) {
+      if (!(await canAccessSupportIncident(db, user, incidentId)))
+        return Response.json(
+          { error: 'Incident access denied.' },
+          { status: 403 },
+        );
       const savedReply = await getSavedSupportReply(
         db,
         user,
