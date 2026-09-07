@@ -51,10 +51,14 @@ function stopOwnedModel() {
 
 async function runVitest() {
   const vitestEntrypoint = resolve('node_modules/vitest/vitest.mjs');
-  const test = spawn(process.execPath, [vitestEntrypoint, 'run'], {
-    env: { ...process.env, SUPPORT_MODEL_TEST: '1' },
-    stdio: 'inherit',
-  });
+  const test = spawn(
+    process.execPath,
+    [vitestEntrypoint, 'run', ...process.argv.slice(2)],
+    {
+      env: { ...process.env, SUPPORT_MODEL_TEST: '1' },
+      stdio: 'inherit',
+    },
+  );
   return new Promise((resolveExit) => {
     test.once('exit', (code, signal) => resolveExit(signal ? 1 : (code ?? 1)));
     test.once('error', () => resolveExit(1));

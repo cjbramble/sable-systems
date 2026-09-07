@@ -265,7 +265,7 @@ No return matching ${identifier} is available within ${user.distributorDisplayNa
   return `<authorized_records>
 Authorization: ${user.distributorDisplayName} (${user.distributorId}) only.
 Return: ${returnRow.return_id}; status: ${returnRow.status}; reason: ${returnRow.reason_code}.
-Order: ${returnRow.order_id}; customer PO: ${returnRow.customer_po_number}.
+Order: \`${returnRow.order_id}\`; customer PO: \`${returnRow.customer_po_number}\`.
 Requested: ${returnRow.requested_on}; authorized: ${returnRow.authorized_on ?? 'not yet'}; received: ${returnRow.received_on ?? 'not yet'}.
 Items:
 ${items.results.map((item) => `- ${item.item_number} ${item.product_name_snapshot}: quantity ${item.return_quantity}; disposition ${item.disposition}.`).join('\n') || '- No return lines recorded.'}

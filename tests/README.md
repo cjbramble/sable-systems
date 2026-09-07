@@ -7,3 +7,13 @@
 - `fixtures/`: shared test data and test-only identities; it contains no test cases.
 
 Keep model evaluations separate from the default deterministic suite. Do not create an empty category directory before its first test is added.
+
+Run deterministic checks with `npm test` and the full local model suite with
+`npm run test:model`. The model runner also forwards Vitest filters, for example:
+
+```sh
+npm run test:model -- -t 'reports only authorized facts for an exact return'
+```
+
+Model assertions inspect the raw generated response; the API's identifier safety
+check does not repair or mask model-evaluation failures.

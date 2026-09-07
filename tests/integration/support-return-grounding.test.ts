@@ -61,7 +61,7 @@ describe('support return grounding', () => {
     expect(context).toBe(`<authorized_records>
 Authorization: Calder Pike Distribution (WHS-0427) only.
 Return: RTN-2022-000014; status: closed; reason: sealed_surplus.
-Order: SBL-2022-000118; customer PO: CPD-PO-220118.
+Order: \`SBL-2022-000118\`; customer PO: \`CPD-PO-220118\`.
 Requested: 2022-07-08; authorized: 2022-07-09; received: 2022-07-21.
 Items:
 - SBL-DMK-A9 Dermal Maintenance Kit A9: quantity 12; disposition restock.

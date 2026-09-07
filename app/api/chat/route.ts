@@ -7,6 +7,7 @@ import {
 } from '@/db/incidents';
 import { buildAuthorizedContext } from '@/db/support';
 import { parseChatMessages } from '@/lib/chat-request';
+import { hasGroundedSupportIdentifiers } from '@/lib/support-response';
 import {
   createSupportModelRequest,
   extractSupportModelContent,
@@ -86,6 +87,16 @@ export async function POST(request: Request) {
         {
           error:
             'The local model returned an empty response. Please try again.',
+        },
+        { status: 502 },
+      );
+    }
+
+    if (!hasGroundedSupportIdentifiers(content, authorizedContext)) {
+      return Response.json(
+        {
+          error:
+            'The response contained an unverified record reference. Please try again.',
         },
         { status: 502 },
       );
