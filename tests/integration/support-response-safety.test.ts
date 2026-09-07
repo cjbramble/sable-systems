@@ -165,6 +165,84 @@ describe('support response safety', () => {
     expect((await savedMessages()).results).toEqual([]);
   });
 
+  it('replays the original saved reply without regenerating it on a completed retry', async () => {
+    const database = await getDatabase();
+    const url = 'http://localhost/api/chat';
+    const incidentId = 'INC-REPLAY-RESPONSE-REGRESSION';
+    const messageId = 'MSG-REPLAY-RESPONSE-REGRESSION';
+    const customerMessage = 'Show return RTN-2022-000014.';
+    const originalReply =
+      'Return RTN-2022-000014 is closed. Linked order: SBL-2022-000118.';
+    const regeneratedReply =
+      'The linked order is SBL-2022-000118. Return RTN-2022-000014 has status closed.';
+    const savedMessages = () =>
+      database
+        .prepare(
+          'SELECT * FROM support_messages WHERE incident_id = ? ORDER BY sequence_number',
+        )
+        .bind(incidentId)
+        .all();
+    expect(
+      await database
+        .prepare('SELECT incident_id FROM support_incidents WHERE incident_id = ?')
+        .bind(incidentId)
+        .first(),
+    ).toBeNull();
+
+    const cookie = await createSession(
+      database,
+      calderPikeUser.userId,
+      new Request(url),
+    );
+    const makeRequest = () =>
+      new Request(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: cookie.split(';')[0],
+        },
+        body: JSON.stringify({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content: customerMessage }],
+        }),
+      });
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        Response.json({ choices: [{ message: { content: originalReply } }] }),
+      )
+      .mockImplementation(() =>
+        Promise.resolve(
+          Response.json({ choices: [{ message: { content: regeneratedReply } }] }),
+        ),
+      );
+
+    try {
+      const firstResponse = await POST(makeRequest());
+      expect(firstResponse.status).toBe(200);
+      expect(await firstResponse.json()).toEqual({ message: originalReply });
+      const originalMessages = await savedMessages();
+      expect(originalMessages.results).toHaveLength(2);
+      expect(originalMessages.results[1]).toMatchObject({
+        message_id: `AST-${messageId}`,
+        role: 'assistant',
+        content: originalReply,
+      });
+
+      const retryResponse = await POST(makeRequest());
+      expect(retryResponse.status).toBe(200);
+      expect(await retryResponse.json()).toEqual({ message: originalReply });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect((await savedMessages()).results).toEqual(originalMessages.results);
+    } finally {
+      fetchMock.mockRestore();
+      await deleteSupportIncident(database, calderPikeUser, incidentId);
+      await revokeSession(database, makeRequest());
+    }
+    expect((await savedMessages()).results).toEqual([]);
+  });
+
   it('blocks a corrupted order ID before returning or persisting the response', async () => {
     const database = await getDatabase();
     const url = 'http://localhost/api/chat';

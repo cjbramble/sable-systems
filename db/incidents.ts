@@ -81,6 +81,29 @@ export async function listSupportIncidents(
   return [...incidents.values()];
 }
 
+export async function getSavedSupportReply(
+  db: D1Database,
+  user: AuthenticatedUser,
+  incidentId: string,
+  messageId: string,
+  customerMessage: string,
+): Promise<string | null> {
+  // Replay only a complete exchange belonging to this user and exact input.
+  const reply = await db
+    .prepare(`SELECT assistant.content
+      FROM support_incidents i
+      JOIN support_messages customer ON customer.incident_id = i.incident_id
+      JOIN support_messages assistant ON assistant.incident_id = i.incident_id
+        AND assistant.sequence_number = customer.sequence_number + 1
+      WHERE i.user_id = ? AND i.incident_id = ?
+        AND customer.message_id = ? AND customer.role = 'user'
+        AND customer.content = ?
+        AND assistant.message_id = ? AND assistant.role = 'assistant'`)
+    .bind(user.userId, incidentId, messageId, customerMessage, `AST-${messageId}`)
+    .first<{ content: string }>();
+  return reply?.content ?? null;
+}
+
 export async function saveSupportExchange(
   db: D1Database,
   user: AuthenticatedUser,

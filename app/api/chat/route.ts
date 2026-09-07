@@ -1,6 +1,7 @@
 import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import {
+  getSavedSupportReply,
   parseIncidentId,
   parseMessageId,
   saveSupportExchange,
@@ -62,6 +63,18 @@ export async function POST(request: Request) {
         { error: 'Authentication required.' },
         { status: 401 },
       );
+    const customerMessage = messages.at(-1)?.content ?? '';
+    if (incidentId && messageId) {
+      const savedReply = await getSavedSupportReply(
+        db,
+        user,
+        incidentId,
+        messageId,
+        customerMessage,
+      );
+      if (savedReply !== null) return Response.json({ message: savedReply });
+    }
+
     const authorizedContext = await buildAuthorizedContext(db, messages, user);
     const [modelUrl, modelRequest] = createSupportModelRequest({
       distributorName: user.distributorDisplayName,
@@ -108,7 +121,7 @@ export async function POST(request: Request) {
         user,
         incidentId,
         messageId,
-        messages.at(-1)?.content ?? '',
+        customerMessage,
         content,
       );
     }
