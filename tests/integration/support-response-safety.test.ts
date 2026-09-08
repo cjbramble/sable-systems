@@ -938,118 +938,180 @@ describe('support response safety', () => {
     },
   );
 
-  it('denies saved reply access when a user is suspended despite a valid session', async () => {
-    const database = await getDatabase();
-    const fixture = createSupportApiFixture(database);
-    const userId = 'USR-SUSPENDED-REPLAY-TEST';
-    const incidentId = 'INC-SUSPENDED-USER-REPLAY';
-    const messageId = 'MSG-SUSPENDED-USER-REPLAY';
-    const customerMessage = 'Show return RTN-2022-000014.';
-    const privateReply =
-      'Return RTN-2022-000014 is closed. Linked order: SBL-2022-000118.';
-    const findUser = () =>
-      database
-        .prepare('SELECT * FROM users WHERE user_id = ?')
-        .bind(userId)
-        .first();
-    const findSessions = () =>
-      database
-        .prepare('SELECT * FROM sessions WHERE user_id = ? ORDER BY session_id')
-        .bind(userId)
-        .all();
-    let userCreated = false;
-    expect(await findUser()).toBeNull();
-    expect(await fixture.findIncident(incidentId)).toBeNull();
-    expect((await fixture.messages(incidentId)).results).toEqual([]);
+  it.each(['user', 'distributor'])(
+    'denies saved reply access when a %s is suspended despite a valid session',
+    async (suspendedEntity) => {
+      const database = await getDatabase();
+      const fixture = createSupportApiFixture(database);
+      const userId = `USR-SUSPENDED-${suspendedEntity.toUpperCase()}-TEST`;
+      const incidentId = `INC-SUSPENDED-${suspendedEntity.toUpperCase()}-REPLAY`;
+      const messageId = `MSG-SUSPENDED-${suspendedEntity.toUpperCase()}-REPLAY`;
+      const distributorId =
+        suspendedEntity === 'distributor'
+          ? 'WHS-SUSPENDED-REPLAY-TEST'
+          : calderPikeUser.distributorId;
+      const customerMessage = 'Help with a shipment.';
+      const privateReply = 'Please provide the shipment reference.';
+      const findUser = () =>
+        database
+          .prepare('SELECT * FROM users WHERE user_id = ?')
+          .bind(userId)
+          .first();
+      const findSessions = () =>
+        database
+          .prepare(
+            'SELECT * FROM sessions WHERE user_id = ? ORDER BY session_id',
+          )
+          .bind(userId)
+          .all();
+      const findDistributor = () =>
+        database
+          .prepare('SELECT * FROM distributors WHERE customer_id = ?')
+          .bind(distributorId)
+          .first();
+      let userCreated = false;
+      let distributorCreated = false;
+      expect(await findUser()).toBeNull();
+      if (suspendedEntity === 'distributor')
+        expect(await findDistributor()).toBeNull();
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
 
-    try {
-      // A test-owned user keeps suspension changes away from seeded accounts.
-      await database
-        .prepare(`INSERT INTO users
+      try {
+        // Only test-owned accounts may be suspended; seeded accounts stay unchanged.
+        if (suspendedEntity === 'distributor') {
+          await database
+            .prepare(`INSERT INTO distributors
+          (customer_id, legal_name, display_name, account_tier, account_status,
+            payment_terms, currency, region)
+          VALUES (?, 'Replay Test Distribution', 'Replay Test', 'Standard',
+            'active', 'Net 30', 'USD', 'Test District')`)
+            .bind(distributorId)
+            .run();
+          distributorCreated = true;
+        }
+        await database
+          .prepare(`INSERT INTO users
         (user_id, distributor_id, display_name, email, role, status, created_on)
         VALUES (?, ?, ?, ?, 'support', 'active', ?)`)
-        .bind(
-          userId,
-          calderPikeUser.distributorId,
-          'Replay Test User',
-          'suspended-replay@tests.example',
-          '2026-09-02',
-        )
-        .run();
-      userCreated = true;
-      const user = await loadActiveUserFixture(database, userId);
-      await fixture.trackTemporaryIncident(incidentId, user);
-      const session = await fixture.session(user);
-      const fetchMock = fixture.mockModel('This reply must not be generated.');
-      await saveSupportExchange(
-        database,
-        user,
-        incidentId,
-        messageId,
-        customerMessage,
-        privateReply,
-      );
-      const savedIncident = await fixture.findIncident(incidentId);
-      const savedMessages = await fixture.messages(incidentId);
-      const savedSessions = await findSessions();
-      expect(savedIncident).toMatchObject({ user_id: userId });
-      expect(savedMessages.results).toHaveLength(2);
-      expect(savedSessions.results).toHaveLength(1);
-      expect(savedSessions.results[0]).toMatchObject({
-        user_id: userId,
-        revoked_at: null,
-      });
-      expect(
-        Date.parse(String(savedSessions.results[0].expires_at)),
-      ).toBeGreaterThan(Date.now());
-
-      // Only account status changes: the cookie, session record, and request stay the same.
-      for (const [status, expectedStatus] of [
-        ['active', 200],
-        ['suspended', 401],
-        ['active', 200],
-      ] as const) {
-        await database
-          .prepare('UPDATE users SET status = ? WHERE user_id = ?')
-          .bind(status, userId)
+          .bind(
+            userId,
+            distributorId,
+            'Replay Test User',
+            `suspended-${suspendedEntity}-replay@tests.example`,
+            '2026-09-02',
+          )
           .run();
-        expect(await findUser()).toMatchObject({ status });
-        const response = await POST(
-          session.request({
-            incidentId,
-            messageId,
-            messages: [{ role: 'user', content: customerMessage }],
-          }),
+        userCreated = true;
+        const user = await loadActiveUserFixture(database, userId);
+        await fixture.trackTemporaryIncident(incidentId, user);
+        const session = await fixture.session(user);
+        const fetchMock = fixture.mockModel(
+          'This reply must not be generated.',
         );
-        expect(response.status).toBe(expectedStatus);
-        expect(await response.json()).toEqual(
-          status === 'active'
-            ? { message: privateReply }
-            : { error: 'Authentication required.' },
+        await saveSupportExchange(
+          database,
+          user,
+          incidentId,
+          messageId,
+          customerMessage,
+          privateReply,
         );
-        expect(fetchMock).not.toHaveBeenCalled();
-        expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
-        expect((await fixture.messages(incidentId)).results).toEqual(
-          savedMessages.results,
-        );
-        expect((await findSessions()).results).toEqual(savedSessions.results);
-      }
-    } finally {
-      try {
-        await fixture.cleanup();
+        const savedIncident = await fixture.findIncident(incidentId);
+        const savedMessages = await fixture.messages(incidentId);
+        const savedSessions = await findSessions();
+        const savedUser = await findUser();
+        const savedDistributor = await findDistributor();
+        expect(savedUser).toMatchObject({
+          status: 'active',
+          distributor_id: distributorId,
+        });
+        expect(savedDistributor).toMatchObject({ account_status: 'active' });
+        expect(savedIncident).toMatchObject({ user_id: userId });
+        expect(savedMessages.results).toHaveLength(2);
+        expect(savedSessions.results).toHaveLength(1);
+        expect(savedSessions.results[0]).toMatchObject({
+          user_id: userId,
+          revoked_at: null,
+        });
+        expect(
+          Date.parse(String(savedSessions.results[0].expires_at)),
+        ).toBeGreaterThan(Date.now());
+
+        // Only account status changes: the cookie, session record, and request stay the same.
+        for (const [status, expectedStatus] of [
+          ['active', 200],
+          ['suspended', 401],
+          ['active', 200],
+        ] as const) {
+          if (suspendedEntity === 'user')
+            await database
+              .prepare('UPDATE users SET status = ? WHERE user_id = ?')
+              .bind(status, userId)
+              .run();
+          else
+            await database
+              .prepare(
+                'UPDATE distributors SET account_status = ? WHERE customer_id = ?',
+              )
+              .bind(status, distributorId)
+              .run();
+          const response = await POST(
+            session.request({
+              incidentId,
+              messageId,
+              messages: [{ role: 'user', content: customerMessage }],
+            }),
+          );
+          expect(response.status).toBe(expectedStatus);
+          expect(await response.json()).toEqual(
+            status === 'active'
+              ? { message: privateReply }
+              : { error: 'Authentication required.' },
+          );
+          expect(fetchMock).not.toHaveBeenCalled();
+          expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
+          expect((await fixture.messages(incidentId)).results).toEqual(
+            savedMessages.results,
+          );
+          expect((await findSessions()).results).toEqual(savedSessions.results);
+          expect(await findUser()).toEqual({
+            ...savedUser,
+            status: suspendedEntity === 'user' ? status : 'active',
+          });
+          expect(await findDistributor()).toEqual({
+            ...savedDistributor,
+            account_status:
+              suspendedEntity === 'distributor' ? status : 'active',
+          });
+        }
       } finally {
-        if (userCreated)
-          await database
-            .prepare('DELETE FROM users WHERE user_id = ?')
-            .bind(userId)
-            .run();
+        try {
+          await fixture.cleanup();
+        } finally {
+          try {
+            if (userCreated)
+              await database
+                .prepare('DELETE FROM users WHERE user_id = ?')
+                .bind(userId)
+                .run();
+          } finally {
+            if (distributorCreated)
+              await database
+                .prepare('DELETE FROM distributors WHERE customer_id = ?')
+                .bind(distributorId)
+                .run();
+          }
+        }
       }
-    }
-    expect(await findUser()).toBeNull();
-    expect((await findSessions()).results).toEqual([]);
-    expect(await fixture.findIncident(incidentId)).toBeNull();
-    expect((await fixture.messages(incidentId)).results).toEqual([]);
-  });
+      expect(await findUser()).toBeNull();
+      if (suspendedEntity === 'distributor')
+        expect(await findDistributor()).toBeNull();
+      expect((await findSessions()).results).toEqual([]);
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+    },
+  );
 
   it('denies another user replaying a saved reply with the same incident and message IDs', async () => {
     const database = await getDatabase();
