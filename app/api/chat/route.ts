@@ -8,6 +8,7 @@ import {
   parseIncidentId,
   parseMessageId,
   saveSupportExchange,
+  SupportMessageIdConflictError,
   SupportMessageTextConflictError,
 } from '@/db/incidents';
 import { buildAuthorizedContext } from '@/db/support';
@@ -75,10 +76,7 @@ export async function POST(request: Request) {
           { status: 403 },
         );
       if (await hasSupportMessageIdConflict(db, incidentId, messageId))
-        return Response.json(
-          { error: 'This message ID is already in use. Send a new message.' },
-          { status: 409 },
-        );
+        throw new SupportMessageIdConflictError();
       const savedExchange = await getSavedSupportExchange(
         db,
         user,
@@ -147,7 +145,10 @@ export async function POST(request: Request) {
 
     return Response.json({ message: content });
   } catch (error) {
-    if (error instanceof SupportMessageTextConflictError)
+    if (
+      error instanceof SupportMessageTextConflictError ||
+      error instanceof SupportMessageIdConflictError
+    )
       return Response.json({ error: error.message }, { status: 409 });
     if (error instanceof IncidentAccessDeniedError)
       return Response.json(

@@ -23,6 +23,13 @@ export class SupportMessageTextConflictError extends Error {
   }
 }
 
+export class SupportMessageIdConflictError extends Error {
+  constructor() {
+    super('This message ID is already in use. Send a new message.');
+    this.name = 'SupportMessageIdConflictError';
+  }
+}
+
 type IncidentMessageRow = {
   incident_id: string;
   title: string;
@@ -249,8 +256,18 @@ export async function saveSupportExchange(
       .prepare(`UPDATE support_incidents
         SET title = CASE WHEN title = 'New service incident' THEN ? ELSE title END,
           updated_at = ?
-        WHERE incident_id = ? AND user_id = ?`)
-      .bind(createIncidentTitle(customerMessage), now, incidentId, user.userId),
+        WHERE incident_id = ? AND user_id = ?
+          AND EXISTS (SELECT 1 FROM support_messages
+            WHERE message_id = ? AND incident_id = support_incidents.incident_id
+              AND role = 'user' AND content = ?)`)
+      .bind(
+        createIncidentTitle(customerMessage),
+        now,
+        incidentId,
+        user.userId,
+        messageId,
+        customerMessage,
+      ),
   ]);
 
   // A concurrent retry may have saved its reply first. Return the persisted
@@ -258,10 +275,13 @@ export async function saveSupportExchange(
   const saved = await getSavedSupportExchange(db, user, incidentId, messageId);
   if (saved && saved.customerMessage !== customerMessage)
     throw new SupportMessageTextConflictError();
-  if (!saved || saved.assistantMessage === null)
+  if (!saved || saved.assistantMessage === null) {
+    if (await hasSupportMessageIdConflict(db, incidentId, messageId))
+      throw new SupportMessageIdConflictError();
     throw new Error(
       'The support exchange was not saved as a complete matching pair.',
     );
+  }
   return saved.assistantMessage;
 }
 

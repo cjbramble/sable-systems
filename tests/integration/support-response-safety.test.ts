@@ -1090,6 +1090,139 @@ describe('support response safety', () => {
     expect((await fixture.messages(incidentId)).results).toEqual([]);
   });
 
+  it('rejects simultaneous reuse of one message ID across different incidents', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentIds = [
+      'INC-CROSS-INCIDENT-RACE-A',
+      'INC-CROSS-INCIDENT-RACE-B',
+    ] as const;
+    const messageId = 'MSG-CROSS-INCIDENT-RACE';
+    const customerMessage = 'Help with a shipment.';
+    const assistantMessage = 'Which shipment do you need help with?';
+    const conflictBody = {
+      error: 'This message ID is already in use. Send a new message.',
+    };
+    expect((await fixture.incidents(...incidentIds)).results).toEqual([]);
+    expect((await fixture.messages(...incidentIds)).results).toEqual([]);
+    const concurrent = createConcurrentSupportFixture(
+      fixture,
+      () => assistantMessage,
+    );
+    const { fetchMock } = concurrent;
+
+    try {
+      const session = await fixture.session(calderPikeUser);
+      for (const [index, incidentId] of incidentIds.entries()) {
+        await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+        await saveSupportExchange(
+          database,
+          calderPikeUser,
+          incidentId,
+          `MSG-CROSS-INCIDENT-SETUP-${index}`,
+          'Hello.',
+          'How can I help?',
+        );
+      }
+      // A fixed timestamp makes an unwanted metadata write observable even if
+      // setup and the race happen in the same clock tick.
+      await database
+        .prepare(`UPDATE support_incidents SET updated_at = ?
+        WHERE incident_id IN (?, ?)`)
+        .bind('2026-01-01T00:00:00.000Z', ...incidentIds)
+        .run();
+      const beforeMessages = await fixture.messages(...incidentIds);
+      const beforeIncidents = await fixture.incidents(...incidentIds);
+      expect(beforeMessages.results).toHaveLength(4);
+      expect(beforeIncidents.results).toHaveLength(2);
+      const makeRequest = (incidentId: string) =>
+        session.request({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content: customerMessage }],
+        });
+      const responses = await concurrent.run(
+        () => POST(makeRequest(incidentIds[0])),
+        () => POST(makeRequest(incidentIds[1])),
+      );
+      expect(concurrent.timedOut).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      const saved = await fixture.messages(...incidentIds);
+      expect(saved.results).toHaveLength(6);
+      const exchange = saved.results.filter(
+        (row) =>
+          row.message_id === messageId || row.message_id === `AST-${messageId}`,
+      );
+      expect(exchange).toHaveLength(2);
+      const winnerIndex = incidentIds.findIndex(
+        (id) => id === exchange[0].incident_id,
+      );
+      expect(winnerIndex).toBeGreaterThanOrEqual(0);
+      const winnerId = incidentIds[winnerIndex];
+      const loserId = incidentIds[1 - winnerIndex];
+      expect(exchange).toMatchObject([
+        {
+          incident_id: winnerId,
+          message_id: messageId,
+          sequence_number: 3,
+          role: 'user',
+          content: customerMessage,
+        },
+        {
+          incident_id: winnerId,
+          message_id: `AST-${messageId}`,
+          sequence_number: 4,
+          role: 'assistant',
+          content: assistantMessage,
+        },
+      ]);
+      expect(
+        saved.results.filter(
+          (row) =>
+            row.message_id !== messageId &&
+            row.message_id !== `AST-${messageId}`,
+        ),
+      ).toEqual(beforeMessages.results);
+      expect(responses[winnerIndex].status).toBe(200);
+      expect(await responses[winnerIndex].json()).toEqual({
+        message: assistantMessage,
+      });
+      expect(responses[1 - winnerIndex].status).toBe(409);
+      expect(await responses[1 - winnerIndex].json()).toEqual(conflictBody);
+      // A rejected write must not modify the losing incident's metadata either.
+      expect(await fixture.findIncident(loserId)).toEqual(
+        beforeIncidents.results.find((row) => row.incident_id === loserId),
+      );
+      const savedIncidents = await fixture.incidents(...incidentIds);
+      expect(savedIncidents.results).toHaveLength(2);
+      expect(
+        savedIncidents.results.every(
+          (row) => row.user_id === calderPikeUser.userId,
+        ),
+      ).toBe(true);
+
+      for (const [index, incidentId] of incidentIds.entries()) {
+        const retry = await POST(makeRequest(incidentId));
+        expect(retry.status).toBe(index === winnerIndex ? 200 : 409);
+        expect(await retry.json()).toEqual(
+          index === winnerIndex ? { message: assistantMessage } : conflictBody,
+        );
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect((await fixture.messages(...incidentIds)).results).toEqual(
+        saved.results,
+      );
+      expect((await fixture.incidents(...incidentIds)).results).toEqual(
+        savedIncidents.results,
+      );
+    } finally {
+      await concurrent.cleanup();
+    }
+    expect((await fixture.incidents(...incidentIds)).results).toEqual([]);
+    expect((await fixture.messages(...incidentIds)).results).toEqual([]);
+  });
+
   it('blocks a corrupted order ID before returning or persisting the response', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);
