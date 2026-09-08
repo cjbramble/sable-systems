@@ -11,6 +11,81 @@ import {
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support response safety', () => {
+  it('returns 503 on a model connection failure without saving an incident and permits a clean retry', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-MODEL-CONNECTION-FAILURE';
+    const messageId = 'MSG-MODEL-CONNECTION-FAILURE';
+    const customerMessage = 'Help with a shipment.';
+    const assistantMessage = 'Which shipment do you need help with?';
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+    try {
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const fetchMock = fixture.mockModel(assistantMessage);
+      fetchMock.mockRejectedValueOnce(
+        new TypeError('fetch failed', {
+          cause: new Error('test: private model connection details'),
+        }),
+      );
+      const makeRequest = () =>
+        session.request({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content: customerMessage }],
+        });
+
+      const failed = await POST(makeRequest());
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(failed.status).toBe(503);
+      expect(await failed.json()).toEqual({
+        error:
+          'The local model is not reachable. Start the app with `npm run dev` and try again.',
+      });
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+      // The same IDs remain usable after the model connection recovers.
+      const retry = await POST(makeRequest());
+      expect(retry.status).toBe(200);
+      expect(await retry.json()).toEqual({ message: assistantMessage });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(await fixture.findIncidentOwner(incidentId)).toEqual({
+        user_id: calderPikeUser.userId,
+      });
+      expect((await fixture.messageContents(incidentId)).results).toEqual([
+        {
+          message_id: messageId,
+          sequence_number: 1,
+          role: 'user',
+          content: customerMessage,
+        },
+        {
+          message_id: `AST-${messageId}`,
+          sequence_number: 2,
+          role: 'assistant',
+          content: assistantMessage,
+        },
+      ]);
+      const savedIncident = await fixture.findIncident(incidentId);
+      const savedMessages = await fixture.messages(incidentId);
+      const replay = await POST(makeRequest());
+      expect(replay.status).toBe(200);
+      expect(await replay.json()).toEqual({ message: assistantMessage });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
+      expect((await fixture.messages(incidentId)).results).toEqual(
+        savedMessages.results,
+      );
+    } finally {
+      await fixture.cleanup();
+    }
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+  });
+
   it('reports a pre-inference database lookup failure without calling the model or saving an incident', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);
