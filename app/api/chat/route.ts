@@ -130,7 +130,19 @@ export async function POST(request: Request) {
       );
     }
 
-    const content = extractSupportModelContent(await modelResponse.json());
+    let modelPayload: unknown;
+    try {
+      modelPayload = await modelResponse.json();
+    } catch {
+      return Response.json(
+        {
+          error:
+            'The local model returned an invalid response. Please try again.',
+        },
+        { status: 502 },
+      );
+    }
+    const content = extractSupportModelContent(modelPayload);
     if (!content) {
       return Response.json(
         {

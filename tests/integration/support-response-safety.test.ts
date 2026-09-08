@@ -24,6 +24,12 @@ describe('support response safety', () => {
       expectedError:
         'The local model could not complete that request. Please try again.',
     },
+    {
+      failure: 'malformed-JSON',
+      expectedStatus: 502,
+      expectedError:
+        'The local model returned an invalid response. Please try again.',
+    },
   ])(
     'handles model $failure failures without saving an incident and permits a clean retry',
     async ({ failure, expectedStatus, expectedError }) => {
@@ -40,16 +46,16 @@ describe('support response safety', () => {
         await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
         const session = await fixture.session(calderPikeUser);
         const fetchMock = fixture.mockModel(assistantMessage);
-        let errorResponse: Response | undefined;
+        let modelResponse: Response | undefined;
         if (failure === 'connection') {
           fetchMock.mockRejectedValueOnce(
             new TypeError('fetch failed', {
               cause: new Error('test: private model connection details'),
             }),
           );
-        } else {
+        } else if (failure === 'HTTP') {
           // Even a success-shaped payload must be ignored on an HTTP error.
-          errorResponse = Response.json(
+          modelResponse = Response.json(
             {
               error: { message: 'test: private upstream diagnostics' },
               choices: [
@@ -62,7 +68,13 @@ describe('support response safety', () => {
             },
             { status: 503 },
           );
-          fetchMock.mockResolvedValueOnce(errorResponse);
+          fetchMock.mockResolvedValueOnce(modelResponse);
+        } else {
+          modelResponse = new Response(
+            '{"privateDiagnostics":"test: private upstream details","choices":',
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+          fetchMock.mockResolvedValueOnce(modelResponse);
         }
         const makeRequest = () =>
           session.request({
@@ -75,7 +87,8 @@ describe('support response safety', () => {
         expect(fetchMock).toHaveBeenCalledOnce();
         expect(failed.status).toBe(expectedStatus);
         expect(await failed.json()).toEqual({ error: expectedError });
-        if (errorResponse) expect(errorResponse.bodyUsed).toBe(false);
+        if (modelResponse)
+          expect(modelResponse.bodyUsed).toBe(failure !== 'HTTP');
         expect(await fixture.findIncident(incidentId)).toBeNull();
         expect((await fixture.messages(incidentId)).results).toEqual([]);
 
