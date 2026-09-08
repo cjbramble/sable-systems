@@ -74,6 +74,13 @@ describe('support response safety', () => {
       expectedError:
         'The local model returned an empty response. Please try again.',
     },
+    {
+      failure: 'missing-content',
+      replyPayload: { choices: [{ message: { role: 'assistant' } }] },
+      expectedStatus: 502,
+      expectedError:
+        'The local model returned an empty response. Please try again.',
+    },
   ])(
     'handles model $failure failures without saving an incident and permits a clean retry',
     async ({
