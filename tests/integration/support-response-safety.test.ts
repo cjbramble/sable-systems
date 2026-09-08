@@ -12,6 +12,87 @@ import {
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support response safety', () => {
+  it('rejects cross-origin chat requests with a valid session without generating, saving, or replaying replies', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-CROSS-ORIGIN-REGRESSION';
+    const messageId = 'MSG-CROSS-ORIGIN-REGRESSION';
+    const customerMessage = 'Help with a shipment.';
+    const assistantMessage = 'Which shipment do you need help with?';
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+    try {
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const fetchMock = fixture.mockModel(assistantMessage);
+      const makeRequest = (crossOrigin: boolean) => {
+        const request = session.request({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content: customerMessage }],
+        });
+        // Change only Origin; the authenticated cookie and payload stay identical.
+        request.headers.set(
+          'Origin',
+          crossOrigin
+            ? 'https://untrusted.example'
+            : new URL(request.url).origin,
+        );
+        return request;
+      };
+
+      const denied = await POST(makeRequest(true));
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toEqual({
+        error: 'Cross-origin access denied.',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+      // Positive control: the same session and IDs work from the app's own origin.
+      const allowed = await POST(makeRequest(false));
+      expect(allowed.status).toBe(200);
+      expect(await allowed.json()).toEqual({ message: assistantMessage });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const savedIncident = await fixture.findIncident(incidentId);
+      const savedMessages = await fixture.messages(incidentId);
+      expect(savedIncident).toMatchObject({ user_id: calderPikeUser.userId });
+      expect(savedMessages.results).toHaveLength(2);
+      expect(savedMessages.results).toMatchObject([
+        {
+          message_id: messageId,
+          role: 'user',
+          content: customerMessage,
+          sequence_number: 1,
+        },
+        {
+          message_id: `AST-${messageId}`,
+          role: 'assistant',
+          content: assistantMessage,
+          sequence_number: 2,
+        },
+      ]);
+
+      // Completed exchanges must not bypass the origin check through cached replay.
+      const deniedReplay = await POST(makeRequest(true));
+      expect(deniedReplay.status).toBe(403);
+      expect(await deniedReplay.json()).toEqual({
+        error: 'Cross-origin access denied.',
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
+      expect((await fixture.messages(incidentId)).results).toEqual(
+        savedMessages.results,
+      );
+    } finally {
+      await fixture.cleanup();
+    }
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+  });
+
   it.each([
     {
       failure: 'timeout',
