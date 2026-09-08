@@ -51,6 +51,12 @@ describe('support response safety', () => {
       expectedError:
         'The local model returned an empty response. Please try again.',
     },
+    {
+      failure: 'missing-choices',
+      expectedStatus: 502,
+      expectedError:
+        'The local model returned an empty response. Please try again.',
+    },
   ])(
     'handles model $failure failures without saving an incident and permits a clean retry',
     async ({ failure, replyContent, expectedStatus, expectedError }) => {
@@ -95,6 +101,11 @@ describe('support response safety', () => {
             '{"privateDiagnostics":"test: private upstream details","choices":',
             { status: 200, headers: { 'Content-Type': 'application/json' } },
           );
+          fetchMock.mockResolvedValueOnce(modelResponse);
+        } else if (failure === 'missing-choices') {
+          modelResponse = Response.json({
+            error: { message: 'test: private upstream diagnostics' },
+          });
           fetchMock.mockResolvedValueOnce(modelResponse);
         } else {
           modelResponse = Response.json({
