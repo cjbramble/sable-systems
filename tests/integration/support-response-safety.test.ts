@@ -32,13 +32,21 @@ describe('support response safety', () => {
     },
     {
       failure: 'empty-reply',
+      replyContent: '',
+      expectedStatus: 502,
+      expectedError:
+        'The local model returned an empty response. Please try again.',
+    },
+    {
+      failure: 'whitespace-only-reply',
+      replyContent: ' \t\r\n ',
       expectedStatus: 502,
       expectedError:
         'The local model returned an empty response. Please try again.',
     },
   ])(
     'handles model $failure failures without saving an incident and permits a clean retry',
-    async ({ failure, expectedStatus, expectedError }) => {
+    async ({ failure, replyContent, expectedStatus, expectedError }) => {
       const database = await getDatabase();
       const fixture = createSupportApiFixture(database);
       const incidentId = `INC-MODEL-${failure.toUpperCase()}-FAILURE`;
@@ -83,7 +91,7 @@ describe('support response safety', () => {
           fetchMock.mockResolvedValueOnce(modelResponse);
         } else {
           modelResponse = Response.json({
-            choices: [{ message: { content: '' } }],
+            choices: [{ message: { content: replyContent } }],
           });
           fetchMock.mockResolvedValueOnce(modelResponse);
         }
