@@ -938,17 +938,22 @@ describe('support response safety', () => {
     },
   );
 
-  it.each(['user', 'distributor'])(
-    'denies saved reply access when a %s is suspended despite a valid session',
-    async (suspendedEntity) => {
+  it.each([
+    { entity: 'user', blockedStatus: 'suspended' },
+    { entity: 'distributor', blockedStatus: 'suspended' },
+    { entity: 'distributor', blockedStatus: 'closed' },
+  ] as const)(
+    'denies saved reply access when a $entity is $blockedStatus despite a valid session',
+    async ({ entity, blockedStatus }) => {
       const database = await getDatabase();
       const fixture = createSupportApiFixture(database);
-      const userId = `USR-SUSPENDED-${suspendedEntity.toUpperCase()}-TEST`;
-      const incidentId = `INC-SUSPENDED-${suspendedEntity.toUpperCase()}-REPLAY`;
-      const messageId = `MSG-SUSPENDED-${suspendedEntity.toUpperCase()}-REPLAY`;
+      const caseId = `${blockedStatus.toUpperCase()}-${entity.toUpperCase()}`;
+      const userId = `USR-${caseId}-TEST`;
+      const incidentId = `INC-${caseId}-REPLAY`;
+      const messageId = `MSG-${caseId}-REPLAY`;
       const distributorId =
-        suspendedEntity === 'distributor'
-          ? 'WHS-SUSPENDED-REPLAY-TEST'
+        entity === 'distributor'
+          ? `WHS-${caseId}-TEST`
           : calderPikeUser.distributorId;
       const customerMessage = 'Help with a shipment.';
       const privateReply = 'Please provide the shipment reference.';
@@ -972,14 +977,13 @@ describe('support response safety', () => {
       let userCreated = false;
       let distributorCreated = false;
       expect(await findUser()).toBeNull();
-      if (suspendedEntity === 'distributor')
-        expect(await findDistributor()).toBeNull();
+      if (entity === 'distributor') expect(await findDistributor()).toBeNull();
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
 
       try {
-        // Only test-owned accounts may be suspended; seeded accounts stay unchanged.
-        if (suspendedEntity === 'distributor') {
+        // Only test-owned accounts change status; seeded accounts stay unchanged.
+        if (entity === 'distributor') {
           await database
             .prepare(`INSERT INTO distributors
           (customer_id, legal_name, display_name, account_tier, account_status,
@@ -998,7 +1002,7 @@ describe('support response safety', () => {
             userId,
             distributorId,
             'Replay Test User',
-            `suspended-${suspendedEntity}-replay@tests.example`,
+            `${blockedStatus}-${entity}-replay@tests.example`,
             '2026-09-02',
           )
           .run();
@@ -1041,10 +1045,11 @@ describe('support response safety', () => {
         // Only account status changes: the cookie, session record, and request stay the same.
         for (const [status, expectedStatus] of [
           ['active', 200],
-          ['suspended', 401],
-          ['active', 200],
+          [blockedStatus, 401],
+          // Repeat the denial for closed accounts; suspension can be lifted.
+          blockedStatus === 'closed' ? ['closed', 401] : ['active', 200],
         ] as const) {
-          if (suspendedEntity === 'user')
+          if (entity === 'user')
             await database
               .prepare('UPDATE users SET status = ? WHERE user_id = ?')
               .bind(status, userId)
@@ -1077,12 +1082,11 @@ describe('support response safety', () => {
           expect((await findSessions()).results).toEqual(savedSessions.results);
           expect(await findUser()).toEqual({
             ...savedUser,
-            status: suspendedEntity === 'user' ? status : 'active',
+            status: entity === 'user' ? status : 'active',
           });
           expect(await findDistributor()).toEqual({
             ...savedDistributor,
-            account_status:
-              suspendedEntity === 'distributor' ? status : 'active',
+            account_status: entity === 'distributor' ? status : 'active',
           });
         }
       } finally {
@@ -1105,8 +1109,7 @@ describe('support response safety', () => {
         }
       }
       expect(await findUser()).toBeNull();
-      if (suspendedEntity === 'distributor')
-        expect(await findDistributor()).toBeNull();
+      if (entity === 'distributor') expect(await findDistributor()).toBeNull();
       expect((await findSessions()).results).toEqual([]);
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
