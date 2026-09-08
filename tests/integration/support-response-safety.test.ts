@@ -25,6 +25,12 @@ describe('support response safety', () => {
         'The local model took too long to respond. Please try again.',
     },
     {
+      failure: 'body-connection',
+      expectedStatus: 502,
+      expectedError:
+        'The local model returned an invalid response. Please try again.',
+    },
+    {
       failure: 'connection',
       expectedStatus: 503,
       expectedError:
@@ -174,6 +180,25 @@ describe('support response safety', () => {
               queueMicrotask(() => controller.abort(timeoutReason));
             });
           });
+        } else if (failure === 'body-connection') {
+          const body = new ReadableStream<Uint8Array>(
+            {
+              start(stream) {
+                stream.enqueue(new TextEncoder().encode('{"choices":['));
+              },
+              pull(stream) {
+                stream.error(
+                  new TypeError('test: private upstream socket reset'),
+                );
+              },
+            },
+            { highWaterMark: 0 },
+          );
+          modelResponse = new Response(body, {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+          fetchMock.mockResolvedValueOnce(modelResponse);
         } else if (failure === 'connection') {
           fetchMock.mockRejectedValueOnce(
             new TypeError('fetch failed', {
