@@ -4,6 +4,7 @@ import {
   canAccessSupportIncident,
   getSavedSupportExchange,
   hasSupportMessageIdConflict,
+  IncidentAccessDeniedError,
   parseIncidentId,
   parseMessageId,
   saveSupportExchange,
@@ -150,7 +151,12 @@ export async function POST(request: Request) {
     }
 
     return Response.json({ message: content });
-  } catch {
+  } catch (error) {
+    if (error instanceof IncidentAccessDeniedError)
+      return Response.json(
+        { error: 'Incident access denied.' },
+        { status: 403 },
+      );
     return Response.json(
       {
         error:

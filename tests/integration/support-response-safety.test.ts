@@ -784,6 +784,138 @@ describe('support response safety', () => {
     },
   );
 
+  it('isolates concurrent claims to the same new incident by different users', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-CONCURRENT-OWNER-REGRESSION';
+    const otherUser = await loadActiveUserFixture(database, 'USR-MCS-001');
+    const participants = [
+      {
+        user: calderPikeUser,
+        messageId: 'MSG-CONCURRENT-OWNER-CALDER',
+        prompt: 'I need help with my Calder Pike account.',
+        reply: 'How can I help with your Calder Pike account?',
+      },
+      {
+        user: otherUser,
+        messageId: 'MSG-CONCURRENT-OWNER-MERIDIAN',
+        prompt: 'I need help with my Meridian account.',
+        reply: 'How can I help with your Meridian account?',
+      },
+    ];
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+    let releaseModels = () => {};
+    const modelGate = new Promise<void>((resolve) => {
+      releaseModels = resolve;
+    });
+    let arrivals = 0;
+    let gateTimedOut = false;
+    let gateTimer: ReturnType<typeof setTimeout> | undefined;
+    const pending: Promise<Response>[] = [];
+    const fetchMock = fixture.mockModel(participants[0].reply);
+    fetchMock.mockImplementation(async (_url, options) => {
+      if (typeof options?.body !== 'string')
+        throw new Error('Expected a JSON model request');
+      const body = JSON.parse(options.body);
+      const participant = participants.find(
+        (entry) => entry.prompt === body.messages.at(-1)?.content,
+      );
+      if (!participant) throw new Error('Unexpected model request');
+      if (++arrivals === 2) releaseModels();
+      await modelGate;
+      return Response.json({
+        choices: [{ message: { content: participant.reply } }],
+      });
+    });
+
+    try {
+      const sessions: SupportApiSession[] = [];
+      for (const participant of participants) {
+        // Either user may win; register both scoped cleanups while the ID is absent.
+        await fixture.trackTemporaryIncident(incidentId, participant.user);
+        sessions.push(await fixture.session(participant.user));
+      }
+      const makeRequest = (sessionIndex: number, messageIndex = sessionIndex) =>
+        sessions[sessionIndex].request({
+          incidentId,
+          messageId: participants[messageIndex].messageId,
+          messages: [
+            { role: 'user', content: participants[messageIndex].prompt },
+          ],
+        });
+      // Both authenticated requests pass preflight before either can persist.
+      gateTimer = setTimeout(() => {
+        gateTimedOut = true;
+        releaseModels();
+      }, 2000);
+      pending.push(POST(makeRequest(0)), POST(makeRequest(1)));
+      const responses = await Promise.all(pending);
+      clearTimeout(gateTimer);
+      expect(gateTimedOut).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      const owner = await fixture.findIncidentOwner(incidentId);
+      const winnerIndex = participants.findIndex(
+        (entry) => entry.user.userId === owner?.user_id,
+      );
+      expect(winnerIndex).toBeGreaterThanOrEqual(0);
+      const loserIndex = 1 - winnerIndex;
+      const winner = participants[winnerIndex];
+      const savedIncidents = await fixture.incidents(incidentId);
+      expect(savedIncidents.results).toHaveLength(1);
+      const savedMessages = await fixture.messages(incidentId);
+      expect(savedMessages.results).toHaveLength(2);
+      expect(savedMessages.results).toMatchObject([
+        {
+          message_id: winner.messageId,
+          sequence_number: 1,
+          role: 'user',
+          content: winner.prompt,
+        },
+        {
+          message_id: `AST-${winner.messageId}`,
+          sequence_number: 2,
+          role: 'assistant',
+          content: winner.reply,
+        },
+      ]);
+      expect(responses[winnerIndex].status).toBe(200);
+      expect(await responses[winnerIndex].json()).toEqual({
+        message: winner.reply,
+      });
+      expect(responses[loserIndex].status).toBe(403);
+      expect(await responses[loserIndex].json()).toEqual({
+        error: 'Incident access denied.',
+      });
+
+      // Knowing the winner's exact message ID and prompt must not enable replay.
+      const deniedRetry = await POST(makeRequest(loserIndex, winnerIndex));
+      expect(deniedRetry.status).toBe(403);
+      expect(await deniedRetry.json()).toEqual({
+        error: 'Incident access denied.',
+      });
+      const ownerRetry = await POST(makeRequest(winnerIndex));
+      expect(ownerRetry.status).toBe(200);
+      expect(await ownerRetry.json()).toEqual({ message: winner.reply });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect((await fixture.incidents(incidentId)).results).toEqual(
+        savedIncidents.results,
+      );
+      expect((await fixture.messages(incidentId)).results).toEqual(
+        savedMessages.results,
+      );
+    } finally {
+      clearTimeout(gateTimer);
+      releaseModels();
+      await Promise.allSettled(pending);
+      await fixture.cleanup();
+    }
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+  });
+
   it('blocks a corrupted order ID before returning or persisting the response', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);

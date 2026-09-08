@@ -7,6 +7,13 @@ import {
 const INCIDENT_ID_PATTERN = /^INC-[A-Za-z0-9-]{6,100}$/;
 const MESSAGE_ID_PATTERN = /^[A-Za-z0-9-]{6,120}$/;
 
+export class IncidentAccessDeniedError extends Error {
+  constructor() {
+    super('Incident authorization scope mismatch.');
+    this.name = 'IncidentAccessDeniedError';
+  }
+}
+
 type IncidentMessageRow = {
   incident_id: string;
   title: string;
@@ -176,7 +183,7 @@ export async function saveSupportExchange(
     .bind(incidentId)
     .first<{ user_id: string; title: string }>();
   if (existing && existing.user_id !== user.userId)
-    throw new Error('Incident authorization scope mismatch.');
+    throw new IncidentAccessDeniedError();
 
   const now = new Date().toISOString();
   if (!existing) {
@@ -201,7 +208,7 @@ export async function saveSupportExchange(
       .bind(incidentId)
       .first<{ user_id: string }>();
     if (created?.user_id !== user.userId)
-      throw new Error('Incident authorization scope mismatch.');
+      throw new IncidentAccessDeniedError();
   }
 
   const sequence = await db
