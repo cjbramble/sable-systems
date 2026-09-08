@@ -414,96 +414,104 @@ describe('support response safety', () => {
     },
   );
 
-  it('replays a committed exchange after its confirmation read fails without generating or saving duplicates', async () => {
-    const database = await getDatabase();
-    const fixture = createSupportApiFixture(database);
-    const incidentId = 'INC-CONFIRMATION-READ-FAILURE';
-    const messageId = 'MSG-CONFIRMATION-READ-FAILURE';
-    const customerMessage = 'Help with a shipment.';
-    const assistantMessage = 'Which shipment do you need help with?';
-    expect(await fixture.findIncident(incidentId)).toBeNull();
-    expect((await fixture.messages(incidentId)).results).toEqual([]);
-    const originalPrepare = database.prepare.bind(database);
-    let exchangeReads = 0;
-    const prepareMock = vi
-      .spyOn(database, 'prepare')
-      .mockImplementation((sql) => {
-        // The first exchange lookup is preflight. Only fail the second lookup,
-        // which confirms the committed write; execute all writes against real D1.
-        if (/SELECT\s+customer\.content AS customerMessage/i.test(sql)) {
-          exchangeReads += 1;
-          if (exchangeReads === 2)
-            throw new Error('test: private confirmation read failure');
-        }
-        return originalPrepare(sql);
-      });
-
-    try {
-      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-      const session = await fixture.session(calderPikeUser);
-      const fetchMock = fixture.mockModel(
-        assistantMessage,
-        'This must not replace the saved reply.',
-      );
-      const makeRequest = () =>
-        session.request({
-          incidentId,
-          messageId,
-          messages: [{ role: 'user', content: customerMessage }],
+  it.each(['failure', 'timeout'])(
+    'replays a committed exchange after a confirmation read %s without generating or saving duplicates',
+    async (failure) => {
+      const database = await getDatabase();
+      const fixture = createSupportApiFixture(database);
+      const incidentId = `INC-CONFIRMATION-READ-${failure.toUpperCase()}`;
+      const messageId = `MSG-CONFIRMATION-READ-${failure.toUpperCase()}`;
+      const customerMessage = 'Help with a shipment.';
+      const assistantMessage = 'Which shipment do you need help with?';
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+      const originalPrepare = database.prepare.bind(database);
+      let exchangeReads = 0;
+      const prepareMock = vi
+        .spyOn(database, 'prepare')
+        .mockImplementation((sql) => {
+          // The first exchange lookup is preflight. Only fail the second lookup,
+          // which confirms the committed write; execute all writes against real D1.
+          if (/SELECT\s+customer\.content AS customerMessage/i.test(sql)) {
+            exchangeReads += 1;
+            if (exchangeReads === 2)
+              throw failure === 'timeout'
+                ? new DOMException(
+                    'test: private confirmation timeout details',
+                    'TimeoutError',
+                  )
+                : new Error('test: private confirmation read failure');
+          }
+          return originalPrepare(sql);
         });
-      const failed = await POST(makeRequest());
-      expect(exchangeReads).toBe(2);
-      expect(fetchMock).toHaveBeenCalledOnce();
-      expect(failed.status).toBe(500);
-      expect(await failed.json()).toEqual({
-        error:
-          'We could not confirm your support message was saved. Please try again.',
-      });
-      // Independent queries prove the transaction committed despite the error.
-      const savedIncident = await fixture.findIncident(incidentId);
-      const savedMessages = await fixture.messages(incidentId);
-      expect(savedIncident).toMatchObject({
-        incident_id: incidentId,
-        user_id: calderPikeUser.userId,
-        title: customerMessage,
-      });
-      expect(savedMessages.results).toHaveLength(2);
-      expect(savedMessages.results).toMatchObject([
-        {
-          incident_id: incidentId,
-          message_id: messageId,
-          sequence_number: 1,
-          role: 'user',
-          content: customerMessage,
-        },
-        {
-          incident_id: incidentId,
-          message_id: `AST-${messageId}`,
-          sequence_number: 2,
-          role: 'assistant',
-          content: assistantMessage,
-        },
-      ]);
 
-      for (let retry = 0; retry < 2; retry += 1) {
-        const response = await POST(makeRequest());
-        expect(response.status).toBe(200);
-        expect(await response.json()).toEqual({ message: assistantMessage });
-        expect(fetchMock).toHaveBeenCalledOnce();
-        expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
-        expect((await fixture.messages(incidentId)).results).toEqual(
-          savedMessages.results,
+      try {
+        await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+        const session = await fixture.session(calderPikeUser);
+        const fetchMock = fixture.mockModel(
+          assistantMessage,
+          'This must not replace the saved reply.',
         );
+        const makeRequest = () =>
+          session.request({
+            incidentId,
+            messageId,
+            messages: [{ role: 'user', content: customerMessage }],
+          });
+        const failed = await POST(makeRequest());
+        expect(exchangeReads).toBe(2);
+        expect(fetchMock).toHaveBeenCalledOnce();
+        expect(failed.status).toBe(500);
+        expect(await failed.json()).toEqual({
+          error:
+            'We could not confirm your support message was saved. Please try again.',
+        });
+        // Independent queries prove the transaction committed despite the error.
+        const savedIncident = await fixture.findIncident(incidentId);
+        const savedMessages = await fixture.messages(incidentId);
+        expect(savedIncident).toMatchObject({
+          incident_id: incidentId,
+          user_id: calderPikeUser.userId,
+          title: customerMessage,
+        });
+        expect(savedMessages.results).toHaveLength(2);
+        expect(savedMessages.results).toMatchObject([
+          {
+            incident_id: incidentId,
+            message_id: messageId,
+            sequence_number: 1,
+            role: 'user',
+            content: customerMessage,
+          },
+          {
+            incident_id: incidentId,
+            message_id: `AST-${messageId}`,
+            sequence_number: 2,
+            role: 'assistant',
+            content: assistantMessage,
+          },
+        ]);
+
+        for (let retry = 0; retry < 2; retry += 1) {
+          const response = await POST(makeRequest());
+          expect(response.status).toBe(200);
+          expect(await response.json()).toEqual({ message: assistantMessage });
+          expect(fetchMock).toHaveBeenCalledOnce();
+          expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
+          expect((await fixture.messages(incidentId)).results).toEqual(
+            savedMessages.results,
+          );
+        }
+        expect(exchangeReads).toBe(4);
+      } finally {
+        prepareMock.mockRestore();
+        await fixture.cleanup();
       }
-      expect(exchangeReads).toBe(4);
-    } finally {
-      prepareMock.mockRestore();
-      await fixture.cleanup();
-    }
-    expect(await fixture.findIncident(incidentId)).toBeNull();
-    expect((await fixture.messages(incidentId)).results).toEqual([]);
-    expect(prepareMock).not.toHaveBeenCalled();
-  });
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+      expect(prepareMock).not.toHaveBeenCalled();
+    },
+  );
 
   it('reports a database save failure without blaming the healthy model or exposing storage details', async () => {
     const database = await getDatabase();
