@@ -94,27 +94,30 @@ export async function canAccessSupportIncident(
   return incident === null || incident.user_id === user.userId;
 }
 
-export async function getSavedSupportReply(
+type SavedSupportExchange = {
+  customerMessage: string;
+  assistantMessage: string | null;
+};
+
+export async function getSavedSupportExchange(
   db: D1Database,
   user: AuthenticatedUser,
   incidentId: string,
   messageId: string,
-  customerMessage: string,
-): Promise<string | null> {
-  // Replay only a complete exchange belonging to this user and exact input.
-  const reply = await db
-    .prepare(`SELECT assistant.content
+): Promise<SavedSupportExchange | null> {
+  // Keep the original input so callers can distinguish retries from ID reuse.
+  return db
+    .prepare(`SELECT customer.content AS customerMessage,
+        assistant.content AS assistantMessage
       FROM support_incidents i
       JOIN support_messages customer ON customer.incident_id = i.incident_id
-      JOIN support_messages assistant ON assistant.incident_id = i.incident_id
+      LEFT JOIN support_messages assistant ON assistant.incident_id = i.incident_id
         AND assistant.sequence_number = customer.sequence_number + 1
+        AND assistant.message_id = ? AND assistant.role = 'assistant'
       WHERE i.user_id = ? AND i.incident_id = ?
-        AND customer.message_id = ? AND customer.role = 'user'
-        AND customer.content = ?
-        AND assistant.message_id = ? AND assistant.role = 'assistant'`)
-    .bind(user.userId, incidentId, messageId, customerMessage, `AST-${messageId}`)
-    .first<{ content: string }>();
-  return reply?.content ?? null;
+        AND customer.message_id = ? AND customer.role = 'user'`)
+    .bind(`AST-${messageId}`, user.userId, incidentId, messageId)
+    .first<SavedSupportExchange>();
 }
 
 export async function saveSupportExchange(

@@ -2,7 +2,7 @@ import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import {
   canAccessSupportIncident,
-  getSavedSupportReply,
+  getSavedSupportExchange,
   parseIncidentId,
   parseMessageId,
   saveSupportExchange,
@@ -71,14 +71,24 @@ export async function POST(request: Request) {
           { error: 'Incident access denied.' },
           { status: 403 },
         );
-      const savedReply = await getSavedSupportReply(
+      const savedExchange = await getSavedSupportExchange(
         db,
         user,
         incidentId,
         messageId,
-        customerMessage,
       );
-      if (savedReply !== null) return Response.json({ message: savedReply });
+      if (savedExchange) {
+        if (savedExchange.customerMessage !== customerMessage)
+          return Response.json(
+            {
+              error:
+                'This message ID was already used for different text. Send a new message.',
+            },
+            { status: 409 },
+          );
+        if (savedExchange.assistantMessage !== null)
+          return Response.json({ message: savedExchange.assistantMessage });
+      }
     }
 
     const authorizedContext = await buildAuthorizedContext(db, messages, user);

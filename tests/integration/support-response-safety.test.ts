@@ -332,6 +332,100 @@ describe('support response safety', () => {
     expect((await savedMessages()).results).toEqual([]);
   });
 
+  it('rejects reuse of a saved message ID with different customer text', async () => {
+    const database = await getDatabase();
+    const url = 'http://localhost/api/chat';
+    const incidentId = 'INC-MESSAGE-CONFLICT-REGRESSION';
+    const messageId = 'MSG-MESSAGE-CONFLICT-REGRESSION';
+    const originalText = 'Show return RTN-2022-000014.';
+    const changedText = 'Which order is linked to return RTN-2022-000014?';
+    const originalReply =
+      'Return RTN-2022-000014 is closed. Linked order: SBL-2022-000118.';
+    const findIncident = () =>
+      database
+        .prepare('SELECT * FROM support_incidents WHERE incident_id = ?')
+        .bind(incidentId)
+        .first();
+    const savedMessages = () =>
+      database
+        .prepare(
+          'SELECT * FROM support_messages WHERE incident_id = ? ORDER BY sequence_number',
+        )
+        .bind(incidentId)
+        .all();
+    expect(await findIncident()).toBeNull();
+    expect((await savedMessages()).results).toEqual([]);
+
+    const cookie = await createSession(
+      database,
+      calderPikeUser.userId,
+      new Request(url),
+    );
+    const makeRequest = (content: string) =>
+      new Request(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: cookie.split(';')[0],
+        },
+        body: JSON.stringify({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content }],
+        }),
+      });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(
+        Response.json({
+          choices: [{ message: { content: 'The linked order is SBL-2022-000118.' } }],
+        }),
+      ),
+    );
+
+    try {
+      await saveSupportExchange(
+        database,
+        calderPikeUser,
+        incidentId,
+        messageId,
+        originalText,
+        originalReply,
+      );
+      const originalIncident = await findIncident();
+      const originalMessages = await savedMessages();
+      expect(originalIncident).toMatchObject({ user_id: calderPikeUser.userId });
+      expect(originalMessages.results).toHaveLength(2);
+      expect(originalMessages.results[0]).toMatchObject({
+        message_id: messageId,
+        role: 'user',
+        content: originalText,
+      });
+
+      const response = await POST(makeRequest(changedText));
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({
+        error:
+          'This message ID was already used for different text. Send a new message.',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(await findIncident()).toEqual(originalIncident);
+      expect((await savedMessages()).results).toEqual(originalMessages.results);
+
+      // Rejecting the conflicting request must not break a legitimate retry.
+      const retry = await POST(makeRequest(originalText));
+      expect(retry.status).toBe(200);
+      expect(await retry.json()).toEqual({ message: originalReply });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect((await savedMessages()).results).toEqual(originalMessages.results);
+    } finally {
+      fetchMock.mockRestore();
+      await deleteSupportIncident(database, calderPikeUser, incidentId);
+      await revokeSession(database, makeRequest(originalText));
+    }
+    expect(await findIncident()).toBeNull();
+    expect((await savedMessages()).results).toEqual([]);
+  });
+
   it('blocks a corrupted order ID before returning or persisting the response', async () => {
     const database = await getDatabase();
     const url = 'http://localhost/api/chat';
