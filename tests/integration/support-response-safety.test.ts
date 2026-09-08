@@ -19,6 +19,12 @@ describe('support response safety', () => {
         'The local model took too long to respond. Please try again.',
     },
     {
+      failure: 'timeout-existing-incident',
+      expectedStatus: 504,
+      expectedError:
+        'The local model took too long to respond. Please try again.',
+    },
+    {
       failure: 'body-timeout',
       expectedStatus: 504,
       expectedError:
@@ -100,7 +106,7 @@ describe('support response safety', () => {
         'The local model returned an empty response. Please try again.',
     },
   ])(
-    'handles model $failure failures without saving an incident and permits a clean retry',
+    'handles model $failure failures without changing saved records and permits a clean retry',
     async ({
       failure,
       replyContent,
@@ -121,10 +127,38 @@ describe('support response safety', () => {
 
       try {
         await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+        const hasExistingIncident = failure === 'timeout-existing-incident';
+        if (hasExistingIncident) {
+          await saveSupportExchange(
+            database,
+            calderPikeUser,
+            incidentId,
+            `PRIOR-${messageId}`,
+            'Existing shipment investigation.',
+            'Please provide the shipment reference.',
+          );
+          await database
+            .prepare(
+              'UPDATE support_incidents SET updated_at = ? WHERE incident_id = ?',
+            )
+            .bind('2026-01-01T00:00:00.000Z', incidentId)
+            .run();
+        }
+        const initialIncident = await fixture.findIncident(incidentId);
+        const initialMessages = await fixture.messages(incidentId);
+        const initialContents = await fixture.messageContents(incidentId);
+        expect(initialMessages.results).toHaveLength(
+          hasExistingIncident ? 2 : 0,
+        );
+        if (hasExistingIncident) expect(initialIncident).not.toBeNull();
         const session = await fixture.session(calderPikeUser);
         const fetchMock = fixture.mockModel(assistantMessage);
         let modelResponse: Response | undefined;
-        if (failure === 'timeout' || failure === 'body-timeout') {
+        if (
+          failure === 'timeout' ||
+          failure === 'body-timeout' ||
+          hasExistingIncident
+        ) {
           const controller = new AbortController();
           let bodyReadStarted = false;
           const timeoutReason = new DOMException(
@@ -249,8 +283,10 @@ describe('support response safety', () => {
         expect(await failed.json()).toEqual({ error: expectedError });
         if (modelResponse)
           expect(modelResponse.bodyUsed).toBe(failure !== 'HTTP');
-        expect(await fixture.findIncident(incidentId)).toBeNull();
-        expect((await fixture.messages(incidentId)).results).toEqual([]);
+        expect(await fixture.findIncident(incidentId)).toEqual(initialIncident);
+        expect((await fixture.messages(incidentId)).results).toEqual(
+          initialMessages.results,
+        );
 
         // The same IDs remain usable after the model server recovers.
         const retry = await POST(makeRequest());
@@ -261,21 +297,25 @@ describe('support response safety', () => {
           user_id: calderPikeUser.userId,
         });
         expect((await fixture.messageContents(incidentId)).results).toEqual([
+          ...initialContents.results,
           {
             message_id: messageId,
-            sequence_number: 1,
+            sequence_number: initialMessages.results.length + 1,
             role: 'user',
             content: customerMessage,
           },
           {
             message_id: `AST-${messageId}`,
-            sequence_number: 2,
+            sequence_number: initialMessages.results.length + 2,
             role: 'assistant',
             content: assistantMessage,
           },
         ]);
         const savedIncident = await fixture.findIncident(incidentId);
         const savedMessages = await fixture.messages(incidentId);
+        expect(
+          savedMessages.results.slice(0, initialMessages.results.length),
+        ).toEqual(initialMessages.results);
         const replay = await POST(makeRequest());
         expect(replay.status).toBe(200);
         expect(await replay.json()).toEqual({ message: assistantMessage });
