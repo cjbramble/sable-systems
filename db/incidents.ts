@@ -211,32 +211,30 @@ export async function saveSupportExchange(
       throw new IncidentAccessDeniedError();
   }
 
-  const sequence = await db
-    .prepare(`SELECT COALESCE(MAX(sequence_number), 0) AS last_sequence,
-      MAX(CASE WHEN message_id = ? AND role = 'user' AND content = ?
-        THEN sequence_number END) AS saved_sequence
-      FROM support_messages WHERE incident_id = ?`)
-    .bind(messageId, customerMessage, incidentId)
-    .first<{ last_sequence: number; saved_sequence: number | null }>();
-  // Recover a missing reply immediately after its original customer message.
-  const userSequence =
-    sequence?.saved_sequence ?? Number(sequence?.last_sequence ?? 0) + 1;
+  // Allocate positions inside the same transaction as both inserts, so another
+  // exchange cannot claim a position between reading the maximum and writing.
   await db.batch([
     db
       .prepare(`INSERT OR IGNORE INTO support_messages (
         message_id, incident_id, sequence_number, role, content, created_at
-      ) VALUES (?, ?, ?, 'user', ?, ?)`)
-      .bind(messageId, incidentId, userSequence, customerMessage, now),
+      ) SELECT ?, ?, COALESCE(MAX(sequence_number), 0) + 1, 'user', ?, ?
+        FROM support_messages WHERE incident_id = ?`)
+      .bind(messageId, incidentId, customerMessage, now, incidentId),
+    // Anchor replies to the persisted customer message, including on retries
+    // that recover a missing reply earlier in the conversation.
     db
       .prepare(`INSERT OR IGNORE INTO support_messages (
         message_id, incident_id, sequence_number, role, content, created_at
-      ) VALUES (?, ?, ?, 'assistant', ?, ?)`)
+      ) SELECT ?, incident_id, sequence_number + 1, 'assistant', ?, ?
+        FROM support_messages
+        WHERE message_id = ? AND incident_id = ? AND role = 'user' AND content = ?`)
       .bind(
         `AST-${messageId}`,
-        incidentId,
-        userSequence + 1,
         assistantMessage,
         now,
+        messageId,
+        incidentId,
+        customerMessage,
       ),
     db
       .prepare(`UPDATE support_incidents

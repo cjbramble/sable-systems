@@ -916,6 +916,130 @@ describe('support response safety', () => {
     expect((await fixture.messages(incidentId)).results).toEqual([]);
   });
 
+  it('preserves both distinct exchanges submitted concurrently to the same incident', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-CONCURRENT-DISTINCT-REGRESSION';
+    const exchanges = [
+      {
+        messageId: 'MSG-CONCURRENT-DISTINCT-ONE',
+        prompt: 'Help with a shipment.',
+        reply: 'Which shipment do you need help with?',
+      },
+      {
+        messageId: 'MSG-CONCURRENT-DISTINCT-TWO',
+        prompt: 'Help with a return.',
+        reply: 'Which return do you need help with?',
+      },
+    ];
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+    let releaseModels = () => {};
+    const modelGate = new Promise<void>((resolve) => {
+      releaseModels = resolve;
+    });
+    let arrivals = 0;
+    let gateTimedOut = false;
+    let gateTimer: ReturnType<typeof setTimeout> | undefined;
+    const pending: Promise<Response>[] = [];
+    const fetchMock = fixture.mockModel(exchanges[0].reply);
+    fetchMock.mockImplementation(async (_url, options) => {
+      if (typeof options?.body !== 'string')
+        throw new Error('Expected a JSON model request');
+      const body = JSON.parse(options.body);
+      const exchange = exchanges.find(
+        (entry) => entry.prompt === body.messages.at(-1)?.content,
+      );
+      if (!exchange) throw new Error('Unexpected model request');
+      if (++arrivals === 2) releaseModels();
+      await modelGate;
+      return Response.json({
+        choices: [{ message: { content: exchange.reply } }],
+      });
+    });
+
+    try {
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      await saveSupportExchange(
+        database,
+        calderPikeUser,
+        incidentId,
+        'MSG-CONCURRENT-DISTINCT-SETUP',
+        'Hello.',
+        'How can I help?',
+      );
+      const before = await fixture.messages(incidentId);
+      expect(before.results).toHaveLength(2);
+      const makeRequest = (exchange: (typeof exchanges)[number]) =>
+        session.request({
+          incidentId,
+          messageId: exchange.messageId,
+          messages: [{ role: 'user', content: exchange.prompt }],
+        });
+      // Release both model responses together to overlap persistence, not inference.
+      gateTimer = setTimeout(() => {
+        gateTimedOut = true;
+        releaseModels();
+      }, 2000);
+      pending.push(...exchanges.map((exchange) => POST(makeRequest(exchange))));
+      const responses = await Promise.all(pending);
+      clearTimeout(gateTimer);
+      expect(gateTimedOut).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      const saved = await fixture.messages(incidentId);
+      expect(saved.results).toHaveLength(6);
+      expect(saved.results.slice(0, 2)).toEqual(before.results);
+      expect(saved.results.map((row) => row.sequence_number)).toEqual([
+        1, 2, 3, 4, 5, 6,
+      ]);
+      for (const [index, exchange] of exchanges.entries()) {
+        const customerIndex = saved.results.findIndex(
+          (row) => row.message_id === exchange.messageId,
+        );
+        expect([2, 4]).toContain(customerIndex);
+        expect(
+          saved.results.slice(customerIndex, customerIndex + 2),
+        ).toMatchObject([
+          {
+            message_id: exchange.messageId,
+            role: 'user',
+            content: exchange.prompt,
+          },
+          {
+            message_id: `AST-${exchange.messageId}`,
+            role: 'assistant',
+            content: exchange.reply,
+          },
+        ]);
+        expect(responses[index].status).toBe(200);
+        expect(await responses[index].json()).toEqual({
+          message: exchange.reply,
+        });
+        const retry = await POST(makeRequest(exchange));
+        expect(retry.status).toBe(200);
+        expect(await retry.json()).toEqual({ message: exchange.reply });
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect((await fixture.messages(incidentId)).results).toEqual(
+        saved.results,
+      );
+      expect((await fixture.incidents(incidentId)).results).toHaveLength(1);
+      expect(await fixture.findIncidentOwner(incidentId)).toEqual({
+        user_id: calderPikeUser.userId,
+      });
+    } finally {
+      clearTimeout(gateTimer);
+      releaseModels();
+      await Promise.allSettled(pending);
+      await fixture.cleanup();
+    }
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+  });
+
   it('blocks a corrupted order ID before returning or persisting the response', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);
