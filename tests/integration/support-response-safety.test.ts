@@ -12,7 +12,7 @@ import {
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support response safety', () => {
-  it.each(['Origin', 'Sec-Fetch-Site'])(
+  it.each(['Origin', 'Sec-Fetch-Site', 'same-site-Origin'])(
     'rejects untrusted %s chat requests with a valid session without generating, saving, or replaying replies',
     async (header) => {
       const database = await getDatabase();
@@ -35,7 +35,19 @@ describe('support response safety', () => {
             messages: [{ role: 'user', content: customerMessage }],
           });
           // Change only the selected header; the cookie and payload stay identical.
-          if (header === 'Origin')
+          if (header === 'same-site-Origin') {
+            const appUrl = new URL(request.url);
+            const otherPortUrl = new URL(request.url);
+            otherPortUrl.port = '8080';
+            expect(otherPortUrl.hostname).toBe(appUrl.hostname);
+            expect(otherPortUrl.origin).not.toBe(appUrl.origin);
+            // Keep same-site metadata constant; only Origin changes for the control.
+            request.headers.set('Sec-Fetch-Site', 'same-site');
+            request.headers.set(
+              'Origin',
+              untrusted ? otherPortUrl.origin : appUrl.origin,
+            );
+          } else if (header === 'Origin')
             request.headers.set(
               'Origin',
               untrusted
