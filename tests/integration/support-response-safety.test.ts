@@ -1223,141 +1223,157 @@ describe('support response safety', () => {
     expect((await fixture.messages(...incidentIds)).results).toEqual([]);
   });
 
-  it('rejects a concurrent generated reply ID collision without saving a partial exchange', async () => {
-    const database = await getDatabase();
-    const fixture = createSupportApiFixture(database);
-    const incidentIds = ['INC-REPLY-ID-RACE-A', 'INC-REPLY-ID-RACE-B'] as const;
-    const messageIds = ['MSG-REPLY-ID-RACE', 'AST-MSG-REPLY-ID-RACE'] as const;
-    const prompts = ['Help with a shipment.', 'Help with a return.'] as const;
-    const assistantMessage = 'Which item do you need help with?';
-    const conflictBody = {
-      error: 'This message ID is already in use. Send a new message.',
-    };
-    const concurrent = createConcurrentSupportFixture(
-      fixture,
-      () => assistantMessage,
-    );
-    const { fetchMock } = concurrent;
-    let releaseReply = () => {};
-    const replyGate = new Promise<void>((resolve) => {
-      releaseReply = resolve;
-    });
-    const modelImplementation = fetchMock.getMockImplementation()!;
-    fetchMock.mockImplementation(async (...args) => {
-      const response = await modelImplementation(...args);
-      // Both preflight checks finish before either model returns. Then B must
-      // persist its customer ID before A tries to use that ID for its reply.
-      const body = JSON.parse(args[1]!.body as string);
-      if (body.messages.at(-1).content === prompts[0]) await replyGate;
-      return response;
-    });
+  it.each(['different incidents', 'the same incident'] as const)(
+    'rejects a concurrent generated reply ID collision in %s without saving a partial exchange',
+    async (scope) => {
+      const database = await getDatabase();
+      const fixture = createSupportApiFixture(database);
+      const incidentIds = [
+        'INC-REPLY-ID-RACE-A',
+        scope === 'the same incident'
+          ? 'INC-REPLY-ID-RACE-A'
+          : 'INC-REPLY-ID-RACE-B',
+      ] as const;
+      const uniqueIncidentIds = [...new Set(incidentIds)];
+      const messageIds = [
+        'MSG-REPLY-ID-RACE',
+        'AST-MSG-REPLY-ID-RACE',
+      ] as const;
+      const prompts = ['Help with a shipment.', 'Help with a return.'] as const;
+      const assistantMessage = 'Which item do you need help with?';
+      const conflictBody = {
+        error: 'This message ID is already in use. Send a new message.',
+      };
+      const concurrent = createConcurrentSupportFixture(
+        fixture,
+        () => assistantMessage,
+      );
+      const { fetchMock } = concurrent;
+      let afterWinner:
+        | Awaited<ReturnType<typeof fixture.incidents>>
+        | undefined;
+      let releaseReply = () => {};
+      const replyGate = new Promise<void>((resolve) => {
+        releaseReply = resolve;
+      });
+      const modelImplementation = fetchMock.getMockImplementation()!;
+      fetchMock.mockImplementation(async (...args) => {
+        const response = await modelImplementation(...args);
+        // Both preflight checks finish before either model returns. Then B must
+        // persist its customer ID before A tries to use that ID for its reply.
+        const body = JSON.parse(args[1]!.body as string);
+        if (body.messages.at(-1).content === prompts[0]) await replyGate;
+        return response;
+      });
 
-    try {
-      const session = await fixture.session(calderPikeUser);
-      for (const [index, incidentId] of incidentIds.entries()) {
-        await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-        await saveSupportExchange(
-          database,
-          calderPikeUser,
-          incidentId,
-          `MSG-REPLY-ID-SETUP-${index}`,
-          'Hello.',
-          'How can I help?',
-        );
-      }
-      await database
-        .prepare(`UPDATE support_incidents SET updated_at = ?
+      try {
+        const session = await fixture.session(calderPikeUser);
+        for (const [index, incidentId] of uniqueIncidentIds.entries()) {
+          await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+          await saveSupportExchange(
+            database,
+            calderPikeUser,
+            incidentId,
+            `MSG-REPLY-ID-SETUP-${index}`,
+            'Hello.',
+            'How can I help?',
+          );
+        }
+        await database
+          .prepare(`UPDATE support_incidents SET updated_at = ?
         WHERE incident_id IN (?, ?)`)
-        .bind('2026-01-01T00:00:00.000Z', ...incidentIds)
-        .run();
-      const beforeMessages = await fixture.messages(...incidentIds);
-      const beforeIncidents = await fixture.incidents(...incidentIds);
-      expect(beforeMessages.results).toHaveLength(4);
-      expect(beforeIncidents.results).toHaveLength(2);
-      const makeRequest = (index: number) =>
-        session.request({
-          incidentId: incidentIds[index],
-          messageId: messageIds[index],
-          messages: [{ role: 'user', content: prompts[index] }],
-        });
-      const [loser, winner] = await concurrent.run(
-        () => POST(makeRequest(0)),
-        async () => {
-          try {
-            return await POST(makeRequest(1));
-          } finally {
-            releaseReply();
-          }
-        },
-      );
-      expect(concurrent.timedOut).toBe(false);
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(winner.status).toBe(200);
-      expect(await winner.json()).toEqual({ message: assistantMessage });
-      expect(loser.status).toBe(409);
-      expect(await loser.json()).toEqual(conflictBody);
-
-      const saved = await fixture.messages(...incidentIds);
-      expect(saved.results).toHaveLength(6);
-      expect(
-        saved.results.filter((row) => row.incident_id === incidentIds[0]),
-      ).toEqual(
-        beforeMessages.results.filter(
-          (row) => row.incident_id === incidentIds[0],
-        ),
-      );
-      expect(
-        saved.results.filter(
-          (row) => row.sequence_number === 1 || row.sequence_number === 2,
-        ),
-      ).toEqual(beforeMessages.results);
-      expect(
-        saved.results.filter(
-          (row) => row.sequence_number === 3 || row.sequence_number === 4,
-        ),
-      ).toMatchObject([
-        {
-          incident_id: incidentIds[1],
-          message_id: messageIds[1],
-          sequence_number: 3,
-          role: 'user',
-          content: prompts[1],
-        },
-        {
-          incident_id: incidentIds[1],
-          message_id: `AST-${messageIds[1]}`,
-          sequence_number: 4,
-          role: 'assistant',
-          content: assistantMessage,
-        },
-      ]);
-      expect(await fixture.findIncident(incidentIds[0])).toEqual(
-        beforeIncidents.results.find(
-          (row) => row.incident_id === incidentIds[0],
-        ),
-      );
-      const savedIncidents = await fixture.incidents(...incidentIds);
-      for (const index of [0, 1]) {
-        const retry = await POST(makeRequest(index));
-        expect(retry.status).toBe(index === 0 ? 409 : 200);
-        expect(await retry.json()).toEqual(
-          index === 0 ? conflictBody : { message: assistantMessage },
+          .bind('2026-01-01T00:00:00.000Z', ...incidentIds)
+          .run();
+        const beforeMessages = await fixture.messages(...incidentIds);
+        const beforeIncidents = await fixture.incidents(...incidentIds);
+        expect(beforeMessages.results).toHaveLength(
+          uniqueIncidentIds.length * 2,
         );
+        expect(beforeIncidents.results).toHaveLength(uniqueIncidentIds.length);
+        const makeRequest = (index: number) =>
+          session.request({
+            incidentId: incidentIds[index],
+            messageId: messageIds[index],
+            messages: [{ role: 'user', content: prompts[index] }],
+          });
+        const [loser, winner] = await concurrent.run(
+          () => POST(makeRequest(0)),
+          async () => {
+            try {
+              const response = await POST(makeRequest(1));
+              // Make a losing metadata write visible even in the same clock tick.
+              // Only temporary test incidents are touched, while A is still gated.
+              await database
+                .prepare(`UPDATE support_incidents SET updated_at = ?
+              WHERE incident_id = ?`)
+                .bind('2026-01-02T00:00:00.000Z', incidentIds[1])
+                .run();
+              afterWinner = await fixture.incidents(...incidentIds);
+              return response;
+            } finally {
+              releaseReply();
+            }
+          },
+        );
+        expect(concurrent.timedOut).toBe(false);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(winner.status).toBe(200);
+        expect(await winner.json()).toEqual({ message: assistantMessage });
+        expect(loser.status).toBe(409);
+        expect(await loser.json()).toEqual(conflictBody);
+
+        const saved = await fixture.messages(...incidentIds);
+        expect(saved.results).toHaveLength(beforeMessages.results.length + 2);
+        expect(
+          saved.results.filter(
+            (row) => row.sequence_number === 1 || row.sequence_number === 2,
+          ),
+        ).toEqual(beforeMessages.results);
+        expect(
+          saved.results.filter(
+            (row) => row.sequence_number === 3 || row.sequence_number === 4,
+          ),
+        ).toMatchObject([
+          {
+            incident_id: incidentIds[1],
+            message_id: messageIds[1],
+            sequence_number: 3,
+            role: 'user',
+            content: prompts[1],
+          },
+          {
+            incident_id: incidentIds[1],
+            message_id: `AST-${messageIds[1]}`,
+            sequence_number: 4,
+            role: 'assistant',
+            content: assistantMessage,
+          },
+        ]);
+        const savedIncidents = await fixture.incidents(...incidentIds);
+        expect(afterWinner).toBeDefined();
+        expect(savedIncidents.results).toEqual(afterWinner?.results);
+        for (const index of [0, 1]) {
+          const retry = await POST(makeRequest(index));
+          expect(retry.status).toBe(index === 0 ? 409 : 200);
+          expect(await retry.json()).toEqual(
+            index === 0 ? conflictBody : { message: assistantMessage },
+          );
+        }
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect((await fixture.messages(...incidentIds)).results).toEqual(
+          saved.results,
+        );
+        expect((await fixture.incidents(...incidentIds)).results).toEqual(
+          savedIncidents.results,
+        );
+      } finally {
+        releaseReply();
+        await concurrent.cleanup();
       }
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect((await fixture.messages(...incidentIds)).results).toEqual(
-        saved.results,
-      );
-      expect((await fixture.incidents(...incidentIds)).results).toEqual(
-        savedIncidents.results,
-      );
-    } finally {
-      releaseReply();
-      await concurrent.cleanup();
-    }
-    expect((await fixture.incidents(...incidentIds)).results).toEqual([]);
-    expect((await fixture.messages(...incidentIds)).results).toEqual([]);
-  });
+      expect((await fixture.incidents(...incidentIds)).results).toEqual([]);
+      expect((await fixture.messages(...incidentIds)).results).toEqual([]);
+    },
+  );
 
   it('blocks a corrupted order ID before returning or persisting the response', async () => {
     const database = await getDatabase();
