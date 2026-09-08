@@ -3,7 +3,7 @@ import { getDatabase } from '@/db/database';
 import {
   canAccessSupportIncident,
   getSavedSupportExchange,
-  isSupportMessageInAnotherIncident,
+  hasSupportMessageIdConflict,
   parseIncidentId,
   parseMessageId,
   saveSupportExchange,
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
           { error: 'Incident access denied.' },
           { status: 403 },
         );
-      if (await isSupportMessageInAnotherIncident(db, incidentId, messageId))
+      if (await hasSupportMessageIdConflict(db, incidentId, messageId))
         return Response.json(
           { error: 'This message ID is already in use. Send a new message.' },
           { status: 409 },

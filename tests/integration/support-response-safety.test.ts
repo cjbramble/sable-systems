@@ -364,6 +364,68 @@ describe('support response safety', () => {
     expect((await savedMessages()).results).toEqual([]);
   });
 
+  it('rejects a customer message ID that belongs to a saved assistant message', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-MESSAGE-ROLE-COLLISION-REGRESSION';
+    const originalMessageId = 'MSG-MESSAGE-ROLE-COLLISION-REGRESSION';
+    const assistantMessageId = `AST-${originalMessageId}`;
+    const customerMessage = 'Show return RTN-2022-000014.';
+    const originalReply =
+      'Return RTN-2022-000014 is closed. Linked order: SBL-2022-000118.';
+    const findIncident = () => fixture.findIncident(incidentId);
+    const savedMessages = () => fixture.messages(incidentId);
+    expect(await findIncident()).toBeNull();
+    expect((await savedMessages()).results).toEqual([]);
+    const fetchMock = fixture.mockModel(originalReply);
+
+    try {
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const makeRequest = (messageId: string) =>
+        session.request({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content: customerMessage }],
+        });
+      await saveSupportExchange(
+        database,
+        calderPikeUser,
+        incidentId,
+        originalMessageId,
+        customerMessage,
+        originalReply,
+      );
+      const originalIncident = await findIncident();
+      const originalMessages = await savedMessages();
+      expect(originalMessages.results).toHaveLength(2);
+      expect(originalMessages.results[1]).toMatchObject({
+        message_id: assistantMessageId,
+        role: 'assistant',
+        content: originalReply,
+      });
+
+      const response = await POST(makeRequest(assistantMessageId));
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({
+        error: 'This message ID is already in use. Send a new message.',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(await findIncident()).toEqual(originalIncident);
+      expect((await savedMessages()).results).toEqual(originalMessages.results);
+
+      const retry = await POST(makeRequest(originalMessageId));
+      expect(retry.status).toBe(200);
+      expect(await retry.json()).toEqual({ message: originalReply });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect((await savedMessages()).results).toEqual(originalMessages.results);
+    } finally {
+      await fixture.cleanup();
+    }
+    expect(await findIncident()).toBeNull();
+    expect((await savedMessages()).results).toEqual([]);
+  });
+
   it('blocks a corrupted order ID before returning or persisting the response', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);
