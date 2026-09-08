@@ -493,6 +493,97 @@ describe('support response safety', () => {
     expect((await savedMessages()).results).toEqual([]);
   });
 
+  it('completes a saved customer message without duplicating it or leaving a sequence gap', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-INCOMPLETE-EXCHANGE-REGRESSION';
+    const messageId = 'MSG-INCOMPLETE-EXCHANGE-REGRESSION';
+    const customerMessage = 'Show return RTN-2022-000014.';
+    const assistantMessage =
+      'Return RTN-2022-000014 is closed. Linked order: SBL-2022-000118.';
+    const createdAt = '2026-09-01T12:00:00.000Z';
+    const findIncident = () => fixture.findIncident(incidentId);
+    const savedMessages = () => fixture.messages(incidentId);
+    expect(await findIncident()).toBeNull();
+    expect((await savedMessages()).results).toEqual([]);
+    const fetchMock = fixture.mockModel(
+      assistantMessage,
+      'The linked order is SBL-2022-000118.',
+    );
+
+    try {
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const makeRequest = () =>
+        session.request({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content: customerMessage }],
+        });
+      // Model an interrupted exchange directly; do not use the saving function
+      // under test to manufacture the missing-reply state.
+      await database.batch([
+        database
+          .prepare(`INSERT INTO support_incidents
+          (incident_id, user_id, title, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?)`)
+          .bind(
+            incidentId,
+            calderPikeUser.userId,
+            'Return inquiry',
+            createdAt,
+            createdAt,
+          ),
+        database
+          .prepare(`INSERT INTO support_messages
+          (message_id, incident_id, sequence_number, role, content, created_at)
+          VALUES (?, ?, 1, 'user', ?, ?)`)
+          .bind(messageId, incidentId, customerMessage, createdAt),
+      ]);
+      const before = await savedMessages();
+      expect(before.results).toEqual([
+        {
+          message_id: messageId,
+          incident_id: incidentId,
+          sequence_number: 1,
+          role: 'user',
+          content: customerMessage,
+          created_at: createdAt,
+        },
+      ]);
+
+      const response = await POST(makeRequest());
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ message: assistantMessage });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const completed = await savedMessages();
+      expect(completed.results).toHaveLength(2);
+      expect(completed.results[0]).toEqual(before.results[0]);
+      expect(completed.results[1]).toMatchObject({
+        message_id: `AST-${messageId}`,
+        incident_id: incidentId,
+        sequence_number: 2,
+        role: 'assistant',
+        content: assistantMessage,
+      });
+      expect(await findIncident()).toMatchObject({
+        user_id: calderPikeUser.userId,
+        title: 'Return inquiry',
+        created_at: createdAt,
+      });
+
+      const retry = await POST(makeRequest());
+      expect(retry.status).toBe(200);
+      expect(await retry.json()).toEqual({ message: assistantMessage });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect((await savedMessages()).results).toEqual(completed.results);
+    } finally {
+      await fixture.cleanup();
+    }
+    expect(await findIncident()).toBeNull();
+    expect((await savedMessages()).results).toEqual([]);
+  });
+
   it('blocks a corrupted order ID before returning or persisting the response', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);

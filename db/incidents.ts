@@ -186,11 +186,15 @@ export async function saveSupportExchange(
   }
 
   const sequence = await db
-    .prepare(`SELECT COALESCE(MAX(sequence_number), 0) AS last_sequence
+    .prepare(`SELECT COALESCE(MAX(sequence_number), 0) AS last_sequence,
+      MAX(CASE WHEN message_id = ? AND role = 'user' AND content = ?
+        THEN sequence_number END) AS saved_sequence
       FROM support_messages WHERE incident_id = ?`)
-    .bind(incidentId)
-    .first<{ last_sequence: number }>();
-  const userSequence = Number(sequence?.last_sequence ?? 0) + 1;
+    .bind(messageId, customerMessage, incidentId)
+    .first<{ last_sequence: number; saved_sequence: number | null }>();
+  // Recover a missing reply immediately after its original customer message.
+  const userSequence =
+    sequence?.saved_sequence ?? Number(sequence?.last_sequence ?? 0) + 1;
   await db.batch([
     db
       .prepare(`INSERT OR IGNORE INTO support_messages (
