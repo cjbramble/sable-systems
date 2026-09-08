@@ -119,6 +119,15 @@ export async function hasSupportMessageIdConflict(
     (customer.incident_id !== incidentId || customer.role !== 'user')
   )
     return true;
+  if (customer && !assistant) {
+    // Recovery may fill an empty slot, but must not displace a later message.
+    const occupied = await db
+      .prepare(`SELECT 1 AS found FROM support_messages
+        WHERE incident_id = ? AND sequence_number = ?`)
+      .bind(incidentId, customer.sequence_number + 1)
+      .first<{ found: number }>();
+    return occupied !== null;
+  }
   return Boolean(
     assistant &&
     (assistant.incident_id !== incidentId ||
