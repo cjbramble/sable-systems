@@ -3,6 +3,70 @@ import { describe, expect, it, vi } from 'vitest';
 import { createConcurrentSupportFixture } from '../fixtures/concurrent-support';
 
 describe('concurrent support fixture', () => {
+  it('restores fetch and clears timers even when the cleanup callback fails', async () => {
+    const originalFetch = globalThis.fetch;
+    const failure = new Error('Underlying cleanup failed');
+    const events: string[] = [];
+    const cleanup = vi.fn(async () => {
+      events.push('cleanup');
+      expect(globalThis.fetch).toBe(originalFetch);
+      expect(vi.getTimerCount()).toBe(0);
+      throw failure;
+    });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const concurrent = createConcurrentSupportFixture(
+      { cleanup },
+      () => 'How can I help?',
+    );
+    let cleanupOutcome: Promise<PromiseSettledResult<void>[]> | undefined;
+
+    try {
+      const run = concurrent.run(
+        async () => {
+          const response = await fetch('http://localhost/model', {
+            method: 'POST',
+            body: JSON.stringify({
+              messages: [{ role: 'user', content: 'Hello.' }],
+            }),
+          });
+          events.push('model-finished');
+          return response;
+        },
+        () => Promise.resolve(new Response(null, { status: 403 })),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(concurrent.fetchMock).toHaveBeenCalledOnce();
+      expect(globalThis.fetch).toBe(concurrent.fetchMock);
+      expect(events).toEqual([]);
+      expect(cleanup).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(1);
+
+      // Observe the intentional rejection immediately, including in teardown.
+      cleanupOutcome = Promise.allSettled([concurrent.cleanup()]);
+      const [outcome] = await cleanupOutcome;
+      expect(outcome.status).toBe('rejected');
+      if (outcome.status !== 'rejected')
+        throw new Error('Expected cleanup to fail');
+      expect(outcome.reason).toBe(failure);
+      const responses = await run;
+      expect(responses.map((response) => response.status)).toEqual([200, 403]);
+      expect(await responses[0].json()).toEqual({
+        choices: [{ message: { content: 'How can I help?' } }],
+      });
+      expect(events).toEqual(['model-finished', 'cleanup']);
+      expect(cleanup).toHaveBeenCalledOnce();
+      expect(globalThis.fetch).toBe(originalFetch);
+      expect(concurrent.timedOut).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      try {
+        await (cleanupOutcome ?? Promise.allSettled([concurrent.cleanup()]));
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+  });
+
   it('preserves an operation error and drains its waiting peer before cleanup', async () => {
     const originalFetch = globalThis.fetch;
     const failure = new Error('Request setup failed');
