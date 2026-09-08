@@ -14,6 +14,15 @@ export class IncidentAccessDeniedError extends Error {
   }
 }
 
+export class SupportMessageTextConflictError extends Error {
+  constructor() {
+    super(
+      'This message ID was already used for different text. Send a new message.',
+    );
+    this.name = 'SupportMessageTextConflictError';
+  }
+}
+
 type IncidentMessageRow = {
   incident_id: string;
   title: string;
@@ -247,11 +256,9 @@ export async function saveSupportExchange(
   // A concurrent retry may have saved its reply first. Return the persisted
   // winner, never a generated response whose insert was ignored.
   const saved = await getSavedSupportExchange(db, user, incidentId, messageId);
-  if (
-    !saved ||
-    saved.customerMessage !== customerMessage ||
-    saved.assistantMessage === null
-  )
+  if (saved && saved.customerMessage !== customerMessage)
+    throw new SupportMessageTextConflictError();
+  if (!saved || saved.assistantMessage === null)
     throw new Error(
       'The support exchange was not saved as a complete matching pair.',
     );

@@ -8,6 +8,7 @@ import {
   parseIncidentId,
   parseMessageId,
   saveSupportExchange,
+  SupportMessageTextConflictError,
 } from '@/db/incidents';
 import { buildAuthorizedContext } from '@/db/support';
 import { parseChatMessages } from '@/lib/chat-request';
@@ -86,13 +87,7 @@ export async function POST(request: Request) {
       );
       if (savedExchange) {
         if (savedExchange.customerMessage !== customerMessage)
-          return Response.json(
-            {
-              error:
-                'This message ID was already used for different text. Send a new message.',
-            },
-            { status: 409 },
-          );
+          throw new SupportMessageTextConflictError();
         if (savedExchange.assistantMessage !== null)
           return Response.json({ message: savedExchange.assistantMessage });
       }
@@ -152,6 +147,8 @@ export async function POST(request: Request) {
 
     return Response.json({ message: content });
   } catch (error) {
+    if (error instanceof SupportMessageTextConflictError)
+      return Response.json({ error: error.message }, { status: 409 });
     if (error instanceof IncidentAccessDeniedError)
       return Response.json(
         { error: 'Incident access denied.' },
