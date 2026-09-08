@@ -138,7 +138,7 @@ export async function POST(request: Request) {
     }
 
     if (incidentId && messageId) {
-      await saveSupportExchange(
+      const savedReply = await saveSupportExchange(
         db,
         user,
         incidentId,
@@ -146,6 +146,7 @@ export async function POST(request: Request) {
         customerMessage,
         content,
       );
+      return Response.json({ message: savedReply });
     }
 
     return Response.json({ message: content });

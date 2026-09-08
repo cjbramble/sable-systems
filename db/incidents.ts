@@ -170,7 +170,7 @@ export async function saveSupportExchange(
   messageId: string,
   customerMessage: string,
   assistantMessage: string,
-) {
+): Promise<string> {
   const existing = await db
     .prepare('SELECT user_id, title FROM support_incidents WHERE incident_id = ?')
     .bind(incidentId)
@@ -228,6 +228,19 @@ export async function saveSupportExchange(
         WHERE incident_id = ? AND user_id = ?`)
       .bind(createIncidentTitle(customerMessage), now, incidentId, user.userId),
   ]);
+
+  // A concurrent retry may have saved its reply first. Return the persisted
+  // winner, never a generated response whose insert was ignored.
+  const saved = await getSavedSupportExchange(db, user, incidentId, messageId);
+  if (
+    !saved ||
+    saved.customerMessage !== customerMessage ||
+    saved.assistantMessage === null
+  )
+    throw new Error(
+      'The support exchange was not saved as a complete matching pair.',
+    );
+  return saved.assistantMessage;
 }
 
 export async function deleteSupportIncident(

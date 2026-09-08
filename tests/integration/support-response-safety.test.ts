@@ -671,6 +671,108 @@ describe('support response safety', () => {
     expect((await savedMessages()).results).toEqual([]);
   });
 
+  it('returns the single saved reply to simultaneous duplicate requests in an existing incident', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-CONCURRENT-RETRY-REGRESSION';
+    const messageId = 'MSG-CONCURRENT-RETRY-REGRESSION';
+    const customerMessage = 'Show return RTN-2022-000014.';
+    const replies = [
+      'Return RTN-2022-000014 is closed. Linked order: SBL-2022-000118.',
+      'The linked order is SBL-2022-000118. Return RTN-2022-000014 is closed.',
+    ];
+    const savedMessages = () => fixture.messages(incidentId);
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await savedMessages()).results).toEqual([]);
+
+    let releaseModels = () => {};
+    const modelGate = new Promise<void>((resolve) => {
+      releaseModels = resolve;
+    });
+    let arrivals = 0;
+    let gateTimedOut = false;
+    let gateTimer: ReturnType<typeof setTimeout> | undefined;
+    const pending: Promise<Response>[] = [];
+    const fetchMock = fixture.mockModel(replies[0]);
+    fetchMock.mockImplementation(async () => {
+      const reply = replies[Math.min(arrivals++, replies.length - 1)];
+      if (arrivals === 2) releaseModels();
+      await modelGate;
+      return Response.json({ choices: [{ message: { content: reply } }] });
+    });
+
+    try {
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      await saveSupportExchange(
+        database,
+        calderPikeUser,
+        incidentId,
+        'MSG-CONCURRENT-RETRY-SETUP',
+        'Hello.',
+        'How can I help?',
+      );
+      const before = await savedMessages();
+      expect(before.results).toHaveLength(2);
+      const makeRequest = () =>
+        session.request({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content: customerMessage }],
+        });
+      // Both requests must reach inference before either can save. The timer
+      // only releases a broken barrier for cleanup; it cannot make the test pass.
+      gateTimer = setTimeout(() => {
+        gateTimedOut = true;
+        releaseModels();
+      }, 2000);
+      pending.push(POST(makeRequest()), POST(makeRequest()));
+      const responses = await Promise.all(pending);
+      clearTimeout(gateTimer);
+      expect(gateTimedOut).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(responses.map((response) => response.status)).toEqual([200, 200]);
+
+      const completed = await savedMessages();
+      expect(completed.results).toHaveLength(4);
+      expect(completed.results.slice(0, 2)).toEqual(before.results);
+      expect(completed.results.slice(2)).toMatchObject([
+        {
+          message_id: messageId,
+          role: 'user',
+          sequence_number: 3,
+          content: customerMessage,
+        },
+        {
+          message_id: `AST-${messageId}`,
+          role: 'assistant',
+          sequence_number: 4,
+        },
+      ]);
+      const savedReply = completed.results[3].content;
+      expect(replies).toContain(savedReply);
+      expect(
+        await Promise.all(responses.map((response) => response.json())),
+      ).toEqual([{ message: savedReply }, { message: savedReply }]);
+      expect(await fixture.findIncidentOwner(incidentId)).toEqual({
+        user_id: calderPikeUser.userId,
+      });
+
+      const retry = await POST(makeRequest());
+      expect(retry.status).toBe(200);
+      expect(await retry.json()).toEqual({ message: savedReply });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect((await savedMessages()).results).toEqual(completed.results);
+    } finally {
+      clearTimeout(gateTimer);
+      releaseModels();
+      await Promise.allSettled(pending);
+      await fixture.cleanup();
+    }
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await savedMessages()).results).toEqual([]);
+  });
+
   it('blocks a corrupted order ID before returning or persisting the response', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);
