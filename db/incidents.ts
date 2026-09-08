@@ -183,7 +183,8 @@ export async function saveSupportExchange(
     await db
       .prepare(`INSERT INTO support_incidents (
         incident_id, user_id, title, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?)`)
+      ) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(incident_id) DO NOTHING`)
       .bind(
         incidentId,
         user.userId,
@@ -192,6 +193,15 @@ export async function saveSupportExchange(
         now,
       )
       .run();
+
+    // A concurrent request may have created this ID after the initial read.
+    // Only reuse its incident if it belongs to the same authenticated user.
+    const created = await db
+      .prepare('SELECT user_id FROM support_incidents WHERE incident_id = ?')
+      .bind(incidentId)
+      .first<{ user_id: string }>();
+    if (created?.user_id !== user.userId)
+      throw new Error('Incident authorization scope mismatch.');
   }
 
   const sequence = await db
