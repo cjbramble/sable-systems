@@ -94,6 +94,21 @@ export async function canAccessSupportIncident(
   return incident === null || incident.user_id === user.userId;
 }
 
+export async function isSupportMessageInAnotherIncident(
+  db: D1Database,
+  incidentId: string,
+  messageId: string,
+): Promise<boolean> {
+  // Message IDs are globally unique. Return only a conflict flag, never content
+  // or identifying details from a different incident or account.
+  const conflict = await db
+    .prepare(`SELECT 1 AS found FROM support_messages
+      WHERE message_id = ? AND incident_id <> ?`)
+    .bind(messageId, incidentId)
+    .first<{ found: number }>();
+  return conflict !== null;
+}
+
 type SavedSupportExchange = {
   customerMessage: string;
   assistantMessage: string | null;
