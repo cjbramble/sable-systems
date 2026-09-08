@@ -597,6 +597,90 @@ describe('support response safety', () => {
     expect((await fixture.messages(incidentId)).results).toEqual([]);
   });
 
+  it('reports a database save timeout as a persistence failure and permits a clean retry', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-API-SAVE-TIMEOUT';
+    const messageId = 'MSG-API-SAVE-TIMEOUT';
+    const customerMessage = 'Help with a shipment.';
+    const assistantMessage = 'Which shipment do you need help with?';
+    let restoreBatch: (() => void) | undefined;
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+    try {
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const fetchMock = fixture.mockModel(assistantMessage);
+      // Reject before executing the transaction. Subsequent batches use real D1.
+      const batchMock = vi
+        .spyOn(database, 'batch')
+        .mockRejectedValueOnce(
+          new DOMException(
+            'test: private storage timeout details',
+            'TimeoutError',
+          ),
+        );
+      restoreBatch = () => batchMock.mockRestore();
+      const makeRequest = () =>
+        session.request({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content: customerMessage }],
+        });
+
+      const failed = await POST(makeRequest());
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(batchMock).toHaveBeenCalledOnce();
+      expect(failed.status).toBe(500);
+      expect(await failed.json()).toEqual({
+        error:
+          'We could not confirm your support message was saved. Please try again.',
+      });
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+      const retry = await POST(makeRequest());
+      expect(retry.status).toBe(200);
+      expect(await retry.json()).toEqual({ message: assistantMessage });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(batchMock).toHaveBeenCalledTimes(2);
+      expect(await fixture.findIncidentOwner(incidentId)).toEqual({
+        user_id: calderPikeUser.userId,
+      });
+      expect((await fixture.messageContents(incidentId)).results).toEqual([
+        {
+          message_id: messageId,
+          sequence_number: 1,
+          role: 'user',
+          content: customerMessage,
+        },
+        {
+          message_id: `AST-${messageId}`,
+          sequence_number: 2,
+          role: 'assistant',
+          content: assistantMessage,
+        },
+      ]);
+      const savedIncident = await fixture.findIncident(incidentId);
+      const savedMessages = await fixture.messages(incidentId);
+      const replay = await POST(makeRequest());
+      expect(replay.status).toBe(200);
+      expect(await replay.json()).toEqual({ message: assistantMessage });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(batchMock).toHaveBeenCalledTimes(2);
+      expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
+      expect((await fixture.messages(incidentId)).results).toEqual(
+        savedMessages.results,
+      );
+    } finally {
+      restoreBatch?.();
+      await fixture.cleanup();
+    }
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+  });
+
   it('returns and saves a grounded response under the authenticated user incident', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);
