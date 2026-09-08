@@ -19,6 +19,23 @@ import {
   extractSupportModelContent,
 } from '@/lib/support-model';
 
+const failureResponses = {
+  loading: {
+    error: 'Support records could not be loaded. Please try again.',
+    status: 500,
+  },
+  model: {
+    error:
+      'The local model is not reachable. Start the app with `npm run dev` and try again.',
+    status: 503,
+  },
+  saving: {
+    error:
+      'We could not confirm your support message was saved. Please try again.',
+    status: 500,
+  },
+} as const;
+
 export async function POST(request: Request) {
   if (!isTrustedMutation(request))
     return Response.json(
@@ -60,6 +77,8 @@ export async function POST(request: Request) {
     );
   }
 
+  // Classify unexpected failures by the operation, never by private error text.
+  let phase: keyof typeof failureResponses = 'loading';
   try {
     const db = await getDatabase();
     const user = await getAuthenticatedUser(db, request);
@@ -92,6 +111,7 @@ export async function POST(request: Request) {
     }
 
     const authorizedContext = await buildAuthorizedContext(db, messages, user);
+    phase = 'model';
     const [modelUrl, modelRequest] = createSupportModelRequest({
       distributorName: user.distributorDisplayName,
       distributorId: user.distributorId,
@@ -132,34 +152,15 @@ export async function POST(request: Request) {
     }
 
     if (incidentId && messageId) {
-      let savedReply: string;
-      try {
-        savedReply = await saveSupportExchange(
-          db,
-          user,
-          incidentId,
-          messageId,
-          customerMessage,
-          content,
-        );
-      } catch (error) {
-        // Keep authorization and conflict responses in the shared handler below.
-        if (
-          error instanceof IncidentAccessDeniedError ||
-          error instanceof SupportMessageIdConflictError ||
-          error instanceof SupportMessageTextConflictError
-        )
-          throw error;
-        // A write or read-back failure is not a model connectivity failure.
-        // Do not expose storage internals or claim that a reply was persisted.
-        return Response.json(
-          {
-            error:
-              'We could not confirm your support message was saved. Please try again.',
-          },
-          { status: 500 },
-        );
-      }
+      phase = 'saving';
+      const savedReply = await saveSupportExchange(
+        db,
+        user,
+        incidentId,
+        messageId,
+        customerMessage,
+        content,
+      );
       return Response.json({ message: savedReply });
     }
 
@@ -175,12 +176,7 @@ export async function POST(request: Request) {
         { error: 'Incident access denied.' },
         { status: 403 },
       );
-    return Response.json(
-      {
-        error:
-          'The local model is not reachable. Start the app with `npm run dev` and try again.',
-      },
-      { status: 503 },
-    );
+    const failure = failureResponses[phase];
+    return Response.json({ error: failure.error }, { status: failure.status });
   }
 }

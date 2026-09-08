@@ -11,6 +11,79 @@ import {
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support response safety', () => {
+  it('reports a pre-inference database lookup failure without calling the model or saving an incident', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-PREFLIGHT-READ-FAILURE';
+    const messageId = 'MSG-PREFLIGHT-READ-FAILURE';
+    const customerMessage = 'Help with a shipment.';
+    const assistantMessage = 'Which shipment do you need help with?';
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+    const originalPrepare = database.prepare.bind(database);
+    let exchangeReads = 0;
+    const prepareMock = vi
+      .spyOn(database, 'prepare')
+      .mockImplementation((sql) => {
+        if (/SELECT\s+customer\.content AS customerMessage/i.test(sql)) {
+          exchangeReads += 1;
+          if (exchangeReads === 1)
+            throw new Error('test: private preflight lookup failure');
+        }
+        return originalPrepare(sql);
+      });
+
+    try {
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const fetchMock = fixture.mockModel(assistantMessage);
+      const makeRequest = () =>
+        session.request({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content: customerMessage }],
+        });
+      const failed = await POST(makeRequest());
+      expect(exchangeReads).toBe(1);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(await failed.json()).toEqual({
+        error: 'Support records could not be loaded. Please try again.',
+      });
+      expect(failed.status).toBe(500);
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+      const retry = await POST(makeRequest());
+      expect(retry.status).toBe(200);
+      expect(await retry.json()).toEqual({ message: assistantMessage });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(exchangeReads).toBe(3);
+      expect(await fixture.findIncidentOwner(incidentId)).toEqual({
+        user_id: calderPikeUser.userId,
+      });
+      expect((await fixture.messageContents(incidentId)).results).toEqual([
+        {
+          message_id: messageId,
+          sequence_number: 1,
+          role: 'user',
+          content: customerMessage,
+        },
+        {
+          message_id: `AST-${messageId}`,
+          sequence_number: 2,
+          role: 'assistant',
+          content: assistantMessage,
+        },
+      ]);
+    } finally {
+      prepareMock.mockRestore();
+      await fixture.cleanup();
+    }
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+    expect(prepareMock).not.toHaveBeenCalled();
+  });
+
   it('replays a committed exchange after its confirmation read fails without generating or saving duplicates', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);
