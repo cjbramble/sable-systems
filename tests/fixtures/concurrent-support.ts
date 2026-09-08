@@ -5,7 +5,7 @@ import type { createSupportApiFixture } from './support-api';
 // One fixture per test. Both requests must reach the model before either can
 // persist; a timeout releases the barrier for cleanup, never as proof of overlap.
 export function createConcurrentSupportFixture(
-  fixture: ReturnType<typeof createSupportApiFixture>,
+  fixture: Pick<ReturnType<typeof createSupportApiFixture>, 'cleanup'>,
   replyForRequest: (prompt: string, callIndex: number) => string,
 ) {
   let releaseModels = () => {};
