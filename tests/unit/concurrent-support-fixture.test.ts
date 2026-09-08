@@ -3,6 +3,80 @@ import { describe, expect, it, vi } from 'vitest';
 import { createConcurrentSupportFixture } from '../fixtures/concurrent-support';
 
 describe('concurrent support fixture', () => {
+  it('preserves an operation error and drains its waiting peer before cleanup', async () => {
+    const originalFetch = globalThis.fetch;
+    const failure = new Error('Request setup failed');
+    const events: string[] = [];
+    const cleanup = vi.fn(async () => {
+      events.push('cleanup');
+    });
+    let finishOperation = () => {};
+    const operationGate = new Promise<void>((resolve) => {
+      finishOperation = resolve;
+    });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const concurrent = createConcurrentSupportFixture(
+      { cleanup },
+      () => 'How can I help?',
+    );
+    let cleanupPromise: Promise<void> | undefined;
+
+    try {
+      const run = concurrent.run(
+        async () => {
+          const response = await fetch('http://localhost/model', {
+            method: 'POST',
+            body: JSON.stringify({
+              messages: [{ role: 'user', content: 'Hello.' }],
+            }),
+          });
+          events.push('model-released');
+          // Simulate work still in progress after inference, such as persistence.
+          await operationGate;
+          events.push('operation-finished');
+          return response;
+        },
+        () => {
+          events.push('operation-threw');
+          throw failure;
+        },
+      );
+      await expect(run).rejects.toBe(failure);
+      expect(concurrent.fetchMock).toHaveBeenCalledOnce();
+      expect(concurrent.timedOut).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(events).toEqual(['operation-threw']);
+      expect(cleanup).not.toHaveBeenCalled();
+
+      cleanupPromise = concurrent.cleanup();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(events).toEqual(['operation-threw', 'model-released']);
+      expect(cleanup).not.toHaveBeenCalled();
+      expect(globalThis.fetch).toBe(concurrent.fetchMock);
+      expect(concurrent.timedOut).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+
+      finishOperation();
+      await cleanupPromise;
+      expect(events).toEqual([
+        'operation-threw',
+        'model-released',
+        'operation-finished',
+        'cleanup',
+      ]);
+      expect(cleanup).toHaveBeenCalledOnce();
+      expect(globalThis.fetch).toBe(originalFetch);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      finishOperation();
+      try {
+        await (cleanupPromise ?? concurrent.cleanup());
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+  });
+
   it('reports a timeout when only one request reaches the model and cleans up safely', async () => {
     const originalFetch = globalThis.fetch;
     const events: string[] = [];
