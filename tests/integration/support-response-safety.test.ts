@@ -53,13 +53,29 @@ describe('support response safety', () => {
     },
     {
       failure: 'missing-choices',
+      replyPayload: {
+        error: { message: 'test: private upstream diagnostics' },
+      },
+      expectedStatus: 502,
+      expectedError:
+        'The local model returned an empty response. Please try again.',
+    },
+    {
+      failure: 'empty-choices',
+      replyPayload: { choices: [] },
       expectedStatus: 502,
       expectedError:
         'The local model returned an empty response. Please try again.',
     },
   ])(
     'handles model $failure failures without saving an incident and permits a clean retry',
-    async ({ failure, replyContent, expectedStatus, expectedError }) => {
+    async ({
+      failure,
+      replyContent,
+      replyPayload,
+      expectedStatus,
+      expectedError,
+    }) => {
       const database = await getDatabase();
       const fixture = createSupportApiFixture(database);
       const incidentId = `INC-MODEL-${failure.toUpperCase()}-FAILURE`;
@@ -102,15 +118,12 @@ describe('support response safety', () => {
             { status: 200, headers: { 'Content-Type': 'application/json' } },
           );
           fetchMock.mockResolvedValueOnce(modelResponse);
-        } else if (failure === 'missing-choices') {
-          modelResponse = Response.json({
-            error: { message: 'test: private upstream diagnostics' },
-          });
-          fetchMock.mockResolvedValueOnce(modelResponse);
         } else {
-          modelResponse = Response.json({
-            choices: [{ message: { content: replyContent } }],
-          });
+          modelResponse = Response.json(
+            replyPayload ?? {
+              choices: [{ message: { content: replyContent } }],
+            },
+          );
           fetchMock.mockResolvedValueOnce(modelResponse);
         }
         const makeRequest = () =>
