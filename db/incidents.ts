@@ -230,12 +230,22 @@ export async function saveSupportExchange(
   // Allocate positions inside the same transaction as both inserts, so another
   // exchange cannot claim a position between reading the maximum and writing.
   await db.batch([
+    // Check the reply ID inside the transaction too: another request may have
+    // claimed it as a customer ID after preflight. Do not leave half an exchange.
     db
       .prepare(`INSERT OR IGNORE INTO support_messages (
         message_id, incident_id, sequence_number, role, content, created_at
       ) SELECT ?, ?, COALESCE(MAX(sequence_number), 0) + 1, 'user', ?, ?
-        FROM support_messages WHERE incident_id = ?`)
-      .bind(messageId, incidentId, customerMessage, now, incidentId),
+        FROM support_messages WHERE incident_id = ?
+        HAVING NOT EXISTS (SELECT 1 FROM support_messages WHERE message_id = ?)`)
+      .bind(
+        messageId,
+        incidentId,
+        customerMessage,
+        now,
+        incidentId,
+        `AST-${messageId}`,
+      ),
     // Anchor replies to the persisted customer message, including on retries
     // that recover a missing reply earlier in the conversation.
     db
