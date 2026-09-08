@@ -849,76 +849,94 @@ describe('support response safety', () => {
     expect((await savedMessages()).results).toEqual([]);
   });
 
-  it('denies a revoked session replaying a saved reply without calling the model or changing history', async () => {
-    const database = await getDatabase();
-    const fixture = createSupportApiFixture(database);
-    const incidentId = 'INC-REVOKED-SESSION-REPLAY';
-    const messageId = 'MSG-REVOKED-SESSION-REPLAY';
-    const customerMessage = 'Show return RTN-2022-000014.';
-    const privateReply =
-      'Return RTN-2022-000014 is closed. Linked order: SBL-2022-000118.';
-    const makeRequest = (session: SupportApiSession) =>
-      session.request({
-        incidentId,
-        messageId,
-        messages: [{ role: 'user', content: customerMessage }],
-      });
-    expect(await fixture.findIncident(incidentId)).toBeNull();
-    expect((await fixture.messages(incidentId)).results).toEqual([]);
-
-    try {
-      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-      const session = await fixture.session(calderPikeUser);
-      const fetchMock = fixture.mockModel('This reply must not be generated.');
-      await saveSupportExchange(
-        database,
-        calderPikeUser,
-        incidentId,
-        messageId,
-        customerMessage,
-        privateReply,
-      );
-      const savedIncident = await fixture.findIncident(incidentId);
-      const savedMessages = await fixture.messages(incidentId);
-      expect(savedIncident).toMatchObject({ user_id: calderPikeUser.userId });
-      expect(savedMessages.results).toHaveLength(2);
-
-      const beforeRevocation = await POST(makeRequest(session));
-      expect(beforeRevocation.status).toBe(200);
-      expect(await beforeRevocation.json()).toEqual({ message: privateReply });
-      expect(fetchMock).not.toHaveBeenCalled();
-
-      await revokeSession(database, makeRequest(session));
-      // Keep sending the original cookie, as a client can even after logout.
-      for (let retry = 0; retry < 2; retry += 1) {
-        const denied = await POST(makeRequest(session));
-        expect(denied.status).toBe(401);
-        expect(await denied.json()).toEqual({
-          error: 'Authentication required.',
+  it.each(['revoked', 'expired'])(
+    'denies replay from %s sessions without calling the model or changing history',
+    async (sessionState) => {
+      const database = await getDatabase();
+      const fixture = createSupportApiFixture(database);
+      const incidentId = `INC-${sessionState.toUpperCase()}-SESSION-REPLAY`;
+      const messageId = `MSG-${sessionState.toUpperCase()}-SESSION-REPLAY`;
+      const customerMessage = 'Show return RTN-2022-000014.';
+      const privateReply =
+        'Return RTN-2022-000014 is closed. Linked order: SBL-2022-000118.';
+      const makeRequest = (session: SupportApiSession) =>
+        session.request({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content: customerMessage }],
         });
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+      try {
+        if (sessionState === 'expired') {
+          // Freeze only Date: database I/O and timers continue running normally.
+          vi.useFakeTimers({ toFake: ['Date'] });
+          vi.setSystemTime(new Date('2026-09-02T12:00:00.000Z'));
+        }
+        await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+        const session = await fixture.session(calderPikeUser);
+        const fetchMock = fixture.mockModel(
+          'This reply must not be generated.',
+        );
+        await saveSupportExchange(
+          database,
+          calderPikeUser,
+          incidentId,
+          messageId,
+          customerMessage,
+          privateReply,
+        );
+        const savedIncident = await fixture.findIncident(incidentId);
+        const savedMessages = await fixture.messages(incidentId);
+        expect(savedIncident).toMatchObject({ user_id: calderPikeUser.userId });
+        expect(savedMessages.results).toHaveLength(2);
+
+        // The 12-hour session remains valid until just before its expiry boundary.
+        if (sessionState === 'expired')
+          vi.setSystemTime(new Date('2026-09-02T23:59:59.999Z'));
+        const beforeInvalidation = await POST(makeRequest(session));
+        expect(beforeInvalidation.status).toBe(200);
+        expect(await beforeInvalidation.json()).toEqual({
+          message: privateReply,
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+
+        if (sessionState === 'expired')
+          vi.setSystemTime(new Date('2026-09-03T00:00:00.000Z'));
+        else await revokeSession(database, makeRequest(session));
+        // Keep sending the original cookie after revocation or expiration.
+        for (let retry = 0; retry < 2; retry += 1) {
+          const denied = await POST(makeRequest(session));
+          expect(denied.status).toBe(401);
+          expect(await denied.json()).toEqual({
+            error: 'Authentication required.',
+          });
+          expect(fetchMock).not.toHaveBeenCalled();
+          expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
+          expect((await fixture.messages(incidentId)).results).toEqual(
+            savedMessages.results,
+          );
+        }
+
+        // A fresh session for the same owner can still retrieve the intact reply.
+        const freshSession = await fixture.session(calderPikeUser);
+        const recovered = await POST(makeRequest(freshSession));
+        expect(recovered.status).toBe(200);
+        expect(await recovered.json()).toEqual({ message: privateReply });
         expect(fetchMock).not.toHaveBeenCalled();
         expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
         expect((await fixture.messages(incidentId)).results).toEqual(
           savedMessages.results,
         );
+      } finally {
+        if (sessionState === 'expired') vi.useRealTimers();
+        await fixture.cleanup();
       }
-
-      // A fresh session for the same owner can still retrieve the intact reply.
-      const freshSession = await fixture.session(calderPikeUser);
-      const recovered = await POST(makeRequest(freshSession));
-      expect(recovered.status).toBe(200);
-      expect(await recovered.json()).toEqual({ message: privateReply });
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
-      expect((await fixture.messages(incidentId)).results).toEqual(
-        savedMessages.results,
-      );
-    } finally {
-      await fixture.cleanup();
-    }
-    expect(await fixture.findIncident(incidentId)).toBeNull();
-    expect((await fixture.messages(incidentId)).results).toEqual([]);
-  });
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+    },
+  );
 
   it('denies another user replaying a saved reply with the same incident and message IDs', async () => {
     const database = await getDatabase();
