@@ -99,14 +99,33 @@ export async function hasSupportMessageIdConflict(
   incidentId: string,
   messageId: string,
 ): Promise<boolean> {
-  // Only a customer message in this incident can be a valid retry. Return only
-  // a conflict flag, never details from a different incident or account.
-  const conflict = await db
-    .prepare(`SELECT 1 AS found FROM support_messages
-      WHERE message_id = ? AND (incident_id <> ? OR role <> 'user')`)
-    .bind(messageId, incidentId)
-    .first<{ found: number }>();
-  return conflict !== null;
+  // Check both slots before inference. Existing IDs are reusable only for their
+  // matching exchange; never expose another incident's metadata or content.
+  const assistantId = `AST-${messageId}`;
+  const rows = await db
+    .prepare(`SELECT message_id, incident_id, role, sequence_number
+      FROM support_messages WHERE message_id IN (?, ?)`)
+    .bind(messageId, assistantId)
+    .all<{
+      message_id: string;
+      incident_id: string;
+      role: 'user' | 'assistant';
+      sequence_number: number;
+    }>();
+  const customer = rows.results.find((row) => row.message_id === messageId);
+  const assistant = rows.results.find((row) => row.message_id === assistantId);
+  if (
+    customer &&
+    (customer.incident_id !== incidentId || customer.role !== 'user')
+  )
+    return true;
+  return Boolean(
+    assistant &&
+    (assistant.incident_id !== incidentId ||
+      assistant.role !== 'assistant' ||
+      !customer ||
+      assistant.sequence_number !== customer.sequence_number + 1),
+  );
 }
 
 type SavedSupportExchange = {
