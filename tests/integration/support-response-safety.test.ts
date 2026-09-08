@@ -19,6 +19,12 @@ describe('support response safety', () => {
         'The local model took too long to respond. Please try again.',
     },
     {
+      failure: 'body-timeout',
+      expectedStatus: 504,
+      expectedError:
+        'The local model took too long to respond. Please try again.',
+    },
+    {
       failure: 'connection',
       expectedStatus: 503,
       expectedError:
@@ -112,8 +118,9 @@ describe('support response safety', () => {
         const session = await fixture.session(calderPikeUser);
         const fetchMock = fixture.mockModel(assistantMessage);
         let modelResponse: Response | undefined;
-        if (failure === 'timeout') {
+        if (failure === 'timeout' || failure === 'body-timeout') {
           const controller = new AbortController();
+          let bodyReadStarted = false;
           const timeoutReason = new DOMException(
             'test: private upstream timeout details',
             'TimeoutError',
@@ -127,6 +134,7 @@ describe('support response safety', () => {
             expect(timeoutMock).toHaveBeenCalledExactlyOnceWith(120_000);
             expect(controller.signal.aborted).toBe(true);
             expect(controller.signal.reason).toBe(timeoutReason);
+            expect(bodyReadStarted).toBe(failure === 'body-timeout');
           };
           fetchMock.mockImplementationOnce((_url, request) => {
             const signal = request?.signal;
@@ -134,6 +142,31 @@ describe('support response safety', () => {
               throw new Error(
                 'test: model request did not use the timeout signal',
               );
+            if (failure === 'body-timeout') {
+              const body = new ReadableStream<Uint8Array>(
+                {
+                  start(stream) {
+                    stream.enqueue(new TextEncoder().encode('{"choices":['));
+                  },
+                  pull(stream) {
+                    bodyReadStarted = true;
+                    signal.addEventListener(
+                      'abort',
+                      () => stream.error(signal.reason),
+                      { once: true },
+                    );
+                    queueMicrotask(() => controller.abort(timeoutReason));
+                  },
+                },
+                // Do not trigger the timeout until the consumer reads the body.
+                { highWaterMark: 0 },
+              );
+              modelResponse = new Response(body, {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              });
+              return Promise.resolve(modelResponse);
+            }
             return new Promise((_resolve, reject) => {
               signal.addEventListener('abort', () => reject(signal.reason), {
                 once: true,

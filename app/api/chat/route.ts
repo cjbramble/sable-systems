@@ -133,7 +133,9 @@ export async function POST(request: Request) {
     let modelPayload: unknown;
     try {
       modelPayload = await modelResponse.json();
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'TimeoutError')
+        throw error;
       return Response.json(
         {
           error:
