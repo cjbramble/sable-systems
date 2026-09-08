@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { POST } from '@/app/api/chat/route';
 import { getDatabase } from '@/db/database';
 import { saveSupportExchange } from '@/db/incidents';
+import { createConcurrentSupportFixture } from '../fixtures/concurrent-support';
 import {
   createSupportApiFixture,
   type SupportApiSession,
@@ -689,21 +690,12 @@ describe('support response safety', () => {
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await savedMessages()).results).toEqual([]);
 
-      let releaseModels = () => {};
-      const modelGate = new Promise<void>((resolve) => {
-        releaseModels = resolve;
-      });
-      let arrivals = 0;
-      let gateTimedOut = false;
-      let gateTimer: ReturnType<typeof setTimeout> | undefined;
-      const pending: Promise<Response>[] = [];
-      const fetchMock = fixture.mockModel(replies[0]);
-      fetchMock.mockImplementation(async () => {
-        const reply = replies[Math.min(arrivals++, replies.length - 1)];
-        if (arrivals === 2) releaseModels();
-        await modelGate;
-        return Response.json({ choices: [{ message: { content: reply } }] });
-      });
+      const concurrent = createConcurrentSupportFixture(
+        fixture,
+        (_prompt, callIndex) =>
+          replies[Math.min(callIndex, replies.length - 1)],
+      );
+      const { fetchMock } = concurrent;
 
       try {
         await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
@@ -727,16 +719,11 @@ describe('support response safety', () => {
             messageId,
             messages: [{ role: 'user', content: customerMessage }],
           });
-        // Both requests must reach inference before either can save. The timer
-        // only releases a broken barrier for cleanup; it cannot make the test pass.
-        gateTimer = setTimeout(() => {
-          gateTimedOut = true;
-          releaseModels();
-        }, 2000);
-        pending.push(POST(makeRequest()), POST(makeRequest()));
-        const responses = await Promise.all(pending);
-        clearTimeout(gateTimer);
-        expect(gateTimedOut).toBe(false);
+        const responses = await concurrent.run(
+          () => POST(makeRequest()),
+          () => POST(makeRequest()),
+        );
+        expect(concurrent.timedOut).toBe(false);
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(responses.map((response) => response.status)).toEqual([
           200, 200,
@@ -774,10 +761,7 @@ describe('support response safety', () => {
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect((await savedMessages()).results).toEqual(completed.results);
       } finally {
-        clearTimeout(gateTimer);
-        releaseModels();
-        await Promise.allSettled(pending);
-        await fixture.cleanup();
+        await concurrent.cleanup();
       }
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await savedMessages()).results).toEqual([]);
@@ -806,29 +790,12 @@ describe('support response safety', () => {
     expect(await fixture.findIncident(incidentId)).toBeNull();
     expect((await fixture.messages(incidentId)).results).toEqual([]);
 
-    let releaseModels = () => {};
-    const modelGate = new Promise<void>((resolve) => {
-      releaseModels = resolve;
-    });
-    let arrivals = 0;
-    let gateTimedOut = false;
-    let gateTimer: ReturnType<typeof setTimeout> | undefined;
-    const pending: Promise<Response>[] = [];
-    const fetchMock = fixture.mockModel(participants[0].reply);
-    fetchMock.mockImplementation(async (_url, options) => {
-      if (typeof options?.body !== 'string')
-        throw new Error('Expected a JSON model request');
-      const body = JSON.parse(options.body);
-      const participant = participants.find(
-        (entry) => entry.prompt === body.messages.at(-1)?.content,
-      );
+    const concurrent = createConcurrentSupportFixture(fixture, (prompt) => {
+      const participant = participants.find((entry) => entry.prompt === prompt);
       if (!participant) throw new Error('Unexpected model request');
-      if (++arrivals === 2) releaseModels();
-      await modelGate;
-      return Response.json({
-        choices: [{ message: { content: participant.reply } }],
-      });
+      return participant.reply;
     });
+    const { fetchMock } = concurrent;
 
     try {
       const sessions: SupportApiSession[] = [];
@@ -846,14 +813,11 @@ describe('support response safety', () => {
           ],
         });
       // Both authenticated requests pass preflight before either can persist.
-      gateTimer = setTimeout(() => {
-        gateTimedOut = true;
-        releaseModels();
-      }, 2000);
-      pending.push(POST(makeRequest(0)), POST(makeRequest(1)));
-      const responses = await Promise.all(pending);
-      clearTimeout(gateTimer);
-      expect(gateTimedOut).toBe(false);
+      const responses = await concurrent.run(
+        () => POST(makeRequest(0)),
+        () => POST(makeRequest(1)),
+      );
+      expect(concurrent.timedOut).toBe(false);
       expect(fetchMock).toHaveBeenCalledTimes(2);
 
       const owner = await fixture.findIncidentOwner(incidentId);
@@ -907,10 +871,7 @@ describe('support response safety', () => {
         savedMessages.results,
       );
     } finally {
-      clearTimeout(gateTimer);
-      releaseModels();
-      await Promise.allSettled(pending);
-      await fixture.cleanup();
+      await concurrent.cleanup();
     }
     expect(await fixture.findIncident(incidentId)).toBeNull();
     expect((await fixture.messages(incidentId)).results).toEqual([]);
@@ -935,29 +896,12 @@ describe('support response safety', () => {
     expect(await fixture.findIncident(incidentId)).toBeNull();
     expect((await fixture.messages(incidentId)).results).toEqual([]);
 
-    let releaseModels = () => {};
-    const modelGate = new Promise<void>((resolve) => {
-      releaseModels = resolve;
-    });
-    let arrivals = 0;
-    let gateTimedOut = false;
-    let gateTimer: ReturnType<typeof setTimeout> | undefined;
-    const pending: Promise<Response>[] = [];
-    const fetchMock = fixture.mockModel(exchanges[0].reply);
-    fetchMock.mockImplementation(async (_url, options) => {
-      if (typeof options?.body !== 'string')
-        throw new Error('Expected a JSON model request');
-      const body = JSON.parse(options.body);
-      const exchange = exchanges.find(
-        (entry) => entry.prompt === body.messages.at(-1)?.content,
-      );
+    const concurrent = createConcurrentSupportFixture(fixture, (prompt) => {
+      const exchange = exchanges.find((entry) => entry.prompt === prompt);
       if (!exchange) throw new Error('Unexpected model request');
-      if (++arrivals === 2) releaseModels();
-      await modelGate;
-      return Response.json({
-        choices: [{ message: { content: exchange.reply } }],
-      });
+      return exchange.reply;
     });
+    const { fetchMock } = concurrent;
 
     try {
       await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
@@ -979,14 +923,11 @@ describe('support response safety', () => {
           messages: [{ role: 'user', content: exchange.prompt }],
         });
       // Release both model responses together to overlap persistence, not inference.
-      gateTimer = setTimeout(() => {
-        gateTimedOut = true;
-        releaseModels();
-      }, 2000);
-      pending.push(...exchanges.map((exchange) => POST(makeRequest(exchange))));
-      const responses = await Promise.all(pending);
-      clearTimeout(gateTimer);
-      expect(gateTimedOut).toBe(false);
+      const responses = await concurrent.run(
+        () => POST(makeRequest(exchanges[0])),
+        () => POST(makeRequest(exchanges[1])),
+      );
+      expect(concurrent.timedOut).toBe(false);
       expect(fetchMock).toHaveBeenCalledTimes(2);
 
       const saved = await fixture.messages(incidentId);
@@ -1031,10 +972,7 @@ describe('support response safety', () => {
         user_id: calderPikeUser.userId,
       });
     } finally {
-      clearTimeout(gateTimer);
-      releaseModels();
-      await Promise.allSettled(pending);
-      await fixture.cleanup();
+      await concurrent.cleanup();
     }
     expect(await fixture.findIncident(incidentId)).toBeNull();
     expect((await fixture.messages(incidentId)).results).toEqual([]);
@@ -1062,29 +1000,12 @@ describe('support response safety', () => {
     expect(await fixture.findIncident(incidentId)).toBeNull();
     expect((await fixture.messages(incidentId)).results).toEqual([]);
 
-    let releaseModels = () => {};
-    const modelGate = new Promise<void>((resolve) => {
-      releaseModels = resolve;
-    });
-    let arrivals = 0;
-    let gateTimedOut = false;
-    let gateTimer: ReturnType<typeof setTimeout> | undefined;
-    const pending: Promise<Response>[] = [];
-    const fetchMock = fixture.mockModel(exchanges[0].reply);
-    fetchMock.mockImplementation(async (_url, options) => {
-      if (typeof options?.body !== 'string')
-        throw new Error('Expected a JSON model request');
-      const body = JSON.parse(options.body);
-      const exchange = exchanges.find(
-        (entry) => entry.prompt === body.messages.at(-1)?.content,
-      );
+    const concurrent = createConcurrentSupportFixture(fixture, (prompt) => {
+      const exchange = exchanges.find((entry) => entry.prompt === prompt);
       if (!exchange) throw new Error('Unexpected model request');
-      if (++arrivals === 2) releaseModels();
-      await modelGate;
-      return Response.json({
-        choices: [{ message: { content: exchange.reply } }],
-      });
+      return exchange.reply;
     });
+    const { fetchMock } = concurrent;
 
     try {
       await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
@@ -1106,14 +1027,11 @@ describe('support response safety', () => {
           messages: [{ role: 'user', content: exchange.prompt }],
         });
       // Both requests must pass the unsaved-message check before either saves.
-      gateTimer = setTimeout(() => {
-        gateTimedOut = true;
-        releaseModels();
-      }, 2000);
-      pending.push(...exchanges.map((exchange) => POST(makeRequest(exchange))));
-      const responses = await Promise.all(pending);
-      clearTimeout(gateTimer);
-      expect(gateTimedOut).toBe(false);
+      const responses = await concurrent.run(
+        () => POST(makeRequest(exchanges[0])),
+        () => POST(makeRequest(exchanges[1])),
+      );
+      expect(concurrent.timedOut).toBe(false);
       expect(fetchMock).toHaveBeenCalledTimes(2);
 
       const saved = await fixture.messages(incidentId);
@@ -1166,10 +1084,7 @@ describe('support response safety', () => {
         savedIncidents.results,
       );
     } finally {
-      clearTimeout(gateTimer);
-      releaseModels();
-      await Promise.allSettled(pending);
-      await fixture.cleanup();
+      await concurrent.cleanup();
     }
     expect(await fixture.findIncident(incidentId)).toBeNull();
     expect((await fixture.messages(incidentId)).results).toEqual([]);
