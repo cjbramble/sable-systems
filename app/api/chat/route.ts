@@ -132,14 +132,34 @@ export async function POST(request: Request) {
     }
 
     if (incidentId && messageId) {
-      const savedReply = await saveSupportExchange(
-        db,
-        user,
-        incidentId,
-        messageId,
-        customerMessage,
-        content,
-      );
+      let savedReply: string;
+      try {
+        savedReply = await saveSupportExchange(
+          db,
+          user,
+          incidentId,
+          messageId,
+          customerMessage,
+          content,
+        );
+      } catch (error) {
+        // Keep authorization and conflict responses in the shared handler below.
+        if (
+          error instanceof IncidentAccessDeniedError ||
+          error instanceof SupportMessageIdConflictError ||
+          error instanceof SupportMessageTextConflictError
+        )
+          throw error;
+        // A write or read-back failure is not a model connectivity failure.
+        // Do not expose storage internals or claim that a reply was persisted.
+        return Response.json(
+          {
+            error:
+              'We could not confirm your support message was saved. Please try again.',
+          },
+          { status: 500 },
+        );
+      }
       return Response.json({ message: savedReply });
     }
 

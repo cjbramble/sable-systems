@@ -11,6 +11,106 @@ import {
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support response safety', () => {
+  it('reports a database save failure without blaming the healthy model or exposing storage details', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-API-SAVE-FAILURE';
+    const messageId = 'MSG-API-SAVE-FAILURE';
+    const customerMessage = 'Help with a shipment.';
+    const assistantMessage = 'Which shipment do you need help with?';
+    const findTrigger = () =>
+      database
+        .prepare(`SELECT name FROM sqlite_master
+      WHERE type = 'trigger' AND name = 'test_support_api_save_failure'`)
+        .first();
+    const dropTrigger = () =>
+      database.prepare('DROP TRIGGER test_support_api_save_failure').run();
+    let triggerCreated = false;
+    expect(await findTrigger()).toBeNull();
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+    try {
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const fetchMock = fixture.mockModel(assistantMessage);
+      await database
+        .prepare(`CREATE TRIGGER test_support_api_save_failure
+        BEFORE INSERT ON support_messages
+        WHEN NEW.message_id = 'AST-MSG-API-SAVE-FAILURE'
+          AND NEW.incident_id = 'INC-API-SAVE-FAILURE' AND NEW.role = 'assistant'
+          AND EXISTS (SELECT 1 FROM support_messages
+            WHERE message_id = 'MSG-API-SAVE-FAILURE'
+              AND incident_id = NEW.incident_id AND role = 'user')
+        BEGIN
+          SELECT RAISE(ABORT, 'test: private storage failure details');
+        END`)
+        .run();
+      triggerCreated = true;
+      const makeRequest = () =>
+        session.request({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content: customerMessage }],
+        });
+
+      const failed = await POST(makeRequest());
+      expect(fetchMock).toHaveBeenCalledOnce();
+      // Exact public response: no generated answer, SQL details, or model advice.
+      expect(await failed.json()).toEqual({
+        error:
+          'We could not confirm your support message was saved. Please try again.',
+      });
+      expect(failed.status).toBe(500);
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+      await dropTrigger();
+      triggerCreated = false;
+      expect(await findTrigger()).toBeNull();
+      const retry = await POST(makeRequest());
+      expect(retry.status).toBe(200);
+      expect(await retry.json()).toEqual({ message: assistantMessage });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(await fixture.findIncidentOwner(incidentId)).toEqual({
+        user_id: calderPikeUser.userId,
+      });
+      expect((await fixture.messageContents(incidentId)).results).toEqual([
+        {
+          message_id: messageId,
+          sequence_number: 1,
+          role: 'user',
+          content: customerMessage,
+        },
+        {
+          message_id: `AST-${messageId}`,
+          sequence_number: 2,
+          role: 'assistant',
+          content: assistantMessage,
+        },
+      ]);
+      const savedIncident = await fixture.findIncident(incidentId);
+      const savedMessages = await fixture.messages(incidentId);
+      const replay = await POST(makeRequest());
+      expect(replay.status).toBe(200);
+      expect(await replay.json()).toEqual({ message: assistantMessage });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
+      expect((await fixture.messages(incidentId)).results).toEqual(
+        savedMessages.results,
+      );
+    } finally {
+      try {
+        if (triggerCreated) await dropTrigger();
+      } finally {
+        await fixture.cleanup();
+      }
+    }
+    expect(await findTrigger()).toBeNull();
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+  });
+
   it('returns and saves a grounded response under the authenticated user incident', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);
