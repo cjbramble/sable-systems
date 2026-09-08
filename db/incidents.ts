@@ -202,11 +202,14 @@ export async function saveSupportExchange(
     throw new IncidentAccessDeniedError();
 
   const now = new Date().toISOString();
-  if (!existing) {
-    await db
+  // Create the incident and allocate message positions in one transaction.
+  // A rejected first exchange must not leave an empty incident behind.
+  await db.batch([
+    db
       .prepare(`INSERT INTO support_incidents (
         incident_id, user_id, title, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?)
+      ) SELECT ?, ?, ?, ?, ?
+      WHERE NOT EXISTS (SELECT 1 FROM support_messages WHERE message_id IN (?, ?))
       ON CONFLICT(incident_id) DO NOTHING`)
       .bind(
         incidentId,
@@ -214,22 +217,9 @@ export async function saveSupportExchange(
         createIncidentTitle(customerMessage),
         now,
         now,
-      )
-      .run();
-
-    // A concurrent request may have created this ID after the initial read.
-    // Only reuse its incident if it belongs to the same authenticated user.
-    const created = await db
-      .prepare('SELECT user_id FROM support_incidents WHERE incident_id = ?')
-      .bind(incidentId)
-      .first<{ user_id: string }>();
-    if (created?.user_id !== user.userId)
-      throw new IncidentAccessDeniedError();
-  }
-
-  // Allocate positions inside the same transaction as both inserts, so another
-  // exchange cannot claim a position between reading the maximum and writing.
-  await db.batch([
+        messageId,
+        `AST-${messageId}`,
+      ),
     // Check the reply ID inside the transaction too: another request may have
     // claimed it as a customer ID after preflight. Do not leave half an exchange.
     db
@@ -237,7 +227,8 @@ export async function saveSupportExchange(
         message_id, incident_id, sequence_number, role, content, created_at
       ) SELECT ?, ?, COALESCE(MAX(sequence_number), 0) + 1, 'user', ?, ?
         FROM support_messages WHERE incident_id = ?
-        HAVING NOT EXISTS (SELECT 1 FROM support_messages WHERE message_id = ?)`)
+        HAVING NOT EXISTS (SELECT 1 FROM support_messages WHERE message_id = ?)
+          AND EXISTS (SELECT 1 FROM support_incidents WHERE incident_id = ? AND user_id = ?)`)
       .bind(
         messageId,
         incidentId,
@@ -245,6 +236,8 @@ export async function saveSupportExchange(
         now,
         incidentId,
         `AST-${messageId}`,
+        incidentId,
+        user.userId,
       ),
     // Anchor replies to the persisted customer message, including on retries
     // that recover a missing reply earlier in the conversation.
@@ -253,7 +246,8 @@ export async function saveSupportExchange(
         message_id, incident_id, sequence_number, role, content, created_at
       ) SELECT ?, incident_id, sequence_number + 1, 'assistant', ?, ?
         FROM support_messages
-        WHERE message_id = ? AND incident_id = ? AND role = 'user' AND content = ?`)
+        WHERE message_id = ? AND incident_id = ? AND role = 'user' AND content = ?
+          AND EXISTS (SELECT 1 FROM support_incidents WHERE incident_id = ? AND user_id = ?)`)
       .bind(
         `AST-${messageId}`,
         assistantMessage,
@@ -261,6 +255,8 @@ export async function saveSupportExchange(
         messageId,
         incidentId,
         customerMessage,
+        incidentId,
+        user.userId,
       ),
     db
       .prepare(`UPDATE support_incidents
@@ -279,6 +275,11 @@ export async function saveSupportExchange(
         customerMessage,
       ),
   ]);
+
+  // A concurrent request may have claimed this incident after the initial read.
+  // The transactional write guards above leave the other owner's data untouched.
+  if (!(await canAccessSupportIncident(db, user, incidentId)))
+    throw new IncidentAccessDeniedError();
 
   // A concurrent retry may have saved its reply first. Return the persisted
   // winner, never a generated response whose insert was ignored.

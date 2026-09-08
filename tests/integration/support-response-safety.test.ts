@@ -1223,7 +1223,11 @@ describe('support response safety', () => {
     expect((await fixture.messages(...incidentIds)).results).toEqual([]);
   });
 
-  it.each(['different incidents', 'the same incident'] as const)(
+  it.each([
+    'different incidents',
+    'the same incident',
+    'a new incident',
+  ] as const)(
     'rejects a concurrent generated reply ID collision in %s without saving a partial exchange',
     async (scope) => {
       const database = await getDatabase();
@@ -1235,6 +1239,8 @@ describe('support response safety', () => {
           : 'INC-REPLY-ID-RACE-B',
       ] as const;
       const uniqueIncidentIds = [...new Set(incidentIds)];
+      const priorIncidentCount =
+        uniqueIncidentIds.length - (scope === 'a new incident' ? 1 : 0);
       const messageIds = [
         'MSG-REPLY-ID-RACE',
         'AST-MSG-REPLY-ID-RACE',
@@ -1270,6 +1276,9 @@ describe('support response safety', () => {
         const session = await fixture.session(calderPikeUser);
         for (const [index, incidentId] of uniqueIncidentIds.entries()) {
           await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+          // A's first exchange must not create an incident when its reply ID
+          // is claimed by B after both requests have passed preflight.
+          if (scope === 'a new incident' && index === 0) continue;
           await saveSupportExchange(
             database,
             calderPikeUser,
@@ -1286,10 +1295,8 @@ describe('support response safety', () => {
           .run();
         const beforeMessages = await fixture.messages(...incidentIds);
         const beforeIncidents = await fixture.incidents(...incidentIds);
-        expect(beforeMessages.results).toHaveLength(
-          uniqueIncidentIds.length * 2,
-        );
-        expect(beforeIncidents.results).toHaveLength(uniqueIncidentIds.length);
+        expect(beforeMessages.results).toHaveLength(priorIncidentCount * 2);
+        expect(beforeIncidents.results).toHaveLength(priorIncidentCount);
         const makeRequest = (index: number) =>
           session.request({
             incidentId: incidentIds[index],
@@ -1321,6 +1328,8 @@ describe('support response safety', () => {
         expect(await winner.json()).toEqual({ message: assistantMessage });
         expect(loser.status).toBe(409);
         expect(await loser.json()).toEqual(conflictBody);
+        if (scope === 'a new incident')
+          expect(await fixture.findIncident(incidentIds[0])).toBeNull();
 
         const saved = await fixture.messages(...incidentIds);
         expect(saved.results).toHaveLength(beforeMessages.results.length + 2);
