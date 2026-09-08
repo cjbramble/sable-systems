@@ -30,6 +30,12 @@ describe('support response safety', () => {
       expectedError:
         'The local model returned an invalid response. Please try again.',
     },
+    {
+      failure: 'empty-reply',
+      expectedStatus: 502,
+      expectedError:
+        'The local model returned an empty response. Please try again.',
+    },
   ])(
     'handles model $failure failures without saving an incident and permits a clean retry',
     async ({ failure, expectedStatus, expectedError }) => {
@@ -69,11 +75,16 @@ describe('support response safety', () => {
             { status: 503 },
           );
           fetchMock.mockResolvedValueOnce(modelResponse);
-        } else {
+        } else if (failure === 'malformed-JSON') {
           modelResponse = new Response(
             '{"privateDiagnostics":"test: private upstream details","choices":',
             { status: 200, headers: { 'Content-Type': 'application/json' } },
           );
+          fetchMock.mockResolvedValueOnce(modelResponse);
+        } else {
+          modelResponse = Response.json({
+            choices: [{ message: { content: '' } }],
+          });
           fetchMock.mockResolvedValueOnce(modelResponse);
         }
         const makeRequest = () =>
