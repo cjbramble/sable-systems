@@ -179,6 +179,17 @@ export async function POST(request: Request) {
     return Response.json({ message: content });
   } catch (error) {
     if (
+      phase === 'model' &&
+      error instanceof DOMException &&
+      error.name === 'TimeoutError'
+    )
+      return Response.json(
+        {
+          error: 'The local model took too long to respond. Please try again.',
+        },
+        { status: 504 },
+      );
+    if (
       error instanceof SupportMessageTextConflictError ||
       error instanceof SupportMessageIdConflictError
     )

@@ -13,6 +13,12 @@ import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 describe('support response safety', () => {
   it.each([
     {
+      failure: 'timeout',
+      expectedStatus: 504,
+      expectedError:
+        'The local model took too long to respond. Please try again.',
+    },
+    {
       failure: 'connection',
       expectedStatus: 503,
       expectedError:
@@ -96,6 +102,8 @@ describe('support response safety', () => {
       const messageId = `MSG-MODEL-${failure.toUpperCase()}-FAILURE`;
       const customerMessage = 'Help with a shipment.';
       const assistantMessage = 'Which shipment do you need help with?';
+      let restoreTimeout: (() => void) | undefined;
+      let verifyTimeout: (() => void) | undefined;
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
 
@@ -104,7 +112,36 @@ describe('support response safety', () => {
         const session = await fixture.session(calderPikeUser);
         const fetchMock = fixture.mockModel(assistantMessage);
         let modelResponse: Response | undefined;
-        if (failure === 'connection') {
+        if (failure === 'timeout') {
+          const controller = new AbortController();
+          const timeoutReason = new DOMException(
+            'test: private upstream timeout details',
+            'TimeoutError',
+          );
+          // Keep the configured deadline under test without waiting two minutes.
+          const timeoutMock = vi
+            .spyOn(AbortSignal, 'timeout')
+            .mockReturnValueOnce(controller.signal);
+          restoreTimeout = () => timeoutMock.mockRestore();
+          verifyTimeout = () => {
+            expect(timeoutMock).toHaveBeenCalledExactlyOnceWith(120_000);
+            expect(controller.signal.aborted).toBe(true);
+            expect(controller.signal.reason).toBe(timeoutReason);
+          };
+          fetchMock.mockImplementationOnce((_url, request) => {
+            const signal = request?.signal;
+            if (signal !== controller.signal)
+              throw new Error(
+                'test: model request did not use the timeout signal',
+              );
+            return new Promise((_resolve, reject) => {
+              signal.addEventListener('abort', () => reject(signal.reason), {
+                once: true,
+              });
+              queueMicrotask(() => controller.abort(timeoutReason));
+            });
+          });
+        } else if (failure === 'connection') {
           fetchMock.mockRejectedValueOnce(
             new TypeError('fetch failed', {
               cause: new Error('test: private model connection details'),
@@ -148,6 +185,7 @@ describe('support response safety', () => {
           });
 
         const failed = await POST(makeRequest());
+        verifyTimeout?.();
         expect(fetchMock).toHaveBeenCalledOnce();
         expect(failed.status).toBe(expectedStatus);
         expect(await failed.json()).toEqual({ error: expectedError });
@@ -189,6 +227,7 @@ describe('support response safety', () => {
           savedMessages.results,
         );
       } finally {
+        restoreTimeout?.();
         await fixture.cleanup();
       }
       expect(await fixture.findIncident(incidentId)).toBeNull();
