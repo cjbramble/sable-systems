@@ -12,6 +12,84 @@ import {
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support response safety', () => {
+  it('rejects malformed request JSON without model calls or saved messages and allows a corrected retry', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-MALFORMED-REQUEST-JSON';
+    const messageId = 'MSG-MALFORMED-REQUEST-JSON';
+    const customerMessage = 'Help with a shipment.';
+    const assistantMessage = 'Which shipment do you need help with?';
+    const payload = {
+      incidentId,
+      messageId,
+      messages: [{ role: 'user', content: customerMessage }],
+    };
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+    try {
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const fetchMock = fixture.mockModel(assistantMessage);
+      const makeRequest = (malformed: boolean) => {
+        const request = session.request(payload);
+        request.headers.set('Origin', new URL(request.url).origin);
+        request.headers.set('Sec-Fetch-Site', 'same-origin');
+        // Preserve the valid session and payload fields; remove only the closing brace.
+        return malformed
+          ? new Request(request, {
+              method: 'POST',
+              body: JSON.stringify(payload).slice(0, -1),
+            })
+          : request;
+      };
+
+      const prepareSpy = vi.spyOn(database, 'prepare');
+      try {
+        const rejected = await POST(makeRequest(true));
+        expect(rejected.status).toBe(400);
+        expect(await rejected.json()).toEqual({
+          error: 'The request was not valid JSON.',
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(prepareSpy).not.toHaveBeenCalled();
+      } finally {
+        prepareSpy.mockRestore();
+      }
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+      // Correcting only the JSON syntax must allow one complete exchange to save.
+      const retried = await POST(makeRequest(false));
+      expect(retried.status).toBe(200);
+      expect(await retried.json()).toEqual({ message: assistantMessage });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(await fixture.findIncident(incidentId)).toMatchObject({
+        user_id: calderPikeUser.userId,
+      });
+      const savedMessages = await fixture.messages(incidentId);
+      expect(savedMessages.results).toHaveLength(2);
+      expect(savedMessages.results).toMatchObject([
+        {
+          message_id: messageId,
+          role: 'user',
+          content: customerMessage,
+          sequence_number: 1,
+        },
+        {
+          message_id: `AST-${messageId}`,
+          role: 'assistant',
+          content: assistantMessage,
+          sequence_number: 2,
+        },
+      ]);
+    } finally {
+      await fixture.cleanup();
+    }
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+  });
+
   it.each(['missing', 'unknown'])(
     'rejects chat requests when the session token is %s before generating, saving, or replaying replies',
     async (tokenState) => {
