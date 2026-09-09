@@ -236,33 +236,47 @@ describe('support response safety', () => {
     },
   );
 
-  it.each(['messageId', 'incidentId'] as const)(
-    'rejects a paired-ID request missing %s before model or database activity and allows a corrected retry',
-    async (missingId) => {
+  it.each([
+    { invalid: 'a missing message ID', caseId: 'MISSING-MESSAGE-ID' },
+    { invalid: 'a missing incident ID', caseId: 'MISSING-INCIDENT-ID' },
+    { invalid: 'a malformed incident ID', caseId: 'MALFORMED-INCIDENT-ID' },
+  ])(
+    'rejects $invalid in a paired-ID request before model or database activity and allows a corrected retry',
+    async ({ caseId }) => {
       const database = await getDatabase();
       const fixture = createSupportApiFixture(database);
-      const caseId =
-        missingId === 'messageId'
-          ? 'MISSING-MESSAGE-ID'
-          : 'MISSING-INCIDENT-ID';
       const incidentId = `INC-${caseId}`;
       const messageId = `MSG-${caseId}`;
-      const incompleteIds =
-        missingId === 'messageId' ? { incidentId } : { messageId };
+      // Append one forbidden character while preserving the valid prefix and length.
+      const malformedIncidentId = `${incidentId}!`;
+      const rejectedIds =
+        caseId === 'MISSING-MESSAGE-ID'
+          ? { incidentId }
+          : caseId === 'MISSING-INCIDENT-ID'
+            ? { messageId }
+            : { incidentId: malformedIncidentId, messageId };
+      const checkedIncidentIds: [string, ...string[]] = [incidentId];
+      if (caseId === 'MALFORMED-INCIDENT-ID')
+        checkedIncidentIds.push(malformedIncidentId);
       const customerMessage = 'Help with a shipment.';
       const assistantMessage = 'Which shipment do you need help with?';
       const messages = [{ role: 'user', content: customerMessage }];
-      expect(await fixture.findIncident(incidentId)).toBeNull();
-      expect((await fixture.messages(incidentId)).results).toEqual([]);
+      expect((await fixture.incidents(...checkedIncidentIds)).results).toEqual(
+        [],
+      );
+      expect((await fixture.messages(...checkedIncidentIds)).results).toEqual(
+        [],
+      );
 
       try {
-        await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+        for (const id of checkedIncidentIds)
+          await fixture.trackTemporaryIncident(id, calderPikeUser);
         const session = await fixture.session(calderPikeUser);
         const fetchMock = fixture.mockModel(assistantMessage);
         const makeRequest = (corrected: boolean) => {
           const request = session.request({
             messages,
-            ...(corrected ? { incidentId, messageId } : incompleteIds),
+            ...(corrected ? { incidentId, messageId } : rejectedIds),
           });
           request.headers.set('Origin', new URL(request.url).origin);
           request.headers.set('Sec-Fetch-Site', 'same-origin');
@@ -270,7 +284,7 @@ describe('support response safety', () => {
         };
         const rejectedRequest = makeRequest(false);
         expect(await rejectedRequest.clone().json()).toEqual({
-          ...incompleteIds,
+          ...rejectedIds,
           messages,
         });
         const prepareSpy = vi.spyOn(database, 'prepare');
@@ -285,10 +299,14 @@ describe('support response safety', () => {
         } finally {
           prepareSpy.mockRestore();
         }
-        expect(await fixture.findIncident(incidentId)).toBeNull();
-        expect((await fixture.messages(incidentId)).results).toEqual([]);
+        expect(
+          (await fixture.incidents(...checkedIncidentIds)).results,
+        ).toEqual([]);
+        expect((await fixture.messages(...checkedIncidentIds)).results).toEqual(
+          [],
+        );
 
-        // Add only the missing ID; the customer message now saves as one exchange.
+        // Correct only the invalid ID field; the message now saves as one exchange.
         const retried = await POST(makeRequest(true));
         expect(retried.status).toBe(200);
         expect(await retried.json()).toEqual({ message: assistantMessage });
@@ -315,8 +333,12 @@ describe('support response safety', () => {
       } finally {
         await fixture.cleanup();
       }
-      expect(await fixture.findIncident(incidentId)).toBeNull();
-      expect((await fixture.messages(incidentId)).results).toEqual([]);
+      expect((await fixture.incidents(...checkedIncidentIds)).results).toEqual(
+        [],
+      );
+      expect((await fixture.messages(...checkedIncidentIds)).results).toEqual(
+        [],
+      );
     },
   );
 
