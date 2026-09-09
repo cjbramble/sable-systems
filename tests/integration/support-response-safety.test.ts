@@ -44,6 +44,11 @@ describe('support response safety', () => {
       invalid: 'a null message-history entry',
       caseId: 'NULL-HISTORY-ENTRY',
     },
+    {
+      invalid: 'a messages object instead of an array',
+      caseId: 'NON-ARRAY-HISTORY',
+      validCount: 1,
+    },
   ])(
     'rejects $invalid without side effects and accepts its valid-history control',
     async ({
@@ -71,8 +76,9 @@ describe('support response safety', () => {
       const allowedHistory = oversizedHistory.slice(-validCount);
       expect(oversizedHistory).toHaveLength(13);
       expect(allowedHistory).toHaveLength(validCount);
-      let rejectedHistory: Array<{ role: string; content: unknown } | null> =
-        oversizedHistory;
+      let rejectedHistory:
+        | Array<{ role: string; content: unknown } | null>
+        | { role: string; content: unknown } = oversizedHistory;
       if (caseId === 'ASSISTANT-FINAL-HISTORY') {
         // Keep all 12 entries and their content, changing only the final role.
         rejectedHistory = allowedHistory.map((message, index) =>
@@ -126,6 +132,10 @@ describe('support response safety', () => {
         expect(rejectedHistory).toHaveLength(12);
         expect(rejectedHistory[0]).toBeNull();
         expect(rejectedHistory.at(-1)?.role).toBe('user');
+      } else if (caseId === 'NON-ARRAY-HISTORY') {
+        // Only the array wrapper is missing; the message itself is valid.
+        rejectedHistory = { role: 'user', content: customerMessage };
+        expect(allowedHistory).toEqual([rejectedHistory]);
       }
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
