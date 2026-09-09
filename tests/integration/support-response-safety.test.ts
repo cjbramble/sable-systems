@@ -54,6 +54,11 @@ describe('support response safety', () => {
       caseId: 'MISSING-HISTORY',
       validCount: 1,
     },
+    {
+      invalid: 'an explicit null messages field',
+      caseId: 'NULL-HISTORY',
+      validCount: 1,
+    },
   ])(
     'rejects $invalid without side effects and accepts its valid-history control',
     async ({
@@ -84,6 +89,7 @@ describe('support response safety', () => {
       let rejectedHistory:
         | Array<{ role: string; content: unknown } | null>
         | { role: string; content: unknown }
+        | null
         | undefined = oversizedHistory;
       if (caseId === 'ASSISTANT-FINAL-HISTORY') {
         // Keep all 12 entries and their content, changing only the final role.
@@ -145,6 +151,8 @@ describe('support response safety', () => {
       } else if (caseId === 'MISSING-HISTORY') {
         // JSON serialization omits this field rather than sending null or [].
         rejectedHistory = undefined;
+      } else if (caseId === 'NULL-HISTORY') {
+        rejectedHistory = null;
       }
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
@@ -164,6 +172,13 @@ describe('support response safety', () => {
           expect(await rejectedRequest.clone().json()).toEqual({
             incidentId,
             messageId,
+          });
+        } else if (caseId === 'NULL-HISTORY') {
+          // Verify null survives serialization; it is not an omitted field.
+          expect(await rejectedRequest.clone().json()).toEqual({
+            incidentId,
+            messageId,
+            messages: null,
           });
         }
         const prepareSpy = vi.spyOn(database, 'prepare');
