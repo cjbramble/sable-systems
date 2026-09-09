@@ -26,6 +26,10 @@ describe('support response safety', () => {
       invalid: 'a whitespace-only customer message',
       caseId: 'WHITESPACE-MESSAGE',
     },
+    {
+      invalid: 'a client-supplied system message',
+      caseId: 'SYSTEM-ROLE-MESSAGE',
+    },
   ])(
     'rejects $invalid without side effects and accepts the 12-message control',
     async ({ caseId }) => {
@@ -76,6 +80,13 @@ describe('support response safety', () => {
             ? { ...message, content: whitespace }
             : message,
         );
+      } else if (caseId === 'SYSTEM-ROLE-MESSAGE') {
+        // Change an earlier role so the final-user check cannot mask this rejection.
+        rejectedHistory = allowedHistory.map((message, index) =>
+          index === 0 ? { ...message, role: 'system' } : message,
+        );
+        expect(rejectedHistory).toHaveLength(12);
+        expect(rejectedHistory.at(-1)?.role).toBe('user');
       }
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
