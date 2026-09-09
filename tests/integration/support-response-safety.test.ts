@@ -240,6 +240,7 @@ describe('support response safety', () => {
     { invalid: 'a missing message ID', caseId: 'MISSING-MESSAGE-ID' },
     { invalid: 'a missing incident ID', caseId: 'MISSING-INCIDENT-ID' },
     { invalid: 'a malformed incident ID', caseId: 'MALFORMED-INCIDENT-ID' },
+    { invalid: 'a malformed message ID', caseId: 'MALFORMED-MESSAGE-ID' },
   ])(
     'rejects $invalid in a paired-ID request before model or database activity and allows a corrected retry',
     async ({ caseId }) => {
@@ -254,7 +255,9 @@ describe('support response safety', () => {
           ? { incidentId }
           : caseId === 'MISSING-INCIDENT-ID'
             ? { messageId }
-            : { incidentId: malformedIncidentId, messageId };
+            : caseId === 'MALFORMED-INCIDENT-ID'
+              ? { incidentId: malformedIncidentId, messageId }
+              : { incidentId, messageId: `${messageId}!` };
       const checkedIncidentIds: [string, ...string[]] = [incidentId];
       if (caseId === 'MALFORMED-INCIDENT-ID')
         checkedIncidentIds.push(malformedIncidentId);
