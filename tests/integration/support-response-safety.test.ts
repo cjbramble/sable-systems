@@ -12,6 +12,91 @@ import {
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support response safety', () => {
+  it('rejects 13 chat messages without side effects and accepts the 12-message boundary', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-MESSAGE-COUNT-BOUNDARY';
+    const messageId = 'MSG-MESSAGE-COUNT-BOUNDARY';
+    const customerMessage = 'Help with a shipment.';
+    const assistantMessage = 'Which shipment do you need help with?';
+    // Both histories end with the same customer message; only the oldest entry differs.
+    const oversizedHistory = Array.from({ length: 13 }, (_, index) => ({
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content:
+        index === 12
+          ? customerMessage
+          : `Shipment discussion turn ${index + 1}.`,
+    }));
+    const allowedHistory = oversizedHistory.slice(1);
+    expect(oversizedHistory).toHaveLength(13);
+    expect(allowedHistory).toHaveLength(12);
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+    try {
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const fetchMock = fixture.mockModel(assistantMessage);
+      const makeRequest = (messages: typeof oversizedHistory) => {
+        const request = session.request({ incidentId, messageId, messages });
+        request.headers.set('Origin', new URL(request.url).origin);
+        request.headers.set('Sec-Fetch-Site', 'same-origin');
+        return request;
+      };
+      const prepareSpy = vi.spyOn(database, 'prepare');
+      try {
+        const rejected = await POST(makeRequest(oversizedHistory));
+        expect(rejected.status).toBe(400);
+        expect(await rejected.json()).toEqual({
+          error:
+            'Send 1–12 valid messages, with the latest message from the customer.',
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(prepareSpy).not.toHaveBeenCalled();
+      } finally {
+        prepareSpy.mockRestore();
+      }
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+      const accepted = await POST(makeRequest(allowedHistory));
+      expect(accepted.status).toBe(200);
+      expect(await accepted.json()).toEqual({ message: assistantMessage });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const modelBody = fetchMock.mock.calls[0][1]?.body;
+      if (typeof modelBody !== 'string')
+        throw new Error('Expected a JSON model request body');
+      const modelRequest = JSON.parse(modelBody);
+      // The server adds one system message without trimming the 12 submitted entries.
+      expect(modelRequest.messages).toHaveLength(13);
+      expect(modelRequest.messages[0]).toMatchObject({ role: 'system' });
+      expect(modelRequest.messages.slice(1)).toEqual(allowedHistory);
+      expect(await fixture.findIncident(incidentId)).toMatchObject({
+        user_id: calderPikeUser.userId,
+      });
+      const savedMessages = await fixture.messages(incidentId);
+      expect(savedMessages.results).toHaveLength(2);
+      expect(savedMessages.results).toMatchObject([
+        {
+          message_id: messageId,
+          role: 'user',
+          content: customerMessage,
+          sequence_number: 1,
+        },
+        {
+          message_id: `AST-${messageId}`,
+          role: 'assistant',
+          content: assistantMessage,
+          sequence_number: 2,
+        },
+      ]);
+    } finally {
+      await fixture.cleanup();
+    }
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+  });
+
   it('rejects malformed request JSON without model calls or saved messages and allows a corrected retry', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);
