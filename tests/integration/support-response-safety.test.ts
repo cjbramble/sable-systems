@@ -12,6 +12,93 @@ import {
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support response safety', () => {
+  it('rejects chat requests without a session cookie before generating, saving, or replaying replies', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-MISSING-SESSION-COOKIE';
+    const messageId = 'MSG-MISSING-SESSION-COOKIE';
+    const customerMessage = 'Help with a shipment.';
+    const assistantMessage = 'Which shipment do you need help with?';
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+    try {
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const fetchMock = fixture.mockModel(assistantMessage);
+      const makeRequest = (authenticated: boolean) => {
+        const request = session.request({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content: customerMessage }],
+        });
+        request.headers.set('Origin', new URL(request.url).origin);
+        request.headers.set('Sec-Fetch-Site', 'same-origin');
+        expect(request.headers.has('Cookie')).toBe(true);
+        // Only the session cookie changes; origin, IDs, and payload remain valid.
+        if (!authenticated) request.headers.delete('Cookie');
+        expect(request.headers.has('Cookie')).toBe(authenticated);
+        return request;
+      };
+      const batchSpy = vi.spyOn(database, 'batch');
+      try {
+        const denied = await POST(makeRequest(false));
+        expect(denied.status).toBe(401);
+        expect(await denied.json()).toEqual({
+          error: 'Authentication required.',
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(batchSpy).not.toHaveBeenCalled();
+        expect(await fixture.findIncident(incidentId)).toBeNull();
+        expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+        // Positive control: signing in allows the exact same request to save once.
+        const allowed = await POST(makeRequest(true));
+        expect(allowed.status).toBe(200);
+        expect(await allowed.json()).toEqual({ message: assistantMessage });
+        expect(fetchMock).toHaveBeenCalledOnce();
+        const savedIncident = await fixture.findIncident(incidentId);
+        const savedMessages = await fixture.messages(incidentId);
+        expect(savedIncident).toMatchObject({ user_id: calderPikeUser.userId });
+        expect(savedMessages.results).toHaveLength(2);
+        expect(savedMessages.results).toMatchObject([
+          {
+            message_id: messageId,
+            role: 'user',
+            content: customerMessage,
+            sequence_number: 1,
+          },
+          {
+            message_id: `AST-${messageId}`,
+            role: 'assistant',
+            content: assistantMessage,
+            sequence_number: 2,
+          },
+        ]);
+
+        // Knowing saved IDs must not allow an anonymous caller to replay a reply.
+        batchSpy.mockClear();
+        const deniedReplay = await POST(makeRequest(false));
+        expect(deniedReplay.status).toBe(401);
+        expect(await deniedReplay.json()).toEqual({
+          error: 'Authentication required.',
+        });
+        expect(fetchMock).toHaveBeenCalledOnce();
+        expect(batchSpy).not.toHaveBeenCalled();
+        expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
+        expect((await fixture.messages(incidentId)).results).toEqual(
+          savedMessages.results,
+        );
+      } finally {
+        batchSpy.mockRestore();
+      }
+    } finally {
+      await fixture.cleanup();
+    }
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+  });
+
   it.each(['Origin', 'Sec-Fetch-Site', 'same-site-Origin'])(
     'rejects untrusted %s chat requests with a valid session without generating, saving, or replaying replies',
     async (header) => {
