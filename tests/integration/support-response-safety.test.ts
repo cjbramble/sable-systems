@@ -22,6 +22,10 @@ describe('support response safety', () => {
       invalid: 'a 4,001-character message',
       caseId: 'MESSAGE-LENGTH-BOUNDARY',
     },
+    {
+      invalid: 'a whitespace-only customer message',
+      caseId: 'WHITESPACE-MESSAGE',
+    },
   ])(
     'rejects $invalid without side effects and accepts the 12-message control',
     async ({ caseId }) => {
@@ -62,6 +66,16 @@ describe('support response safety', () => {
         );
         expect(allowedHistory.at(-1)?.content).toHaveLength(4_000);
         expect(rejectedHistory.at(-1)?.content).toHaveLength(4_001);
+      } else if (caseId === 'WHITESPACE-MESSAGE') {
+        // A nonempty string of spaces, tabs, and line breaks is still blank content.
+        const whitespace = ' \t\r\n ';
+        expect(whitespace.length).toBeGreaterThan(0);
+        expect(whitespace.trim()).toBe('');
+        rejectedHistory = allowedHistory.map((message, index) =>
+          index === allowedHistory.length - 1
+            ? { ...message, content: whitespace }
+            : message,
+        );
       }
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
