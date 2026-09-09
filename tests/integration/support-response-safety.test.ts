@@ -18,6 +18,10 @@ describe('support response safety', () => {
       invalid: 'an assistant-final history',
       caseId: 'ASSISTANT-FINAL-HISTORY',
     },
+    {
+      invalid: 'a 4,001-character message',
+      caseId: 'MESSAGE-LENGTH-BOUNDARY',
+    },
   ])(
     'rejects $invalid without side effects and accepts the 12-message control',
     async ({ caseId }) => {
@@ -25,7 +29,10 @@ describe('support response safety', () => {
       const fixture = createSupportApiFixture(database);
       const incidentId = `INC-${caseId}`;
       const messageId = `MSG-${caseId}`;
-      const customerMessage = 'Help with a shipment.';
+      const customerMessage =
+        caseId === 'MESSAGE-LENGTH-BOUNDARY'
+          ? 'x'.repeat(4_000)
+          : 'Help with a shipment.';
       const assistantMessage = 'Which shipment do you need help with?';
       // The count case differs from the control only by the oldest entry.
       const oversizedHistory = Array.from({ length: 13 }, (_, index) => ({
@@ -38,15 +45,24 @@ describe('support response safety', () => {
       const allowedHistory = oversizedHistory.slice(1);
       expect(oversizedHistory).toHaveLength(13);
       expect(allowedHistory).toHaveLength(12);
-      // The role case keeps all 12 entries and their content, changing only the final role.
-      const rejectedHistory =
-        caseId === 'MESSAGE-COUNT-BOUNDARY'
-          ? oversizedHistory
-          : allowedHistory.map((message, index) =>
-              index === allowedHistory.length - 1
-                ? { ...message, role: 'assistant' }
-                : message,
-            );
+      let rejectedHistory = oversizedHistory;
+      if (caseId === 'ASSISTANT-FINAL-HISTORY') {
+        // Keep all 12 entries and their content, changing only the final role.
+        rejectedHistory = allowedHistory.map((message, index) =>
+          index === allowedHistory.length - 1
+            ? { ...message, role: 'assistant' }
+            : message,
+        );
+      } else if (caseId === 'MESSAGE-LENGTH-BOUNDARY') {
+        // Add one non-whitespace character; roles and message count stay valid.
+        rejectedHistory = allowedHistory.map((message, index) =>
+          index === allowedHistory.length - 1
+            ? { ...message, content: `${message.content}x` }
+            : message,
+        );
+        expect(allowedHistory.at(-1)?.content).toHaveLength(4_000);
+        expect(rejectedHistory.at(-1)?.content).toHaveLength(4_001);
+      }
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
 
