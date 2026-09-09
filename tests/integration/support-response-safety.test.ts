@@ -30,9 +30,14 @@ describe('support response safety', () => {
       invalid: 'a client-supplied system message',
       caseId: 'SYSTEM-ROLE-MESSAGE',
     },
+    {
+      invalid: 'an empty chat history',
+      caseId: 'MINIMUM-HISTORY-BOUNDARY',
+      validCount: 1,
+    },
   ])(
-    'rejects $invalid without side effects and accepts the 12-message control',
-    async ({ caseId }) => {
+    'rejects $invalid without side effects and accepts its valid-history control',
+    async ({ caseId, validCount = 12 }) => {
       const database = await getDatabase();
       const fixture = createSupportApiFixture(database);
       const incidentId = `INC-${caseId}`;
@@ -50,9 +55,9 @@ describe('support response safety', () => {
             ? customerMessage
             : `Shipment discussion turn ${index + 1}.`,
       }));
-      const allowedHistory = oversizedHistory.slice(1);
+      const allowedHistory = oversizedHistory.slice(-validCount);
       expect(oversizedHistory).toHaveLength(13);
-      expect(allowedHistory).toHaveLength(12);
+      expect(allowedHistory).toHaveLength(validCount);
       let rejectedHistory = oversizedHistory;
       if (caseId === 'ASSISTANT-FINAL-HISTORY') {
         // Keep all 12 entries and their content, changing only the final role.
@@ -87,6 +92,11 @@ describe('support response safety', () => {
         );
         expect(rejectedHistory).toHaveLength(12);
         expect(rejectedHistory.at(-1)?.role).toBe('user');
+      } else if (caseId === 'MINIMUM-HISTORY-BOUNDARY') {
+        rejectedHistory = [];
+        expect(allowedHistory).toEqual([
+          { role: 'user', content: customerMessage },
+        ]);
       }
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
@@ -125,8 +135,8 @@ describe('support response safety', () => {
         if (typeof modelBody !== 'string')
           throw new Error('Expected a JSON model request body');
         const modelRequest = JSON.parse(modelBody);
-        // The server adds one system message without trimming the 12 submitted entries.
-        expect(modelRequest.messages).toHaveLength(13);
+        // The server adds one system message and preserves every submitted entry.
+        expect(modelRequest.messages).toHaveLength(validCount + 1);
         expect(modelRequest.messages[0]).toMatchObject({ role: 'system' });
         expect(modelRequest.messages.slice(1)).toEqual(allowedHistory);
         expect(await fixture.findIncident(incidentId)).toMatchObject({
