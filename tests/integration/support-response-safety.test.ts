@@ -35,9 +35,18 @@ describe('support response safety', () => {
       caseId: 'MINIMUM-HISTORY-BOUNDARY',
       validCount: 1,
     },
+    {
+      invalid: 'numeric customer message content',
+      caseId: 'NUMERIC-MESSAGE-CONTENT',
+      validCustomerContent: '123',
+    },
   ])(
     'rejects $invalid without side effects and accepts its valid-history control',
-    async ({ caseId, validCount = 12 }) => {
+    async ({
+      caseId,
+      validCount = 12,
+      validCustomerContent = 'Help with a shipment.',
+    }) => {
       const database = await getDatabase();
       const fixture = createSupportApiFixture(database);
       const incidentId = `INC-${caseId}`;
@@ -45,7 +54,7 @@ describe('support response safety', () => {
       const customerMessage =
         caseId === 'MESSAGE-LENGTH-BOUNDARY'
           ? 'x'.repeat(4_000)
-          : 'Help with a shipment.';
+          : validCustomerContent;
       const assistantMessage = 'Which shipment do you need help with?';
       // The count case differs from the control only by the oldest entry.
       const oversizedHistory = Array.from({ length: 13 }, (_, index) => ({
@@ -58,7 +67,8 @@ describe('support response safety', () => {
       const allowedHistory = oversizedHistory.slice(-validCount);
       expect(oversizedHistory).toHaveLength(13);
       expect(allowedHistory).toHaveLength(validCount);
-      let rejectedHistory = oversizedHistory;
+      let rejectedHistory: Array<{ role: string; content: unknown }> =
+        oversizedHistory;
       if (caseId === 'ASSISTANT-FINAL-HISTORY') {
         // Keep all 12 entries and their content, changing only the final role.
         rejectedHistory = allowedHistory.map((message, index) =>
@@ -97,6 +107,13 @@ describe('support response safety', () => {
         expect(allowedHistory).toEqual([
           { role: 'user', content: customerMessage },
         ]);
+      } else if (caseId === 'NUMERIC-MESSAGE-CONTENT') {
+        // The control uses '123'; the rejected payload changes only its JSON type.
+        rejectedHistory = allowedHistory.map((message, index) =>
+          index === allowedHistory.length - 1
+            ? { ...message, content: 123 }
+            : message,
+        );
       }
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
@@ -105,7 +122,7 @@ describe('support response safety', () => {
         await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
         const session = await fixture.session(calderPikeUser);
         const fetchMock = fixture.mockModel(assistantMessage);
-        const makeRequest = (messages: typeof oversizedHistory) => {
+        const makeRequest = (messages: typeof rejectedHistory) => {
           const request = session.request({ incidentId, messageId, messages });
           request.headers.set('Origin', new URL(request.url).origin);
           request.headers.set('Sec-Fetch-Site', 'same-origin');
