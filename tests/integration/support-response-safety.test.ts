@@ -49,6 +49,11 @@ describe('support response safety', () => {
       caseId: 'NON-ARRAY-HISTORY',
       validCount: 1,
     },
+    {
+      invalid: 'a missing messages field',
+      caseId: 'MISSING-HISTORY',
+      validCount: 1,
+    },
   ])(
     'rejects $invalid without side effects and accepts its valid-history control',
     async ({
@@ -78,7 +83,8 @@ describe('support response safety', () => {
       expect(allowedHistory).toHaveLength(validCount);
       let rejectedHistory:
         | Array<{ role: string; content: unknown } | null>
-        | { role: string; content: unknown } = oversizedHistory;
+        | { role: string; content: unknown }
+        | undefined = oversizedHistory;
       if (caseId === 'ASSISTANT-FINAL-HISTORY') {
         // Keep all 12 entries and their content, changing only the final role.
         rejectedHistory = allowedHistory.map((message, index) =>
@@ -136,6 +142,9 @@ describe('support response safety', () => {
         // Only the array wrapper is missing; the message itself is valid.
         rejectedHistory = { role: 'user', content: customerMessage };
         expect(allowedHistory).toEqual([rejectedHistory]);
+      } else if (caseId === 'MISSING-HISTORY') {
+        // JSON serialization omits this field rather than sending null or [].
+        rejectedHistory = undefined;
       }
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
@@ -150,9 +159,16 @@ describe('support response safety', () => {
           request.headers.set('Sec-Fetch-Site', 'same-origin');
           return request;
         };
+        const rejectedRequest = makeRequest(rejectedHistory);
+        if (caseId === 'MISSING-HISTORY') {
+          expect(await rejectedRequest.clone().json()).toEqual({
+            incidentId,
+            messageId,
+          });
+        }
         const prepareSpy = vi.spyOn(database, 'prepare');
         try {
-          const rejected = await POST(makeRequest(rejectedHistory));
+          const rejected = await POST(rejectedRequest);
           expect(rejected.status).toBe(400);
           expect(await rejected.json()).toEqual({
             error:
