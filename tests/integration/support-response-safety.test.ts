@@ -241,26 +241,39 @@ describe('support response safety', () => {
     { invalid: 'a missing incident ID', caseId: 'MISSING-INCIDENT-ID' },
     { invalid: 'a malformed incident ID', caseId: 'MALFORMED-INCIDENT-ID' },
     { invalid: 'a malformed message ID', caseId: 'MALFORMED-MESSAGE-ID' },
+    {
+      invalid: 'a 105-character incident ID',
+      caseId: 'INCIDENT-ID-MAX-LENGTH',
+    },
   ])(
     'rejects $invalid in a paired-ID request before model or database activity and allows a corrected retry',
     async ({ caseId }) => {
       const database = await getDatabase();
       const fixture = createSupportApiFixture(database);
-      const incidentId = `INC-${caseId}`;
+      const isIncidentLengthBoundary = caseId === 'INCIDENT-ID-MAX-LENGTH';
+      const incidentId = isIncidentLengthBoundary
+        ? `INC-${caseId}`.padEnd(104, 'A')
+        : `INC-${caseId}`;
       const messageId = `MSG-${caseId}`;
-      // Append one forbidden character while preserving the valid prefix and length.
-      const malformedIncidentId = `${incidentId}!`;
+      // Length coverage adds an allowed character; format coverage adds a forbidden one.
+      const invalidIncidentId = `${incidentId}${isIncidentLengthBoundary ? 'A' : '!'}`;
+      if (isIncidentLengthBoundary) {
+        // The four-character prefix is additional to the 100-character suffix limit.
+        expect(incidentId).toHaveLength(104);
+        expect(invalidIncidentId).toHaveLength(105);
+        expect(invalidIncidentId).toMatch(/^INC-[A-Za-z0-9-]+$/);
+      }
       const rejectedIds =
         caseId === 'MISSING-MESSAGE-ID'
           ? { incidentId }
           : caseId === 'MISSING-INCIDENT-ID'
             ? { messageId }
-            : caseId === 'MALFORMED-INCIDENT-ID'
-              ? { incidentId: malformedIncidentId, messageId }
+            : caseId === 'MALFORMED-INCIDENT-ID' || isIncidentLengthBoundary
+              ? { incidentId: invalidIncidentId, messageId }
               : { incidentId, messageId: `${messageId}!` };
       const checkedIncidentIds: [string, ...string[]] = [incidentId];
-      if (caseId === 'MALFORMED-INCIDENT-ID')
-        checkedIncidentIds.push(malformedIncidentId);
+      if (caseId === 'MALFORMED-INCIDENT-ID' || isIncidentLengthBoundary)
+        checkedIncidentIds.push(invalidIncidentId);
       const customerMessage = 'Help with a shipment.';
       const assistantMessage = 'Which shipment do you need help with?';
       const messages = [{ role: 'user', content: customerMessage }];
