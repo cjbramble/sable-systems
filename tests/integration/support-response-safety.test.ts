@@ -236,6 +236,82 @@ describe('support response safety', () => {
     },
   );
 
+  it('rejects an incident ID without a message ID before model or database activity and allows a corrected retry', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-MISSING-MESSAGE-ID';
+    const messageId = 'MSG-MISSING-MESSAGE-ID';
+    const customerMessage = 'Help with a shipment.';
+    const assistantMessage = 'Which shipment do you need help with?';
+    const messages = [{ role: 'user', content: customerMessage }];
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+    try {
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const fetchMock = fixture.mockModel(assistantMessage);
+      const makeRequest = (includeMessageId: boolean) => {
+        const request = session.request({
+          incidentId,
+          messages,
+          ...(includeMessageId ? { messageId } : {}),
+        });
+        request.headers.set('Origin', new URL(request.url).origin);
+        request.headers.set('Sec-Fetch-Site', 'same-origin');
+        return request;
+      };
+      const rejectedRequest = makeRequest(false);
+      expect(await rejectedRequest.clone().json()).toEqual({
+        incidentId,
+        messages,
+      });
+      const prepareSpy = vi.spyOn(database, 'prepare');
+      try {
+        const rejected = await POST(rejectedRequest);
+        expect(rejected.status).toBe(400);
+        expect(await rejected.json()).toEqual({
+          error: 'Enter a valid incident and message ID.',
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(prepareSpy).not.toHaveBeenCalled();
+      } finally {
+        prepareSpy.mockRestore();
+      }
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+      // Add only the missing ID; the same incident and customer message now save.
+      const retried = await POST(makeRequest(true));
+      expect(retried.status).toBe(200);
+      expect(await retried.json()).toEqual({ message: assistantMessage });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(await fixture.findIncident(incidentId)).toMatchObject({
+        user_id: calderPikeUser.userId,
+      });
+      const savedMessages = await fixture.messages(incidentId);
+      expect(savedMessages.results).toHaveLength(2);
+      expect(savedMessages.results).toMatchObject([
+        {
+          message_id: messageId,
+          role: 'user',
+          content: customerMessage,
+          sequence_number: 1,
+        },
+        {
+          message_id: `AST-${messageId}`,
+          role: 'assistant',
+          content: assistantMessage,
+          sequence_number: 2,
+        },
+      ]);
+    } finally {
+      await fixture.cleanup();
+    }
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+  });
+
   it('rejects malformed request JSON without model calls or saved messages and allows a corrected retry', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);
