@@ -245,23 +245,36 @@ describe('support response safety', () => {
       invalid: 'a 105-character incident ID',
       caseId: 'INCIDENT-ID-MAX-LENGTH',
     },
+    {
+      invalid: 'a 121-character message ID',
+      caseId: 'MESSAGE-ID-MAX-LENGTH',
+    },
   ])(
     'rejects $invalid in a paired-ID request before model or database activity and allows a corrected retry',
     async ({ caseId }) => {
       const database = await getDatabase();
       const fixture = createSupportApiFixture(database);
       const isIncidentLengthBoundary = caseId === 'INCIDENT-ID-MAX-LENGTH';
+      const isMessageLengthBoundary = caseId === 'MESSAGE-ID-MAX-LENGTH';
       const incidentId = isIncidentLengthBoundary
         ? `INC-${caseId}`.padEnd(104, 'A')
         : `INC-${caseId}`;
-      const messageId = `MSG-${caseId}`;
+      const messageId = isMessageLengthBoundary
+        ? `MSG-${caseId}`.padEnd(120, 'A')
+        : `MSG-${caseId}`;
       // Length coverage adds an allowed character; format coverage adds a forbidden one.
       const invalidIncidentId = `${incidentId}${isIncidentLengthBoundary ? 'A' : '!'}`;
+      const invalidMessageId = `${messageId}${isMessageLengthBoundary ? 'A' : '!'}`;
       if (isIncidentLengthBoundary) {
         // The four-character prefix is additional to the 100-character suffix limit.
         expect(incidentId).toHaveLength(104);
         expect(invalidIncidentId).toHaveLength(105);
         expect(invalidIncidentId).toMatch(/^INC-[A-Za-z0-9-]+$/);
+      }
+      if (isMessageLengthBoundary) {
+        expect(messageId).toHaveLength(120);
+        expect(invalidMessageId).toHaveLength(121);
+        expect(invalidMessageId).toMatch(/^[A-Za-z0-9-]+$/);
       }
       const rejectedIds =
         caseId === 'MISSING-MESSAGE-ID'
@@ -270,7 +283,7 @@ describe('support response safety', () => {
             ? { messageId }
             : caseId === 'MALFORMED-INCIDENT-ID' || isIncidentLengthBoundary
               ? { incidentId: invalidIncidentId, messageId }
-              : { incidentId, messageId: `${messageId}!` };
+              : { incidentId, messageId: invalidMessageId };
       const checkedIncidentIds: [string, ...string[]] = [incidentId];
       if (caseId === 'MALFORMED-INCIDENT-ID' || isIncidentLengthBoundary)
         checkedIncidentIds.push(invalidIncidentId);
