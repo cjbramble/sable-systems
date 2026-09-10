@@ -1,12 +1,102 @@
 import { describe, expect, it } from 'vitest';
 
-import { GET } from '@/app/api/incidents/route';
+import { DELETE, GET } from '@/app/api/incidents/route';
 import { getDatabase } from '@/db/database';
+import { saveSupportExchange } from '@/db/incidents';
 import type { SupportIncident } from '@/lib/support-incidents';
 import { createSupportApiFixture } from '../fixtures/support-api';
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support incident API', () => {
+  it('deletes an owned incident and all its messages while preserving unrelated history', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-DELETE-OWNED-TARGET';
+    const retainedId = 'INC-DELETE-OWNED-RETAINED';
+    const snapshotIncidents = () =>
+      database
+        .prepare('SELECT * FROM support_incidents ORDER BY incident_id')
+        .all<{ incident_id: string }>();
+    const snapshotMessages = () =>
+      database
+        .prepare(
+          'SELECT * FROM support_messages ORDER BY incident_id, sequence_number',
+        )
+        .all<{ incident_id: string }>();
+
+    try {
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      await fixture.trackTemporaryIncident(retainedId, calderPikeUser);
+      await saveSupportExchange(
+        database,
+        calderPikeUser,
+        incidentId,
+        'MSG-DELETE-OWNED-FIRST',
+        'Trace my shipment.',
+        'Which shipment should I trace?',
+      );
+      await saveSupportExchange(
+        database,
+        calderPikeUser,
+        incidentId,
+        'MSG-DELETE-OWNED-SECOND',
+        'Never mind, this incident is resolved.',
+        'Understood.',
+      );
+      await saveSupportExchange(
+        database,
+        calderPikeUser,
+        retainedId,
+        'MSG-DELETE-OWNED-KEEP',
+        'Keep this separate incident.',
+        'This conversation should remain.',
+      );
+      const incidentsBefore = (await snapshotIncidents()).results;
+      const messagesBefore = (await snapshotMessages()).results;
+      expect(await fixture.findIncidentOwner(incidentId)).toEqual({
+        user_id: calderPikeUser.userId,
+      });
+      expect(
+        messagesBefore.filter((row) => row.incident_id === incidentId),
+      ).toHaveLength(4);
+      expect(
+        messagesBefore.filter((row) => row.incident_id === retainedId),
+      ).toHaveLength(2);
+      expect(
+        incidentsBefore.some(
+          (row) =>
+            row.incident_id !== incidentId && row.incident_id !== retainedId,
+        ),
+      ).toBe(true);
+
+      const session = await fixture.session(calderPikeUser);
+      const headers = new Headers(session.request({}).headers);
+      headers.set('Origin', 'http://localhost');
+      headers.set('Sec-Fetch-Site', 'same-origin');
+      const response = await DELETE(
+        new Request('http://localhost/api/incidents', {
+          method: 'DELETE',
+          headers,
+          body: JSON.stringify({ incidentId }),
+        }),
+      );
+
+      expect(response.status).toBe(204);
+      expect(await response.text()).toBe('');
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+      // Compare full rows, including metadata and every other user's history.
+      expect((await snapshotIncidents()).results).toEqual(
+        incidentsBefore.filter((row) => row.incident_id !== incidentId),
+      );
+      expect((await snapshotMessages()).results).toEqual(
+        messagesBefore.filter((row) => row.incident_id !== incidentId),
+      );
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   it('lists only the authenticated user’s incidents with messages in conversation order', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);
