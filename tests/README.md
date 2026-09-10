@@ -7,6 +7,7 @@
 - `e2e/pages/`: page objects that own browser selectors and user actions; business assertions stay in the specs.
 - `e2e/fixtures/`: browser-specific setup, including the disposable application runtime and page-object instances.
 - `fixtures/`: shared test data, test-only identities, and setup/cleanup helpers; it contains no test cases.
+- `assertions/`: test-only response checks shared by deterministic checker tests and live-model evaluations; no application or database dependencies.
 
 Keep model evaluations separate from the default deterministic suite. Do not create an empty category directory before its first test is added.
 
@@ -126,10 +127,23 @@ labels separate, and checks it on holdout examples; even then enforcement needs
 separate review. Exact factual/business-rule failures always fail the run.
 Missing, incomplete, or malformed evaluator results also fail the run.
 
-Known factual-coverage gap: sampled replies have called 304 the nearest valid
-case-pack quantity to 310, although 312 is closer. The existing assertions do not
-yet check that arithmetic. A passing run does not mean every claim was verified;
-nearest-quantity regression coverage is the next test to add.
+The fixed-seed and repeated-sampling case-pack checks now also validate explicit
+nearest/closest quantity claims using `assertions/nearest-case-pack.ts`. For 310
+units and packs of 8, 312 is 2 units away; 304 is 6 units away. Naming 304 as a
+valid alternative or the nearest lower quantity is allowed, but calling it
+nearest without that qualifier fails. A list described as nearest must contain
+only nearest quantities; ties are accepted when genuinely equidistant.
+
+This is targeted phrase coverage (quantity-first statements, nearest-first
+statements, and parenthetical examples), not a general language judge. It does
+not require an unsolicited nearest-quantity claim or validate every arithmetic
+statement. The deterministic checker regression covers incorrect quantities,
+valid alternatives, direction qualifiers, ties, and scoped negation. Rechecking
+saved replies preserves the original transcripts and semantic scores rather
+than changing their recorded verdicts. All five replies from the latest saved
+run fail the new nearest-quantity check. The next step is to ground the nearest
+quantity in authorized product context, then verify the model against this
+stricter check; no model/prompt fix is included in this test-only slice.
 
 ## API response fixtures
 

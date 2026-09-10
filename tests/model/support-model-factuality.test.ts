@@ -10,6 +10,7 @@ import {
 } from '@/lib/support-model';
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 import casePackFixture from '../fixtures/semantic/case-pack.json';
+import { findIncorrectNearestCasePackClaims } from '../assertions/nearest-case-pack';
 
 function claimsMatching(value: string, pattern: RegExp) {
   return new Set(value.match(pattern) ?? []);
@@ -78,6 +79,10 @@ async function askSupportModel(
 const casePackQuestion = casePackFixture.question;
 
 function expectCasePackResponse(answer: string, authorizedContext: string) {
+  expect(
+    findIncorrectNearestCasePackClaims(answer, 310, 8),
+    'A nearest-quantity claim must use the closest valid case-pack multiple',
+  ).toEqual([]);
   const normalizedAnswer = answer.replace(/[*`]/g, '').replace(/’/g, "'");
   expect(normalizedAnswer).toMatch(/\b310\b/);
   expect(normalizedAnswer).toMatch(
