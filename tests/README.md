@@ -197,6 +197,14 @@ and each unanswered sample's failure details remain in the saved report. An
 entirely unanswered batch has empty score/pairwise arrays and still fails; it is
 not confused with calibration-only evaluation or an absent scenario.
 
+The same file checks evaluator startup errors, timeouts, nonzero exits, signal
+termination, and malformed or incomplete output for both scenarios. Failed
+processes cannot be rescued by valid-looking JSON. Invalid JSON, missing scores,
+invalid score values, and missing pairwise evidence are rejected before creating
+a report directory, writing a report, or logging success. Each attempt calls the
+mocked evaluator once, with no retry; a valid-output control proves the same input
+can still produce a report. These tests do not invoke Python or either model.
+
 ### What the scores mean
 
 The case-pack fixture contains two authored reference answers, six labeled
@@ -568,8 +576,17 @@ changed, and no Qwen generations or real semantic reports were produced.
 `npm run check` passes **136 deterministic tests across 21 files**, plus lint,
 type checking, seed validation, and the production build.
 
-**Next task:** add one focused scorer regression proving subprocess failures and
-malformed evaluator output raise errors without writing a semantic report.
+One new deterministic scorer regression now covers subprocess failures and
+malformed evaluator output for both scenarios, verifying errors propagate without
+report writes or success logs. Separate temporary mutations removed the exit-status
+guard and numeric score validation; the new test caught both, and both guards were
+restored before validation. No production behavior, fixtures, or thresholds changed.
+`npm run check` passes **137 deterministic tests across 21 files**, plus lint,
+type checking, seed validation, and the production build. No new model generations
+or real semantic reports were produced.
+
+**Next task:** add one focused scorer regression for report-write failures,
+including existing reports that must not be overwritten or announced as saved.
 
 ## API response fixtures
 

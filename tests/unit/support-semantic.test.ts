@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { expect, it, vi } from 'vitest';
 import { evaluateSemanticTranscript } from '../../scripts/support-semantic.mjs';
 import casePack from '../fixtures/semantic/case-pack.json';
@@ -300,6 +300,175 @@ it('keeps unanswered inference failures unscored and failing while scoring only 
           JSON.stringify(report, null, 2) + '\n',
           { flag: 'wx' },
         );
+      }
+    }
+  } finally {
+    quiet.mockRestore();
+    vi.resetAllMocks();
+  }
+});
+
+it('rejects evaluator process failures and malformed output without creating or announcing a semantic report', () => {
+  const quiet = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    for (const { key, label, fixture } of [
+      { key: 'case-pack', label: 'Case-pack', fixture: casePack },
+      { key: 'comparison', label: 'Comparison', fixture: comparison },
+    ]) {
+      const samples = Array.from({ length: 5 }, (_, index) => ({
+        sample: index + 1,
+        answer: `${key} answer ${index + 1}`,
+        passed: true,
+      }));
+      const requestBody = {
+        temperature: 0.35,
+        top_p: 0.9,
+        max_tokens: 600,
+        stream: false,
+        messages: [
+          { role: 'system', content: 'Scenario-specific authorized context' },
+          { role: 'user', content: fixture.question },
+        ],
+      };
+      const transcript = [
+        `${label} sampling request: ${JSON.stringify({ samples: 5, requestBody })}`,
+        ...samples.map(
+          (sample) => `${label} sample: ${JSON.stringify(sample)}`,
+        ),
+        `${label} sampling summary: ${JSON.stringify({ samples: 5, passed: 5, failures: [] })}`,
+      ].join('\n');
+      vi.mocked(readFileSync).mockImplementation((path) => {
+        if (String(path).endsWith(`/${key}.json`)) return bytes(fixture);
+        if (path === 'evaluator.log') return transcript;
+        throw new Error(`Unexpected read: ${String(path)}`);
+      });
+      const response = semanticReportFor(fixture, samples);
+      const success: SpawnSyncReturns<string> = {
+        status: 0,
+        stdout: JSON.stringify(response),
+        stderr: '',
+        pid: 1,
+        signal: null,
+        output: [],
+      };
+      const evaluate = () =>
+        evaluateSemanticTranscript('evaluator.log', 'evaluator.json', key);
+      // Positive control: the same input writes a report when evaluation is valid.
+      vi.mocked(spawnSync).mockReturnValue(success);
+      expect(evaluate()).toMatchObject({
+        samples: response.samples,
+        factualSamplesPassed: true,
+      });
+      expect(writeFileSync).toHaveBeenLastCalledWith(
+        'evaluator.json',
+        expect.any(String),
+        { flag: 'wx' },
+      );
+
+      const failures: {
+        name: string;
+        result: Partial<SpawnSyncReturns<string>>;
+        expectedError: string | typeof SyntaxError;
+      }[] = [
+        {
+          name: 'missing executable',
+          result: {
+            status: null,
+            stdout: '',
+            error: new Error('spawnSync python ENOENT'),
+          },
+          expectedError:
+            'Local Sentence Transformers evaluation failed. Run npm run setup:semantic. spawnSync python ENOENT',
+        },
+        {
+          name: 'timeout',
+          result: {
+            status: null,
+            signal: 'SIGTERM',
+            stdout: '',
+            error: new Error('spawnSync python ETIMEDOUT'),
+          },
+          expectedError:
+            'Local Sentence Transformers evaluation failed. Run npm run setup:semantic. spawnSync python ETIMEDOUT',
+        },
+        // Valid-looking stdout cannot rescue a failed or terminated subprocess.
+        {
+          name: 'nonzero exit',
+          result: { status: 2, stderr: 'Model receipt verification failed' },
+          expectedError:
+            'Local Sentence Transformers evaluation failed. Run npm run setup:semantic. Model receipt verification failed',
+        },
+        {
+          name: 'signal termination',
+          result: { status: null, signal: 'SIGTERM' },
+          expectedError: 'Local Sentence Transformers evaluation failed',
+        },
+        {
+          name: 'empty stdout',
+          result: { stdout: '' },
+          expectedError: SyntaxError,
+        },
+        {
+          name: 'truncated JSON',
+          result: { stdout: '{"schemaVersion":' },
+          expectedError: SyntaxError,
+        },
+        {
+          name: 'null report',
+          result: { stdout: 'null' },
+          expectedError: 'Invalid semantic report identity',
+        },
+        {
+          name: 'empty report',
+          result: { stdout: '{}' },
+          expectedError: 'Invalid semantic report identity',
+        },
+        {
+          name: 'missing sample scores',
+          result: {
+            stdout: JSON.stringify({
+              ...response,
+              samples: response.samples.slice(1),
+            }),
+          },
+          expectedError: 'Semantic report omitted or added sample scores',
+        },
+        {
+          name: 'invalid score',
+          result: {
+            stdout: JSON.stringify({
+              ...response,
+              samples: response.samples.map((sample, index) =>
+                index === 0 ? { ...sample, score: 2 } : sample,
+              ),
+            }),
+          },
+          expectedError:
+            'Semantic report contains an invalid or mismatched score',
+        },
+        {
+          name: 'missing pairwise evidence',
+          result: {
+            stdout: JSON.stringify({ ...response, pairwiseSimilarity: [] }),
+          },
+          expectedError: 'Incomplete or invalid pairwise similarity results',
+        },
+      ];
+      for (const { name, result, expectedError } of failures) {
+        vi.mocked(spawnSync)
+          .mockReset()
+          .mockReturnValue({ ...success, ...result });
+        vi.mocked(mkdirSync).mockClear();
+        vi.mocked(writeFileSync).mockClear();
+        quiet.mockClear();
+        expect(evaluate, `${key}: ${name}`).toThrow(expectedError);
+        expect(spawnSync).toHaveBeenCalledTimes(1);
+        const [, , options] = vi.mocked(spawnSync).mock.calls[0];
+        expect(JSON.parse(options!.input as string)).toEqual({ samples });
+        expect(options!.timeout).toBe(60_000);
+        expect(mkdirSync).not.toHaveBeenCalled();
+        expect(writeFileSync).not.toHaveBeenCalled();
+        expect(quiet).not.toHaveBeenCalled();
       }
     }
   } finally {
