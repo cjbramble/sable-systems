@@ -609,7 +609,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expect(authorizedContext).toContain(
       'Requested quantity 310: not a multiple of case pack 8; currently within available-to-promise stock.',
     );
-    const normalizedAnswer = answer.replaceAll('**', '');
+    const normalizedAnswer = answer.replace(/[*`]/g, '').replace(/’/g, "'");
     expect(normalizedAnswer).toMatch(/\b310\b/);
     expect(normalizedAnswer).toMatch(
       /\b(?:available(?:[- ]to[- ]promise)?|availability|stock)\b[^.!?\n]{0,50}\b312\b|\b312\b[^.!?\n]{0,50}\b(?:available|availability|stock)\b/i,
@@ -622,6 +622,20 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     );
     expect(normalizedAnswer).not.toMatch(
       /\bout of stock\b|\b(?:shortfall|shortage)\s*(?:of|is|:)?\s*[1-9]\d*\b/i,
+    );
+    // An invalid-pack explanation must not also promise a fulfillment exception.
+    // Match affirmative claims, while allowing "cannot be fulfilled as partial units".
+    expect(
+      normalizedAnswer,
+      `Unsupported partial-unit fulfillment promise: ${answer}`,
+    ).not.toMatch(
+      /\b(?:can|may|will)\s+(?:still\s+)?(?:be\s+)?(?:handled|fulfilled|shipped|processed|supplied|sold|ordered)\b[^.!?\n]{0,60}\b(?:partial|individual|loose|single|broken)\s+(?:units?|packs?|cases?)\b|\b(?:partial|individual|loose|single|broken)\s+(?:units?|packs?|cases?)\s+(?:can|may|will|are|is)\s+(?:still\s+)?(?:be\s+)?(?:fulfilled|shipped|processed|supplied|sold|ordered|allowed|permitted|accepted)\b/i,
+    );
+    expect(
+      normalizedAnswer,
+      `Expected an ordering restriction or required quantity adjustment: ${answer}`,
+    ).toMatch(
+      /\b(?:must|needs? to|has to)\b[^.!?\n]{0,80}\b(?:adjust(?:ed|ment)?|chang(?:e|ed)|round(?:ed)?|multiples?|full[- ]case|whole[- ]case)\b|\b(?:adjust|change|round)\b[^.!?\n]{0,60}\b(?:quantity|order|multiple|full[- ]case|whole[- ]case)\b|\b(?:cannot|can't|can not)\b[^.!?\n]{0,60}\b(?:ordered|fulfilled|shipped|processed|accepted)\b/i,
     );
     expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
     expectClaimsToComeFromContext(answer, authorizedContext);

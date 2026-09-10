@@ -28,6 +28,12 @@ Like the other model cases, it exercises the real context builder and local
 model, not the chat API's persistence path. Its phrase-based checks are targeted
 regression coverage, not a general semantic evaluator of every possible reply.
 
+The existing invalid-case-pack model case distinguishes stock availability from
+ordering eligibility. It requires an ordering restriction or quantity adjustment
+and rejects affirmative partial-unit fulfillment promises, while allowing an
+explicit refusal of those exceptions. The catalog integration test also checks
+that the model receives the applicable restriction from the context builder.
+
 API response tests use `fixtures/support-api.ts` for real test sessions, fresh
 mock model responses, direct database snapshots, and scoped cleanup. Create a
 fixture per test and call `cleanup()` in `finally`, including around setup.

@@ -261,6 +261,7 @@ Quarantined units are excluded from availability. Do not reveal other distributo
 Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
 Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
 Requested quantity 310: not a multiple of case pack 8; currently within available-to-promise stock.
+Ordering restriction: quantity 310 cannot be ordered or fulfilled as requested. It must be adjusted to a full case-pack multiple of 8; sufficient stock does not waive this rule. Do not offer partial-unit or broken-case exceptions to this ordering restriction.
 Available to promise as of 2026-09-02: 312. Inbound: 0. Expected restock: none scheduled.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
 </authorized_records>`);

@@ -411,9 +411,14 @@ ${quantityNote}This is a digitally allocated license and does not have a physica
     Number(inventory?.on_hand ?? 0) -
     Number(inventory?.reserved ?? 0) -
     Number(inventory?.quarantined ?? 0);
+  const invalidCasePack =
+    quantity !== undefined && quantity % product.case_pack !== 0;
   const quantityNote = quantity
-    ? `Requested quantity ${quantity}: ${quantity % product.case_pack === 0 ? 'valid case-pack multiple' : `not a multiple of case pack ${product.case_pack}`}; ${available >= quantity ? 'currently within available-to-promise stock' : `exceeds current available-to-promise stock by ${quantity - available}`}.
+    ? `Requested quantity ${quantity}: ${invalidCasePack ? `not a multiple of case pack ${product.case_pack}` : 'valid case-pack multiple'}; ${available >= quantity ? 'currently within available-to-promise stock' : `exceeds current available-to-promise stock by ${quantity - available}`}.
 `
+    : '';
+  const orderingRestriction = invalidCasePack
+    ? `Ordering restriction: quantity ${quantity} cannot be ordered or fulfilled as requested. It must be adjusted to a full case-pack multiple of ${product.case_pack}; sufficient stock does not waive this rule. Do not offer partial-unit or broken-case exceptions to this ordering restriction.\n`
     : '';
   let locationNote = '';
   if (includeLocations) {
@@ -430,7 +435,7 @@ ${quantityNote}This is a digitally allocated license and does not have a physica
   }
   return `Product: ${product.item_number} — ${product.product_name}; category ${product.category}.
 Wholesale price: ${formatCurrency(product.unit_price_cents)} per ${product.unit_label}; case pack ${product.case_pack}; standard lead time ${product.lead_time_days} days.
-${quantityNote}Available to promise as of ${AS_OF_DATE}: ${available}. Inbound: ${inventory?.inbound ?? 0}. Expected restock: ${inventory?.expected_restock_date ?? 'none scheduled'}.
+${quantityNote}${orderingRestriction}Available to promise as of ${AS_OF_DATE}: ${available}. Inbound: ${inventory?.inbound ?? 0}. Expected restock: ${inventory?.expected_restock_date ?? 'none scheduled'}.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.${locationNote}`;
 }
 
