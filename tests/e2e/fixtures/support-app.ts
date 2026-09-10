@@ -15,6 +15,7 @@ type SupportApp = {
 
 type Fixtures = {
   modelReply: string;
+  modelResponses: { status: number; body: unknown }[] | null;
   supportApp: SupportApp;
   loginPage: LoginPage;
   supportPage: SupportPage;
@@ -25,9 +26,13 @@ const projectPath = (path: string) =>
 
 export const test = base.extend<Fixtures>({
   modelReply: ['', { option: true }],
-  supportApp: async ({ modelReply }, provide) => {
-    if (!modelReply)
-      throw new Error('Set a controlled modelReply for this test.');
+  modelResponses: [null, { option: true }],
+  supportApp: async ({ modelReply, modelResponses }, provide) => {
+    if (!modelReply && modelResponses === null)
+      throw new Error(
+        'Set a controlled modelReply or modelResponses for this test.',
+      );
+    const responseSequence = modelResponses?.slice() ?? null;
     const modelRequests: unknown[] = [];
     const unexpectedRequests: string[] = [];
     const serverPath = projectPath('dist/server');
@@ -68,6 +73,19 @@ export const test = base.extend<Fixtures>({
           request.url === 'http://127.0.0.1:8017/v1/chat/completions'
         ) {
           modelRequests.push(await request.json());
+          if (responseSequence !== null) {
+            const planned = responseSequence.shift();
+            if (!planned) {
+              unexpectedRequests.push('Model response sequence exhausted');
+              return new Response(
+                'No model response configured for this request',
+                {
+                  status: 502,
+                },
+              );
+            }
+            return Response.json(planned.body, { status: planned.status });
+          }
           return Response.json({
             choices: [{ message: { content: modelReply } }],
           });

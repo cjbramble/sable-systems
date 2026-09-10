@@ -57,6 +57,14 @@ check application behavior, not Qwen's response quality. `npm test` and
 `npm run check` continue to run the deterministic unit/integration suite;
 `npm run test:model` remains the separate real-model evaluation command.
 
+Use `modelReply` for a fixed successful reply. For a failure/recovery workflow,
+set `modelResponses` to an ordered list of `{ status, body }` values in a scoped
+`test.describe` block. Array-valued [fixture options](https://playwright.dev/docs/test-fixtures)
+need the long-form wrapper: `test.use({ modelResponses: [responses, { scope: 'test' }] })`.
+The fixture copies that list for each test;
+model-status polling does not consume it. Extra completion requests beyond the
+configured sequence are blocked and fail the test, never sent to the real model.
+
 `LoginPage` and `SupportPage` encapsulate selectors and interactions, following
 the [Playwright page-object pattern](https://playwright.dev/docs/pom). Keep
 scenario-specific inputs, expected responses, and database assertions in the

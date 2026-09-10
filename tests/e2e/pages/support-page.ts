@@ -9,8 +9,20 @@ export class SupportPage {
     });
   }
 
+  get messageEntries() {
+    return this.page.getByRole('article');
+  }
+
   get messages() {
-    return this.page.getByRole('article').locator('.message-bubble');
+    return this.messageEntries.locator('.message-bubble');
+  }
+
+  get requestError() {
+    return this.page.getByRole('alert');
+  }
+
+  get messageInput() {
+    return this.page.getByRole('textbox', { name: 'Message COV-E' });
   }
 
   get incidentTitles() {
@@ -36,9 +48,7 @@ export class SupportPage {
   }
 
   async sendMessage(content: string) {
-    await this.page
-      .getByRole('textbox', { name: 'Message COV-E' })
-      .fill(content);
+    await this.messageInput.fill(content);
     const response = this.page.waitForResponse(
       (response) =>
         new URL(response.url()).pathname === '/api/chat' &&
