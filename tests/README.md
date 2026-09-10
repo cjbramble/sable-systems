@@ -638,15 +638,25 @@ type checking, seed validation, and the production build. Neither model was run;
 the test's disposable reports were cleaned up without touching retained model
 evidence.
 
-**Next task:** add one filesystem regression for a mixed run where both report
-destinations already exist, ensuring both errors are retained, neither report is
-overwritten, and no new report is claimed as saved.
+Further report-harness edge cases are deferred in favor of fixture cleanup and
+coverage of checkout, authentication, order history, and representative model
+sampling. The next test will cover successful checkout and its database effects.
 
 ## API response fixtures
 
-API response tests use `fixtures/support-api.ts` for real test sessions, fresh
-mock model responses, direct database snapshots, and scoped cleanup. Create a
-fixture per test and call `cleanup()` in `finally`, including around setup.
+`fixtures/support-integration.ts` exports an extended Vitest `test` with
+test-scoped `database` and `supportApi` fixtures. The incident API tests now use
+these fixtures: setup is automatic, and registered incidents, sessions, and model
+spies are cleaned up after each test, including failed tests. Scenario-specific
+clock/spy restoration remains local. Temporary-user cleanup uses `onTestFinished`,
+which runs after fixture teardown, so sessions are revoked before users are removed.
+
+The underlying `fixtures/support-api.ts` helper provides real test sessions,
+fresh mock model responses, direct database snapshots, and scoped cleanup.
+Unmigrated tests still create it per test and call `cleanup()` in `finally`,
+including around setup. Adopt the automatic fixtures as those tests are touched;
+there is no need for a separate suite-wide migration.
+
 Register temporary incidents before creating them; registration refuses existing
 records. Reading a seeded incident does not register it for deletion. Keep request
 bodies, expected results, and assertions in the test rather than in the fixture.
