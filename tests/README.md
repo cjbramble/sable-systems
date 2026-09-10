@@ -224,6 +224,14 @@ temporary directory and cleaned up in `finally`, never under `reports/model-runs
 `fixtures/semantic/evaluator.ts` shares controlled subprocess responses with the
 unit tests; its scores are test data, not measured Sentence Transformers results.
 
+The mixed-scenario integration case exercises the real orchestration and report
+writer together. An existing case-pack or comparison report must cause exactly
+one retained write error while the other scenario still saves its report. It
+checks the saved report's answers, verdicts, scenario and source hashes, one
+evaluation attempt per scenario, unchanged existing files, and success logs only
+for the newly saved report. A previously successful run becomes failed; an existing
+nonzero test exit code remains unchanged.
+
 ### What the scores mean
 
 The case-pack fixture contains two authored reference answers, six labeled
@@ -617,9 +625,22 @@ type checking, seed validation, and the production build. Model-mode discovery
 still lists exactly **31 model tests** in the Worker project; listing did not run
 them. Neither model was invoked and no retained model evidence was modified.
 
-**Next task:** add one mixed-scenario filesystem regression proving a report-write
-failure for one scenario does not prevent saving the other scenario's evidence,
-while the overall run still fails.
+One new mixed-scenario filesystem regression now covers a write collision in
+either scenario, both with and without a pre-existing test failure. Existing
+reports and transcripts stay unchanged, the other report is saved with its own
+evidence, and both scenarios are attempted exactly once. Separate temporary
+mutations that stopped after the first error or omitted the failing exit code
+were caught, then restored. Shared transcript construction was extracted locally
+to avoid duplicating setup; no production behavior or model references changed.
+
+`npm run check` passes **139 deterministic tests across 22 files**, plus lint,
+type checking, seed validation, and the production build. Neither model was run;
+the test's disposable reports were cleaned up without touching retained model
+evidence.
+
+**Next task:** add one filesystem regression for a mixed run where both report
+destinations already exist, ensuring both errors are retained, neither report is
+overwritten, and no new report is claimed as saved.
 
 ## API response fixtures
 
