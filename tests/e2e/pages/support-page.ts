@@ -13,6 +13,16 @@ export class SupportPage {
     return this.page.getByRole('article').locator('.message-bubble');
   }
 
+  get incidentTitles() {
+    return this.incidents.getByRole('button').locator('strong');
+  }
+
+  get incidentSearch() {
+    return this.page.getByRole('searchbox', {
+      name: 'Search service incidents',
+    });
+  }
+
   incident(title: string) {
     return this.incidents.getByRole('button').filter({
       has: this.page.getByText(title, { exact: true }),
@@ -44,5 +54,13 @@ export class SupportPage {
 
   async openIncident(title: string) {
     await this.incident(title).click();
+  }
+
+  async searchIncidents(query: string) {
+    await this.incidentSearch.fill(query);
+  }
+
+  async clearIncidentSearch() {
+    await this.incidentSearch.clear();
   }
 }
