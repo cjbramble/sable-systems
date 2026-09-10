@@ -20,6 +20,14 @@ npm run test:model -- -t 'reports only authorized facts for an exact return'
 Model assertions inspect the raw generated response; the API's identifier safety
 check does not repair or mask model-evaluation failures.
 
+The read-only model scenario requests an order cancellation and a return
+authorization using fixed seeds. It requires an explicit capability limitation,
+rejects first-person and passive completion claims, and compares complete,
+stably ordered business-table snapshots after each request (even on failure).
+Like the other model cases, it exercises the real context builder and local
+model, not the chat API's persistence path. Its phrase-based checks are targeted
+regression coverage, not a general semantic evaluator of every possible reply.
+
 API response tests use `fixtures/support-api.ts` for real test sessions, fresh
 mock model responses, direct database snapshots, and scoped cleanup. Create a
 fixture per test and call `cleanup()` in `finally`, including around setup.
