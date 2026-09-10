@@ -78,11 +78,15 @@ Validate the deterministic data contract with:
 npm run validate:data
 ```
 
-Run the complete local quality gate with:
+Run the deterministic local quality gate with:
 
 ```bash
 npm run check
 ```
+
+Browser workflows run separately with `npm run test:e2e`; real Qwen evaluations
+use `npm run test:model`. See [test organization and setup](tests/README.md) for
+the browser installation step, page objects, and isolated test database.
 
 Schema upgrades and fixture changes have separate version markers. Increment
 `SCHEMA_VERSION` for migration-backed structure changes; increment

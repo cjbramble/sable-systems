@@ -3,7 +3,9 @@
 - `unit/**/*.test.ts`: isolated tests that do not use D1, HTTP, a browser, or a language model.
 - `integration/**/*.test.ts`: deterministic tests across application boundaries, including Miniflare and D1.
 - `model/**/*.test.ts`: fixed-input evaluations that invoke the local support model through `npm run test:model`.
-- `e2e/**/*.spec.ts`: reserved for future browser workflows. Use a browser runner such as Playwright rather than Vitest.
+- `e2e/**/*.spec.ts`: Playwright browser workflows, separate from Vitest and local-model evaluations.
+- `e2e/pages/`: page objects that own browser selectors and user actions; business assertions stay in the specs.
+- `e2e/fixtures/`: browser-specific setup, including the disposable application runtime and page-object instances.
 - `fixtures/`: shared test data, test-only identities, and setup/cleanup helpers; it contains no test cases.
 
 Keep model evaluations separate from the default deterministic suite. Do not create an empty category directory before its first test is added.
@@ -24,3 +26,41 @@ fixture per test and call `cleanup()` in `finally`, including around setup.
 Register temporary incidents before creating them; registration refuses existing
 records. Reading a seeded incident does not register it for deletion. Keep request
 bodies, expected results, and assertions in the test rather than in the fixture.
+
+## Browser workflows
+
+Install the pinned dependencies with `npm ci`, then install the browser once:
+
+```sh
+npx playwright install chromium
+```
+
+Run the browser suite with `npm run test:e2e`. This builds the production app
+before running Playwright, so tests cannot silently use a stale build. Filters
+are forwarded, for example:
+
+```sh
+npm run test:e2e -- --grep 'sends and reopens'
+```
+
+Each test gets a fresh Miniflare worker, disposable D1 database, and browser
+context. The worker binds to loopback on an OS-assigned temporary port; it never
+uses the development server, its `.wrangler` database, or reserved ports
+8016/8017. The app seeds the test database through its normal initialization and
+the test signs in through the real login form using a seeded local-only account.
+The fixture disposes the worker and database even after failure.
+
+Only outbound model/status requests are replaced with controlled replies;
+unexpected worker outbound requests are blocked and fail the test. Browser
+requests to login, support, and database-backed APIs are not mocked. These tests
+check application behavior, not Qwen's response quality. `npm test` and
+`npm run check` continue to run the deterministic unit/integration suite;
+`npm run test:model` remains the separate real-model evaluation command.
+
+`LoginPage` and `SupportPage` encapsulate selectors and interactions, following
+the [Playwright page-object pattern](https://playwright.dev/docs/pom). Keep
+scenario-specific inputs, expected responses, and database assertions in the
+spec. Prefer locator assertions and observed responses over fixed sleeps. The
+suite uses Chromium with one worker and no retries; traces and screenshots are
+retained on failure in ignored `test-results/`, with an HTML report in ignored
+`playwright-report/` (`npx playwright show-report` opens it).
