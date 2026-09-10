@@ -1,6 +1,8 @@
-import { closeSync, existsSync, mkdirSync, openSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, writeSync } from 'node:fs';
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
+import { evaluateSemanticTranscript } from './support-semantic.mjs';
 
 const modelPath = resolve(
   process.env.CUSTOMER_SUPPORT_MODEL_PATH ||
@@ -51,18 +53,70 @@ function stopOwnedModel() {
 
 async function runVitest() {
   const vitestEntrypoint = resolve('node_modules/vitest/vitest.mjs');
-  const test = spawn(
-    process.execPath,
-    [vitestEntrypoint, 'run', ...process.argv.slice(2)],
-    {
-      env: { ...process.env, SUPPORT_MODEL_TEST: '1' },
-      stdio: 'inherit',
-    },
+  // Console records are the worker-to-host evidence channel. Do not let a
+  // silent/custom reporter turn an executed sampling test into a skipped score.
+  const suppliedArgs = process.argv.slice(2);
+  const args = [];
+  for (let index = 0; index < suppliedArgs.length; index++) {
+    const arg = suppliedArgs[index];
+    if (arg === '--reporter' || arg.startsWith('--reporter=')) {
+      const reporter =
+        arg === '--reporter'
+          ? suppliedArgs[++index]
+          : arg.slice('--reporter='.length);
+      if (reporter !== 'verbose')
+        throw new Error('Model transcript capture requires --reporter=verbose');
+    } else if (arg === '--silent' || arg.startsWith('--silent=')) {
+      throw new Error(
+        'Silent model tests cannot retain semantic evaluation evidence',
+      );
+    } else args.push(arg);
+  }
+  const transcriptPath = resolve(
+    'reports/model-runs',
+    `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}.log`,
   );
-  return new Promise((resolveExit) => {
-    test.once('exit', (code, signal) => resolveExit(signal ? 1 : (code ?? 1)));
-    test.once('error', () => resolveExit(1));
-  });
+  mkdirSync(dirname(transcriptPath), { recursive: true });
+  const transcript = openSync(transcriptPath, 'wx');
+  console.info(`Model test transcript: ${transcriptPath}`);
+  try {
+    const test = spawn(
+      process.execPath,
+      [
+        vitestEntrypoint,
+        'run',
+        ...args,
+        '--reporter=verbose',
+        '--silent=false',
+      ],
+      {
+        env: { ...process.env, SUPPORT_MODEL_TEST: '1' },
+        stdio: ['inherit', 'pipe', 'pipe'],
+      },
+    );
+    for (const [source, destination] of [
+      [test.stdout, process.stdout],
+      [test.stderr, process.stderr],
+    ]) {
+      source.on('data', (chunk) => {
+        writeSync(transcript, chunk);
+        destination.write(chunk);
+      });
+    }
+    const code = await new Promise((resolveExit) => {
+      // Wait for streams to close so the transcript retains the final verdict.
+      test.once('close', (code, signal) =>
+        resolveExit(signal ? 1 : (code ?? 1)),
+      );
+      test.once('error', (error) => {
+        writeSync(transcript, `Could not start Vitest: ${error.message}\n`);
+        console.error(error);
+      });
+    });
+    return { code, transcriptPath };
+  } finally {
+    closeSync(transcript);
+  }
 }
 
 if (!(await activeModelIsReady())) {
@@ -105,7 +159,18 @@ process.once('SIGTERM', () => {
 });
 
 try {
-  process.exitCode = await runVitest();
+  const { code, transcriptPath } = await runVitest();
+  process.exitCode = code;
+  try {
+    const report = evaluateSemanticTranscript(
+      transcriptPath,
+      transcriptPath.replace(/\.log$/, '.semantic.json'),
+    );
+    if (report?.factualSamplesPassed === false) process.exitCode = 1;
+  } catch (error) {
+    console.error(error);
+    process.exitCode = 1;
+  }
 } finally {
   stopOwnedModel();
 }

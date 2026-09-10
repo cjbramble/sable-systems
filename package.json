@@ -12,6 +12,8 @@
     "validate:data": "node --experimental-strip-types scripts/validate-seed.mjs",
     "test": "vitest run",
     "test:model": "node scripts/test-support-model.mjs",
+    "setup:semantic": "uv sync --project scripts/semantic --locked && uv run --project scripts/semantic --no-sync python scripts/semantic/evaluate.py --download",
+    "test:semantic": "node scripts/test-support-semantic.mjs",
     "test:e2e": "npm run build && playwright test",
     "typecheck": "tsc --noEmit",
     "check": "npm run lint && npm run typecheck && npm test && npm run validate:data && npm run build",

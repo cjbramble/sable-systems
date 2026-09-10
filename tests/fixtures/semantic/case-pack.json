@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "scenario": "redline-case-pack-310",
+  "question": "Are 310 units of the Redline Power Cell R12 available? Include the available quantity, case-pack validity, and any stock shortfall.",
+  "references": [
+    "SBL-RPC-12 Redline Power Cell R12 has 312 units available. A request for 310 units has no stock shortfall, but it is not a multiple of the 8-unit case pack. Change the requested quantity to a multiple of 8; partial-unit exceptions are not allowed.",
+    "There is enough Redline Power Cell R12 inventory to cover 310 units: 312 are available. However, orders must contain whole packs of 8. The requested amount does not meet that rule and cannot be fulfilled as entered. Adjust the quantity; stock availability does not permit breaking a case."
+  ],
+  "examples": [
+    {
+      "id": "valid-concise",
+      "split": "calibration",
+      "correct": true,
+      "kind": "paraphrase",
+      "text": "312 Redline cells are in available stock, so there is no shortage for 310. The problem is packaging: 310 is not divisible by the case-pack size of 8. Revise the order to a whole-pack quantity; loose units cannot be supplied."
+    },
+    {
+      "id": "valid-rule-first",
+      "split": "calibration",
+      "correct": true,
+      "kind": "paraphrase",
+      "text": "Please change the requested 310 Redline Power Cell R12 units to a multiple of 8. We have 312 units available, but sufficient inventory does not remove the whole-case ordering requirement. No partial units can be shipped for this request."
+    },
+    {
+      "id": "valid-shortage-distinction",
+      "split": "calibration",
+      "correct": true,
+      "kind": "paraphrase",
+      "text": "This is an order-size issue, not a stock shortage. Availability is 312 units of Redline Power Cell R12. Your 310-unit request is invalid because orders come in packs of 8. It must be adjusted before fulfillment; broken cases are not an option."
+    },
+    {
+      "id": "wrong-stock",
+      "split": "calibration",
+      "correct": false,
+      "kind": "wrong_quantity",
+      "text": "SBL-RPC-12 Redline Power Cell R12 has 999 units available. A request for 310 units has no stock shortfall, but it is not a multiple of the 8-unit case pack. Change the requested quantity to a multiple of 8; partial-unit exceptions are not allowed."
+    },
+    {
+      "id": "waived-rule",
+      "split": "calibration",
+      "correct": false,
+      "kind": "policy_contradiction",
+      "text": "SBL-RPC-12 Redline Power Cell R12 has 312 units available. A request for 310 units has no stock shortfall, but it is not a multiple of the 8-unit case pack. You do not need to change the requested quantity; partial-unit exceptions are allowed."
+    },
+    {
+      "id": "unrelated-answer",
+      "split": "calibration",
+      "correct": false,
+      "kind": "off_topic",
+      "text": "To reset your password, open account settings and request a password reset email."
+    },
+    {
+      "id": "valid-bullets",
+      "split": "holdout",
+      "correct": true,
+      "kind": "paraphrase",
+      "text": "Available: 312 Redline Power Cell R12 units. Requested: 310. Stock shortage: none. Pack size: 8. The quantity cannot be ordered as entered because it is not a whole-pack multiple. Select a valid quantity instead; individual-unit fulfillment is not permitted."
+    },
+    {
+      "id": "valid-alternatives",
+      "split": "holdout",
+      "correct": true,
+      "kind": "paraphrase",
+      "text": "The available balance of 312 Redline cells is sufficient, but we cannot fulfill exactly 310. These cells must be ordered eight to a pack. Change the amount to 304 or 312 units to meet the case-pack requirement. There is no stock shortfall and no exception for partial packs."
+    },
+    {
+      "id": "wrong-pack",
+      "split": "holdout",
+      "correct": false,
+      "kind": "wrong_quantity",
+      "text": "312 Redline Power Cell R12 units are available and there is no stock shortfall for 310 units. The case-pack size is 6, so the order quantity must be changed to a multiple of 6. Partial-unit exceptions are not allowed."
+    },
+    {
+      "id": "contradictory-ending",
+      "split": "holdout",
+      "correct": false,
+      "kind": "policy_contradiction",
+      "text": "312 Redline Power Cell R12 units are available, enough for the requested 310. The case-pack size is 8 and 310 is not a multiple of 8. The quantity must be adjusted. However, we can fulfill this order as individual units without changing its quantity."
+    }
+  ]
+}

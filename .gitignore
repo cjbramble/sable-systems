@@ -1,5 +1,8 @@
 # dependencies
 /node_modules
+.venv/
+__pycache__/
+*.pyc
 /.pnp
 .pnp.*
 .yarn/*
@@ -58,6 +61,7 @@ yarn-error.log*
 *.tsbuildinfo
 
 # local model weights
+/models/semantic/
 /models/**/*.gguf
 /models/**/*.safetensors
 /models/**/*.onnx
@@ -74,5 +78,6 @@ next-env.d.ts
 /outputs/
 /work/
 /reports/server-logs/
+/reports/model-runs/
 /tmp/
 /temp/

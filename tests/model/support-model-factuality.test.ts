@@ -9,6 +9,7 @@ import {
   extractSupportModelContent,
 } from '@/lib/support-model';
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
+import casePackFixture from '../fixtures/semantic/case-pack.json';
 
 function claimsMatching(value: string, pattern: RegExp) {
   return new Set(value.match(pattern) ?? []);
@@ -72,6 +73,42 @@ async function askSupportModel(
   expect(answer).not.toBeNull();
 
   return { answer: answer ?? '', authorizedContext, database };
+}
+
+const casePackQuestion = casePackFixture.question;
+
+function expectCasePackResponse(answer: string, authorizedContext: string) {
+  const normalizedAnswer = answer.replace(/[*`]/g, '').replace(/’/g, "'");
+  expect(normalizedAnswer).toMatch(/\b310\b/);
+  expect(normalizedAnswer).toMatch(
+    /\b(?:available(?:[- ]to[- ]promise)?|availability|stock)\b[^.!?\n]{0,50}\b312\b|\b312\b[^.!?\n]{0,50}\b(?:available|availability|stock)\b/i,
+  );
+  expect(normalizedAnswer).toMatch(
+    /\b(?:case[- ]pack|multiples?|packs?)\b[^.!?\n]{0,25}\b8\b/i,
+  );
+  expect(normalizedAnswer).toMatch(
+    /\b(?:invalid|not (?:a )?(?:valid )?multiple|not (?:a )?valid|not divisible)\b/i,
+  );
+  expect(normalizedAnswer).not.toMatch(
+    /\bout of stock\b|\b(?:shortfall|shortage)\s*(?:of|is|:)?\s*[1-9]\d*\b/i,
+  );
+  // An invalid-pack explanation must not also promise a fulfillment exception.
+  // Allow both "cannot be fulfilled as partial units" and "No partial units can
+  // be shipped". The lookbehind scopes "no" to that claim, not the whole reply.
+  expect(
+    normalizedAnswer,
+    `Unsupported partial-unit fulfillment promise: ${answer}`,
+  ).not.toMatch(
+    /\b(?:can|may|will)\s+(?:still\s+)?(?:be\s+)?(?:handled|fulfilled|shipped|processed|supplied|sold|ordered)\b[^.!?\n]{0,60}\b(?:partial|individual|loose|single|broken)\s+(?:units?|packs?|cases?)\b|(?<!\bno\s+)\b(?:partial|individual|loose|single|broken)\s+(?:units?|packs?|cases?)\s+(?:can|may|will|are|is)\s+(?:still\s+)?(?:be\s+)?(?:fulfilled|shipped|processed|supplied|sold|ordered|allowed|permitted|accepted)\b/i,
+  );
+  expect(
+    normalizedAnswer,
+    `Expected an ordering restriction or required quantity adjustment: ${answer}`,
+  ).toMatch(
+    /\b(?:must|needs? to|has to)\b[^.!?\n]{0,80}\b(?:adjust(?:ed|ment)?|chang(?:e|ed)|round(?:ed)?|multiples?|full[- ]case|whole[- ]case)\b|\b(?:adjust|change|round)\b[^.!?\n]{0,60}\b(?:quantity|order|multiple|full[- ]case|whole[- ]case)\b|\b(?:cannot|can't|can not)\b[^.!?\n]{0,60}\b(?:ordered|fulfilled|shipped|processed|accepted)\b/i,
+  );
+  expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
+  expectClaimsToComeFromContext(answer, authorizedContext);
 }
 
 describe('support model factuality', () => {
@@ -598,8 +635,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     const messages = [
       {
         role: 'user' as const,
-        content:
-          'Are 310 units of the Redline Power Cell R12 available? Include the available quantity, case-pack validity, and any stock shortfall.',
+        content: casePackQuestion,
       },
     ];
     const { answer, authorizedContext } = await askSupportModel(messages, 3108);
@@ -609,37 +645,115 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expect(authorizedContext).toContain(
       'Requested quantity 310: not a multiple of case pack 8; currently within available-to-promise stock.',
     );
-    const normalizedAnswer = answer.replace(/[*`]/g, '').replace(/’/g, "'");
-    expect(normalizedAnswer).toMatch(/\b310\b/);
-    expect(normalizedAnswer).toMatch(
-      /\b(?:available(?:[- ]to[- ]promise)?|availability|stock)\b[^.!?\n]{0,50}\b312\b|\b312\b[^.!?\n]{0,50}\b(?:available|availability|stock)\b/i,
-    );
-    expect(normalizedAnswer).toMatch(
-      /\b(?:case[- ]pack|multiples?|packs?)\b[^.!?\n]{0,25}\b8\b/i,
-    );
-    expect(normalizedAnswer).toMatch(
-      /\b(?:invalid|not (?:a )?(?:valid )?multiple|not (?:a )?valid|not divisible)\b/i,
-    );
-    expect(normalizedAnswer).not.toMatch(
-      /\bout of stock\b|\b(?:shortfall|shortage)\s*(?:of|is|:)?\s*[1-9]\d*\b/i,
-    );
-    // An invalid-pack explanation must not also promise a fulfillment exception.
-    // Match affirmative claims, while allowing "cannot be fulfilled as partial units".
-    expect(
-      normalizedAnswer,
-      `Unsupported partial-unit fulfillment promise: ${answer}`,
-    ).not.toMatch(
-      /\b(?:can|may|will)\s+(?:still\s+)?(?:be\s+)?(?:handled|fulfilled|shipped|processed|supplied|sold|ordered)\b[^.!?\n]{0,60}\b(?:partial|individual|loose|single|broken)\s+(?:units?|packs?|cases?)\b|\b(?:partial|individual|loose|single|broken)\s+(?:units?|packs?|cases?)\s+(?:can|may|will|are|is)\s+(?:still\s+)?(?:be\s+)?(?:fulfilled|shipped|processed|supplied|sold|ordered|allowed|permitted|accepted)\b/i,
-    );
-    expect(
-      normalizedAnswer,
-      `Expected an ordering restriction or required quantity adjustment: ${answer}`,
-    ).toMatch(
-      /\b(?:must|needs? to|has to)\b[^.!?\n]{0,80}\b(?:adjust(?:ed|ment)?|chang(?:e|ed)|round(?:ed)?|multiples?|full[- ]case|whole[- ]case)\b|\b(?:adjust|change|round)\b[^.!?\n]{0,60}\b(?:quantity|order|multiple|full[- ]case|whole[- ]case)\b|\b(?:cannot|can't|can not)\b[^.!?\n]{0,60}\b(?:ordered|fulfilled|shipped|processed|accepted)\b/i,
-    );
-    expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
-    expectClaimsToComeFromContext(answer, authorizedContext);
+    expectCasePackResponse(answer, authorizedContext);
   }, 120_000);
+
+  it(
+    'preserves case-pack facts across five samples at normal generation settings',
+    {
+      timeout: 650_000,
+      retry: 0,
+    },
+    async () => {
+      const database = await getDatabase();
+      const messages: ChatHistoryMessage[] = [
+        { role: 'user', content: casePackQuestion },
+      ];
+      const authorizedContext = await buildAuthorizedContext(
+        database,
+        messages,
+        calderPikeUser,
+      );
+      expect(authorizedContext).toContain(
+        'Requested quantity 310: not a multiple of case pack 8; currently within available-to-promise stock.',
+      );
+      expect(authorizedContext).toContain(
+        'Available to promise as of 2026-09-02: 312.',
+      );
+
+      const sampleCount = 5;
+      const failures: Array<{ sample: number; phase: string; error: string }> =
+        [];
+      let firstRequestBody: RequestInit['body'];
+      // Independent requests: do not add earlier samples to conversation history.
+      for (let sample = 1; sample <= sampleCount; sample++) {
+        const [modelUrl, modelRequest] = createSupportModelRequest({
+          distributorName: calderPikeUser.distributorDisplayName,
+          distributorId: calderPikeUser.distributorId,
+          authorizedContext,
+          messages,
+          // Omit generation overrides to exercise the actual application defaults.
+        });
+        if (typeof modelRequest.body !== 'string')
+          throw new Error('Expected a JSON model request body');
+        if (sample === 1) {
+          firstRequestBody = modelRequest.body;
+          const requestBody = JSON.parse(modelRequest.body);
+          expect(requestBody).toMatchObject({
+            temperature: 0.35,
+            top_p: 0.9,
+            max_tokens: 600,
+          });
+          expect(requestBody).not.toHaveProperty('seed');
+          console.info(
+            'Case-pack sampling request:',
+            JSON.stringify({ modelUrl, requestBody, samples: sampleCount }),
+          );
+        }
+        expect(modelRequest.body).toBe(firstRequestBody);
+
+        let phase = 'inference';
+        let httpStatus: number | undefined;
+        let responseBody: string | undefined;
+        let answer: string | null = null;
+        let failure: (typeof failures)[number] | undefined;
+        try {
+          const response = await fetch(modelUrl, modelRequest);
+          httpStatus = response.status;
+          responseBody = await response.text();
+          expect(response.ok, `Model HTTP status: ${httpStatus}`).toBe(true);
+          phase = 'response-format';
+          answer = extractSupportModelContent(JSON.parse(responseBody));
+          if (answer === null)
+            throw new Error('Model returned no nonempty answer');
+          phase = 'factuality';
+          expectCasePackResponse(answer, authorizedContext);
+        } catch (error) {
+          failure = {
+            sample,
+            phase,
+            error: error instanceof Error ? error.message : String(error),
+          };
+          failures.push(failure);
+        } finally {
+          // The host runner retains this output even when a later sample fails.
+          console.info(
+            'Case-pack sample:',
+            JSON.stringify({
+              sample,
+              httpStatus,
+              responseBody,
+              answer,
+              passed: !failure,
+              failure,
+            }),
+          );
+        }
+      }
+      console.info(
+        'Case-pack sampling summary:',
+        JSON.stringify({
+          samples: sampleCount,
+          passed: sampleCount - failures.length,
+          failures,
+        }),
+      );
+      expect(
+        failures,
+        'Every sample must pass; no retries or majority-vote acceptance',
+      ).toEqual([]);
+    },
+  );
 
   it('associates warehouse names with their authorized available quantities', async () => {
     const messages = [
