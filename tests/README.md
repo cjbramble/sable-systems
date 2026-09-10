@@ -38,8 +38,8 @@ targeted phrase checks, not a general interpretation of every possible reply.
 The catalog integration test also checks
 that the model receives the applicable restriction from the context builder.
 
-The repeated-sampling case asks that same question five independent times using
-the application's normal generation settings (currently temperature 0.35,
+The case-pack repeated-sampling test asks that same question five independent
+times using the application's normal generation settings (currently temperature 0.35,
 top-p 0.9, up to 600 tokens, no fixed seed). The prompt and authorized context
 stay identical; previous replies are not added to history. All five samples
 must satisfy the same factual and case-pack checks as the fixed-seed regression.
@@ -54,6 +54,22 @@ Run only this scenario with:
 ```sh
 npm run test:model -- -t 'preserves case-pack facts across five samples'
 ```
+
+A second repeated-sampling test compares Coldstart Rack Controller R2 with
+Redline Power Cell R12 at those same normal generation settings. It shares its
+question and factual checks with the fixed-input comparison regression. All five
+replies must identify exactly the requested products, keep each product's price,
+case pack, lead time, and availability correct, and omit Blackchannel. It uses
+the same independent-request/failure-retention helper as the case-pack test.
+
+```sh
+npm run test:model -- -t 'preserves overlapping-name comparison facts across five samples'
+```
+
+Comparison requests, raw responses, answers, individual verdicts, and the final
+batch summary are retained under separate `Comparison` log labels. Automatic
+Sentence Transformers scoring still applies only to the case-pack scenario;
+comparison replies are not scored against unrelated case-pack references.
 
 When `npm run test:model` starts Vitest, it saves test output to a new, gitignored
 `reports/model-runs/<timestamp>-<unique-id>.log` file and prints its location.
@@ -368,9 +384,35 @@ applies to the separate case-pack sampling scenario, which was not selected.
 Earlier transcripts and semantic evidence are unchanged. `npm run check`
 continues to pass all **131 deterministic tests**.
 
-**Next task:** add a five-sample normal-generation version of the overlapping-name
-comparison, retaining every reply and applying the same factual checks without
-retries or majority-vote acceptance.
+The overlapping-name comparison now also runs five independent samples at the
+actual application defaults (temperature 0.35, top-p 0.9, maximum 600 tokens,
+no seed). Its question and factual checks are shared with the fixed-input case.
+The existing case-pack loop was extracted into a shared helper without changing
+its log protocol or checks. Both scenarios create fresh requests/timeouts,
+assert identical request bodies, retain each raw response and verdict, classify
+inference/response-format/factuality failures, and collect all five outcomes
+before requiring an all-pass result. Retries remain disabled.
+
+One fresh targeted run on 2026-09-10T20:55:06Z passed **3 model tests, with 28
+skipped** (31 total): both five-sample scenarios and the fixed-input overlapping
+comparison. All five comparison responses passed and had three distinct answer
+texts; repeated wording is allowed, not required. There were no retries or
+favorable resampling. This is bounded regression evidence, not a reliability
+estimate for all possible responses. `npm run check` still passes **131
+deterministic tests**, and the shared-loop change received a read-only review.
+
+The transcript and case-pack-only semantic report share the prefix
+`reports/model-runs/2026-09-10T20-55-06-349Z-ae21ae98-cf7f-45e9-86b0-e974a140719e`.
+The comparison's five raw responses/answers/verdicts, generation settings, and
+summary were verified against the transcript. The semantic report's source hash
+and case-pack sample association were verified separately. Case-pack cosine
+scores were 0.5677, 0.5242, 0.5815, 0.5677, and 0.5100; calibration remains
+overlapping and scores advisory. Comparison samples were not embedded or scored
+against case-pack references. All earlier evidence remains unchanged.
+
+**Next task:** add validated parsing of retained comparison-sampling transcripts,
+so comparison-specific Sentence Transformers scoring can consume complete,
+correctly identified evidence without weakening the existing case-pack path.
 
 ## API response fixtures
 

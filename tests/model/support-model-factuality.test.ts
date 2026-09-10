@@ -125,6 +125,120 @@ async function askSupportModel(
 }
 
 const casePackQuestion = casePackFixture.question;
+const overlappingComparisonQuestion =
+  'Compare Coldstart Rack Controller R2 versus Redline Power Cell R12. Use one line per product with these labeled fields: item number, price, case pack, lead time, available units.';
+
+function expectOverlappingComparisonContext(authorizedContext: string) {
+  // Independent expectations: do not derive the allowed product set or facts
+  // from the context builder whose product selection is under evaluation.
+  expect(
+    [...claimsMatching(authorizedContext, itemNumberPattern)].sort(),
+  ).toEqual(['SBL-CSR-R2', 'SBL-RPC-12']);
+}
+
+function expectOverlappingComparisonResponse(
+  answer: string,
+  authorizedContext: string,
+) {
+  expectProductComparisonResponse(answer, authorizedContext, [
+    { item: 'SBL-CSR-R2', price: 2250, pack: 4, lead: 90, available: 0 },
+    { item: 'SBL-RPC-12', price: 680, pack: 8, lead: 18, available: 312 },
+  ]);
+  // Also catch the former collision if it appears only by name, without a SKU.
+  expect(answer).not.toMatch(/Blackchannel|Haptic Controller/i);
+}
+
+async function expectFiveNormalGenerationSamples({
+  messages,
+  authorizedContext,
+  logPrefix,
+  checkResponse,
+}: {
+  messages: ChatHistoryMessage[];
+  authorizedContext: string;
+  logPrefix: 'Case-pack' | 'Comparison';
+  checkResponse: (answer: string, authorizedContext: string) => void;
+}) {
+  const sampleCount = 5;
+  const failures: Array<{ sample: number; phase: string; error: string }> = [];
+  let firstRequestBody: RequestInit['body'];
+  // Independent requests: do not add earlier samples to conversation history.
+  for (let sample = 1; sample <= sampleCount; sample++) {
+    const [modelUrl, modelRequest] = createSupportModelRequest({
+      distributorName: calderPikeUser.distributorDisplayName,
+      distributorId: calderPikeUser.distributorId,
+      authorizedContext,
+      messages,
+      // Omit generation overrides to exercise the actual application defaults.
+    });
+    if (typeof modelRequest.body !== 'string')
+      throw new Error('Expected a JSON model request body');
+    if (sample === 1) {
+      firstRequestBody = modelRequest.body;
+      const requestBody = JSON.parse(modelRequest.body);
+      expect(requestBody).toMatchObject({
+        temperature: 0.35,
+        top_p: 0.9,
+        max_tokens: 600,
+      });
+      expect(requestBody).not.toHaveProperty('seed');
+      console.info(
+        `${logPrefix} sampling request:`,
+        JSON.stringify({ modelUrl, requestBody, samples: sampleCount }),
+      );
+    }
+    expect(modelRequest.body).toBe(firstRequestBody);
+
+    let phase = 'inference';
+    let httpStatus: number | undefined;
+    let responseBody: string | undefined;
+    let answer: string | null = null;
+    let failure: (typeof failures)[number] | undefined;
+    try {
+      const response = await fetch(modelUrl, modelRequest);
+      httpStatus = response.status;
+      responseBody = await response.text();
+      expect(response.ok, `Model HTTP status: ${httpStatus}`).toBe(true);
+      phase = 'response-format';
+      answer = extractSupportModelContent(JSON.parse(responseBody));
+      if (answer === null) throw new Error('Model returned no nonempty answer');
+      phase = 'factuality';
+      checkResponse(answer, authorizedContext);
+    } catch (error) {
+      failure = {
+        sample,
+        phase,
+        error: error instanceof Error ? error.message : String(error),
+      };
+      failures.push(failure);
+    } finally {
+      // The host runner retains this output even when a later sample fails.
+      console.info(
+        `${logPrefix} sample:`,
+        JSON.stringify({
+          sample,
+          httpStatus,
+          responseBody,
+          answer,
+          passed: !failure,
+          failure,
+        }),
+      );
+    }
+  }
+  console.info(
+    `${logPrefix} sampling summary:`,
+    JSON.stringify({
+      samples: sampleCount,
+      passed: sampleCount - failures.length,
+      failures,
+    }),
+  );
+  expect(
+    failures,
+    'Every sample must pass; no retries or majority-vote acceptance',
+  ).toEqual([]);
+}
 
 function expectCasePackResponse(answer: string, authorizedContext: string) {
   expect(
@@ -720,87 +834,12 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
         'Available to promise as of 2026-09-02: 312.',
       );
 
-      const sampleCount = 5;
-      const failures: Array<{ sample: number; phase: string; error: string }> =
-        [];
-      let firstRequestBody: RequestInit['body'];
-      // Independent requests: do not add earlier samples to conversation history.
-      for (let sample = 1; sample <= sampleCount; sample++) {
-        const [modelUrl, modelRequest] = createSupportModelRequest({
-          distributorName: calderPikeUser.distributorDisplayName,
-          distributorId: calderPikeUser.distributorId,
-          authorizedContext,
-          messages,
-          // Omit generation overrides to exercise the actual application defaults.
-        });
-        if (typeof modelRequest.body !== 'string')
-          throw new Error('Expected a JSON model request body');
-        if (sample === 1) {
-          firstRequestBody = modelRequest.body;
-          const requestBody = JSON.parse(modelRequest.body);
-          expect(requestBody).toMatchObject({
-            temperature: 0.35,
-            top_p: 0.9,
-            max_tokens: 600,
-          });
-          expect(requestBody).not.toHaveProperty('seed');
-          console.info(
-            'Case-pack sampling request:',
-            JSON.stringify({ modelUrl, requestBody, samples: sampleCount }),
-          );
-        }
-        expect(modelRequest.body).toBe(firstRequestBody);
-
-        let phase = 'inference';
-        let httpStatus: number | undefined;
-        let responseBody: string | undefined;
-        let answer: string | null = null;
-        let failure: (typeof failures)[number] | undefined;
-        try {
-          const response = await fetch(modelUrl, modelRequest);
-          httpStatus = response.status;
-          responseBody = await response.text();
-          expect(response.ok, `Model HTTP status: ${httpStatus}`).toBe(true);
-          phase = 'response-format';
-          answer = extractSupportModelContent(JSON.parse(responseBody));
-          if (answer === null)
-            throw new Error('Model returned no nonempty answer');
-          phase = 'factuality';
-          expectCasePackResponse(answer, authorizedContext);
-        } catch (error) {
-          failure = {
-            sample,
-            phase,
-            error: error instanceof Error ? error.message : String(error),
-          };
-          failures.push(failure);
-        } finally {
-          // The host runner retains this output even when a later sample fails.
-          console.info(
-            'Case-pack sample:',
-            JSON.stringify({
-              sample,
-              httpStatus,
-              responseBody,
-              answer,
-              passed: !failure,
-              failure,
-            }),
-          );
-        }
-      }
-      console.info(
-        'Case-pack sampling summary:',
-        JSON.stringify({
-          samples: sampleCount,
-          passed: sampleCount - failures.length,
-          failures,
-        }),
-      );
-      expect(
-        failures,
-        'Every sample must pass; no retries or majority-vote acceptance',
-      ).toEqual([]);
+      await expectFiveNormalGenerationSamples({
+        messages,
+        authorizedContext,
+        logPrefix: 'Case-pack',
+        checkResponse: expectCasePackResponse,
+      });
     },
   );
 
@@ -1056,8 +1095,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     const messages = [
       {
         role: 'user' as const,
-        content:
-          'Compare Coldstart Rack Controller R2 versus Redline Power Cell R12. Use one line per product with these labeled fields: item number, price, case pack, lead time, available units.',
+        content: overlappingComparisonQuestion,
       },
     ];
     const seed = 1613;
@@ -1068,18 +1106,33 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
       JSON.stringify({ messages, seed, authorizedContext, answer }),
     );
 
-    // Independent expectations: do not derive the allowed product set or facts
-    // from the context builder whose product selection is under evaluation.
-    expect(
-      [...claimsMatching(authorizedContext, itemNumberPattern)].sort(),
-    ).toEqual(['SBL-CSR-R2', 'SBL-RPC-12']);
-    expectProductComparisonResponse(answer, authorizedContext, [
-      { item: 'SBL-CSR-R2', price: 2250, pack: 4, lead: 90, available: 0 },
-      { item: 'SBL-RPC-12', price: 680, pack: 8, lead: 18, available: 312 },
-    ]);
-    // Also catch the former collision if it appears only by name, without a SKU.
-    expect(answer).not.toMatch(/Blackchannel|Haptic Controller/i);
+    expectOverlappingComparisonContext(authorizedContext);
+    expectOverlappingComparisonResponse(answer, authorizedContext);
   }, 120_000);
+
+  it(
+    'preserves overlapping-name comparison facts across five samples at normal generation settings',
+    { timeout: 650_000, retry: 0 },
+    async () => {
+      const database = await getDatabase();
+      const messages: ChatHistoryMessage[] = [
+        { role: 'user', content: overlappingComparisonQuestion },
+      ];
+      const authorizedContext = await buildAuthorizedContext(
+        database,
+        messages,
+        calderPikeUser,
+      );
+      expectOverlappingComparisonContext(authorizedContext);
+
+      await expectFiveNormalGenerationSamples({
+        messages,
+        authorizedContext,
+        logPrefix: 'Comparison',
+        checkResponse: expectOverlappingComparisonResponse,
+      });
+    },
+  );
 
   it('reports only authorized facts for an exact shipment', async () => {
     const messages = [
