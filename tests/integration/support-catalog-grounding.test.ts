@@ -262,9 +262,103 @@ Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
 Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
 Requested quantity 310: not a multiple of case pack 8; currently within available-to-promise stock.
 Ordering restriction: quantity 310 cannot be ordered or fulfilled as requested. It must be adjusted to a full case-pack multiple of 8; sufficient stock does not waive this rule. Do not offer partial-unit or broken-case exceptions to this ordering restriction.
+Lower valid quantity: 304 units (38 cases), 6 units below requested quantity 310; within current available-to-promise stock.
+Higher valid quantity: 312 units (39 cases), 2 units above requested quantity 310; within current available-to-promise stock.
+Nearest valid quantity: 312 units (2 units from requested quantity 310). Nearest means smallest absolute quantity difference, not rounding down or a guarantee of stock availability.
 Available to promise as of 2026-09-02: 312. Inbound: 0. Expected restock: none scheduled.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
 </authorized_records>`);
+  });
+
+  it('calculates nearest case-pack alternatives without confusing distance with stock availability', async () => {
+    const database = await getDatabase();
+    // Independently authored expectations; do not import the production
+    // calculation into its own oracle. The fixture product has case pack 8.
+    const scenarios = [
+      {
+        requested: 306,
+        expected: [
+          'Lower valid quantity: 304 units (38 cases), 2 units below requested quantity 306; within current available-to-promise stock.',
+          'Higher valid quantity: 312 units (39 cases), 6 units above requested quantity 306; within current available-to-promise stock.',
+          'Nearest valid quantity: 304 units (2 units from requested quantity 306).',
+        ],
+      },
+      {
+        requested: 308,
+        expected: [
+          'Lower valid quantity: 304 units (38 cases), 4 units below requested quantity 308;',
+          'Higher valid quantity: 312 units (39 cases), 4 units above requested quantity 308;',
+          'Equally nearest valid quantities: 304 or 312 units (4 units from requested quantity 308).',
+        ],
+      },
+      {
+        requested: 2,
+        expected: [
+          'Higher valid quantity: 8 units (1 case), 6 units above requested quantity 2; within current available-to-promise stock.',
+          'Nearest valid quantity: 8 units (6 units from requested quantity 2).',
+        ],
+      },
+      {
+        requested: 318,
+        expected: [
+          'Lower valid quantity: 312 units (39 cases), 6 units below requested quantity 318; within current available-to-promise stock.',
+          'Higher valid quantity: 320 units (40 cases), 2 units above requested quantity 318; exceeds current available-to-promise stock by 8 units.',
+          'Nearest valid quantity: 320 units (2 units from requested quantity 318).',
+        ],
+      },
+    ];
+    for (const { requested, expected } of scenarios) {
+      const context = await buildAuthorizedContext(
+        database,
+        [
+          {
+            role: 'user',
+            content: `Are ${requested} units of Redline Power Cell R12 available?`,
+          },
+        ],
+        calderPikeUser,
+      );
+      for (const line of expected)
+        expect(context, `Quantity ${requested}`).toContain(line);
+      expect(context).not.toContain('Lower valid quantity: 0 units');
+      expect(context).toContain(
+        'Nearest means smallest absolute quantity difference, not rounding down or a guarantee of stock availability.',
+      );
+    }
+    const validQuantityContext = await buildAuthorizedContext(
+      database,
+      [
+        {
+          role: 'user',
+          content: 'Are 312 units of Redline Power Cell R12 available?',
+        },
+      ],
+      calderPikeUser,
+    );
+    expect(validQuantityContext).toContain(
+      'Requested quantity 312: valid case-pack multiple;',
+    );
+    expect(validQuantityContext).not.toMatch(
+      /(?:Lower|Higher|Nearest) valid quantity:/,
+    );
+    // A second product prevents hard-coding Redline's eight-unit case size.
+    const controllerContext = await buildAuthorizedContext(
+      database,
+      [
+        {
+          role: 'user',
+          content: 'Are 7 units of SBL-CSR-R2 available?',
+        },
+      ],
+      calderPikeUser,
+    );
+    expect(controllerContext).toContain('case pack 4;');
+    expect(controllerContext).toContain(
+      'Higher valid quantity: 8 units (2 cases), 1 unit above requested quantity 7; exceeds current available-to-promise stock by 8 units.',
+    );
+    expect(controllerContext).toContain(
+      'Nearest valid quantity: 8 units (1 unit from requested quantity 7).',
+    );
   });
 
   it('grounds warehouse availability in each location inventory balance', async () => {

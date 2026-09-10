@@ -140,10 +140,37 @@ not require an unsolicited nearest-quantity claim or validate every arithmetic
 statement. The deterministic checker regression covers incorrect quantities,
 valid alternatives, direction qualifiers, ties, and scoped negation. Rechecking
 saved replies preserves the original transcripts and semantic scores rather
-than changing their recorded verdicts. All five replies from the latest saved
-run fail the new nearest-quantity check. The next step is to ground the nearest
-quantity in authorized product context, then verify the model against this
-stricter check; no model/prompt fix is included in this test-only slice.
+than changing their recorded verdicts. The original five replies failed this
+check when re-evaluated; their evidence remains unchanged.
+
+The authorized physical-product context now calculates both adjacent positive
+case-pack multiples, their distances, their current stock shortfalls (if any),
+and which quantity or tied quantities are nearest. Zero is never suggested as
+an order quantity. This runs only for an invalid case-pack request; valid
+quantities and digital-license allocation behavior are unchanged. The
+database-backed regression checks lower/upper choices, ties, below-one-case
+requests, a nearest quantity beyond available stock, and a second product's
+different case size. These calculations do not place or change orders.
+
+The first post-change model run (2026-09-10T04:18:32Z) selected 312 as nearest in
+the fixed-seed reply and all five normal-generation replies, but it is **not a
+clean model pass**: one of three selected tests passed and two failed. Retained
+evidence identifies these follow-ups, without altering assertions or resampling:
+
+- **Next regression:** sample 5 uses a bulleted "Valid nearest quantities"
+  heading for both 304 and 312 before correctly selecting 312. The checker
+  currently misses that contradictory heading/list form.
+- The fixed-seed reply and samples 2–4 are rejected because the shortfall
+  pattern matches "shortfall: 310" in an ordering-restriction explanation. It
+  needs a counterexample-driven correction that still rejects real shortages.
+- Separately, the new second-product check exposed a product-name collision:
+  "Coldstart Rack Controller R2" can select Blackchannel Haptic Controller via
+  a shared search term. This arithmetic test uses the exact item number
+  `SBL-CSR-R2`; product-match precedence remains an unfixed routing issue.
+
+The run transcript and semantic report share the prefix
+`reports/model-runs/2026-09-10T04-18-32-239Z-71fd1c54-7e8d-4bee-9f0f-651cc27b5eb1`.
+Semantic scores remain advisory and do not override the failed verdicts.
 
 ## API response fixtures
 

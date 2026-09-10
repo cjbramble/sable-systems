@@ -420,6 +420,9 @@ ${quantityNote}This is a digitally allocated license and does not have a physica
   const orderingRestriction = invalidCasePack
     ? `Ordering restriction: quantity ${quantity} cannot be ordered or fulfilled as requested. It must be adjusted to a full case-pack multiple of ${product.case_pack}; sufficient stock does not waive this rule. Do not offer partial-unit or broken-case exceptions to this ordering restriction.\n`
     : '';
+  const adjustmentNote = invalidCasePack
+    ? casePackAdjustmentContext(quantity, product.case_pack, available)
+    : '';
   let locationNote = '';
   if (includeLocations) {
     const locations = await db
@@ -435,8 +438,54 @@ ${quantityNote}This is a digitally allocated license and does not have a physica
   }
   return `Product: ${product.item_number} — ${product.product_name}; category ${product.category}.
 Wholesale price: ${formatCurrency(product.unit_price_cents)} per ${product.unit_label}; case pack ${product.case_pack}; standard lead time ${product.lead_time_days} days.
-${quantityNote}${orderingRestriction}Available to promise as of ${AS_OF_DATE}: ${available}. Inbound: ${inventory?.inbound ?? 0}. Expected restock: ${inventory?.expected_restock_date ?? 'none scheduled'}.
+${quantityNote}${orderingRestriction}${adjustmentNote}Available to promise as of ${AS_OF_DATE}: ${available}. Inbound: ${inventory?.inbound ?? 0}. Expected restock: ${inventory?.expected_restock_date ?? 'none scheduled'}.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.${locationNote}`;
+}
+
+function casePackAdjustmentContext(
+  requested: number,
+  casePack: number,
+  available: number,
+) {
+  // Compute from the matched product, not from model-generated arithmetic.
+  // Zero is not an orderable alternative when the request is below one case.
+  const alternatives = [
+    {
+      quantity: Math.floor(requested / casePack) * casePack,
+      label: 'Lower',
+      direction: 'below',
+    },
+    {
+      quantity: Math.ceil(requested / casePack) * casePack,
+      label: 'Higher',
+      direction: 'above',
+    },
+  ]
+    .filter(({ quantity }) => quantity > 0)
+    .map((alternative) => ({
+      ...alternative,
+      cases: alternative.quantity / casePack,
+      distance: Math.abs(alternative.quantity - requested),
+    }));
+  const nearestDistance = Math.min(
+    ...alternatives.map(({ distance }) => distance),
+  );
+  const nearest = alternatives.filter(
+    ({ distance }) => distance === nearestDistance,
+  );
+  const descriptions = alternatives.map(
+    ({ quantity, label, direction, cases, distance }) => {
+      const availability =
+        quantity <= available
+          ? 'within current available-to-promise stock'
+          : `exceeds current available-to-promise stock by ${quantity - available} units`;
+      return `${label} valid quantity: ${quantity} units (${cases} ${cases === 1 ? 'case' : 'cases'}), ${distance} ${distance === 1 ? 'unit' : 'units'} ${direction} requested quantity ${requested}; ${availability}.`;
+    },
+  );
+  descriptions.push(
+    `${nearest.length === 1 ? 'Nearest valid quantity' : 'Equally nearest valid quantities'}: ${nearest.map(({ quantity }) => quantity).join(' or ')} units (${nearestDistance} ${nearestDistance === 1 ? 'unit' : 'units'} from requested quantity ${requested}). Nearest means smallest absolute quantity difference, not rounding down or a guarantee of stock availability.`,
+  );
+  return descriptions.join('\n') + '\n';
 }
 
 async function categoryInventoryContext(db: D1Database, category: string) {
