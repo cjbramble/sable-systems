@@ -253,6 +253,10 @@ describe('support response safety', () => {
       invalid: 'a 9-character incident ID',
       caseId: 'INCIDENT-ID-MIN-LENGTH',
     },
+    {
+      invalid: 'a 5-character message ID',
+      caseId: 'MESSAGE-ID-MIN-LENGTH',
+    },
   ])(
     'rejects $invalid in a paired-ID request before model or database activity and allows a corrected retry',
     async ({ caseId }) => {
@@ -261,20 +265,26 @@ describe('support response safety', () => {
       const isIncidentMinimum = caseId === 'INCIDENT-ID-MIN-LENGTH';
       const isIncidentLengthBoundary =
         caseId === 'INCIDENT-ID-MAX-LENGTH' || isIncidentMinimum;
-      const isMessageLengthBoundary = caseId === 'MESSAGE-ID-MAX-LENGTH';
+      const isMessageMinimum = caseId === 'MESSAGE-ID-MIN-LENGTH';
+      const isMessageLengthBoundary =
+        caseId === 'MESSAGE-ID-MAX-LENGTH' || isMessageMinimum;
       const incidentId = isIncidentMinimum
         ? 'INC-MINLEN'
         : isIncidentLengthBoundary
           ? `INC-${caseId}`.padEnd(104, 'A')
           : `INC-${caseId}`;
-      const messageId = isMessageLengthBoundary
-        ? `MSG-${caseId}`.padEnd(120, 'A')
-        : `MSG-${caseId}`;
+      const messageId = isMessageMinimum
+        ? 'MINMSG'
+        : isMessageLengthBoundary
+          ? `MSG-${caseId}`.padEnd(120, 'A')
+          : `MSG-${caseId}`;
       // Length coverage uses allowed characters; format coverage adds a forbidden one.
       const invalidIncidentId = isIncidentMinimum
         ? incidentId.slice(0, -1)
         : `${incidentId}${isIncidentLengthBoundary ? 'A' : '!'}`;
-      const invalidMessageId = `${messageId}${isMessageLengthBoundary ? 'A' : '!'}`;
+      const invalidMessageId = isMessageMinimum
+        ? messageId.slice(0, -1)
+        : `${messageId}${isMessageLengthBoundary ? 'A' : '!'}`;
       if (isIncidentLengthBoundary) {
         // The four-character prefix is additional to the 6–100-character suffix.
         expect(incidentId).toHaveLength(isIncidentMinimum ? 10 : 104);
@@ -282,8 +292,8 @@ describe('support response safety', () => {
         expect(invalidIncidentId).toMatch(/^INC-[A-Za-z0-9-]+$/);
       }
       if (isMessageLengthBoundary) {
-        expect(messageId).toHaveLength(120);
-        expect(invalidMessageId).toHaveLength(121);
+        expect(messageId).toHaveLength(isMessageMinimum ? 6 : 120);
+        expect(invalidMessageId).toHaveLength(isMessageMinimum ? 5 : 121);
         expect(invalidMessageId).toMatch(/^[A-Za-z0-9-]+$/);
       }
       const rejectedIds =
