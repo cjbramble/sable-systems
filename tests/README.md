@@ -199,14 +199,46 @@ The saved 320-unit request's real 8-unit shortage remains detectable as a
 positive control. The separate ignored `.shortfall-replay.json` report records
 the source and checker hashes; the original transcript, verdicts, and semantic
 scores are untouched. This replay covers these two checkers only, not every
-model assertion, and does not generate new responses. `npm run check` passes
-124 deterministic tests; the historical model run remains failed.
+model assertion, and does not generate new responses. `npm run check` passed
+124 deterministic tests at that milestone; the historical model run remains failed.
 
-**Next task:** address the model's remaining contradictory nearest-quantity
-list by clarifying the distinction between adjacent valid choices and the
-nearest choice in its authorized context, then evaluate a fresh run with all
-factual checks intact. The separate product-name routing collision remains
-queued.
+The authorized context now explicitly labels the closest choice and identifies
+the farther quantity as a valid alternative, not another nearest quantity. It
+directs a list containing both to use "Valid alternatives"; genuinely tied
+quantities can both be described as nearest. A new database-backed regression
+covers the nearer lower/higher choices, ties, below-one-case requests, a nearest
+choice beyond stock, another product's case size, and no adjustment guidance
+for an already-valid quantity. The arithmetic, stock values, model settings,
+and factual checkers are unchanged. `npm run check` passes 125 deterministic tests.
+
+One fresh targeted run (2026-09-10T04:57:31Z) passed both fixed-seed quantity
+cases but failed the five-sample test: **2 tests passed, 1 failed, 26 skipped**.
+All five samples correctly distinguish 312 as nearest from the valid 304
+alternative. This is bounded evidence, not a guarantee about future replies.
+Only samples 2 and 3 passed every assertion. The retained failures are:
+
+- Sample 1 genuinely invents a stock shortfall: it says 310 requested exceeds
+  312 available by 2 units. The existing shortfall checker correctly rejects it.
+- Sample 4 says "Stock shortfall: 310 units is not a multiple of 8." This is a
+  case-pack explanation, not a shortage claim, but the current predicate check
+  does not recognize this wording and falsely rejects it.
+- Sample 5 says "no partial units or broken cases are permitted." The existing
+  fulfillment checker matches "broken cases are permitted" without carrying
+  the coordinated negation across, creating another false positive.
+
+The unchanged assertions retained a failed overall verdict; there were no
+retries or favorable resampling. The transcript and actual local Sentence
+Transformers report share the prefix
+`reports/model-runs/2026-09-10T04-57-31-996Z-c758fe37-7ddf-4657-851a-9d2ef91d08da`.
+The report's source hash was verified. Cosine scores were 0.7429, 0.8573,
+0.8596, 0.8168, and 0.9054; calibration still overlaps, so scores remain
+advisory and cannot rescue failed factual checks.
+
+**Next task:** extend the shortfall checker regression for the direct "is not
+a multiple" explanation in saved sample 4, keeping sample 1's genuine shortage
+error as a negative control. Recheck saved replies without generating new ones.
+The coordinated-negation checker gap, genuine model shortfall error, and
+product-name routing collision remain queued as separate bounded tasks.
 
 ## API response fixtures
 

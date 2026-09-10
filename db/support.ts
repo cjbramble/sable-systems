@@ -473,6 +473,19 @@ function casePackAdjustmentContext(
   const nearest = alternatives.filter(
     ({ distance }) => distance === nearestDistance,
   );
+  // There are at most two adjacent multiples. Explicitly distinguish a
+  // farther alternative from the nearest choice so a list heading cannot
+  // imply they are tied. Stock availability does not change this comparison.
+  const farther = alternatives.find(
+    ({ distance }) => distance > nearestDistance,
+  );
+  const nearestLabel =
+    nearest.length === 1
+      ? `Only ${nearest[0].quantity} units is nearest.`
+      : `${nearest.map(({ quantity }) => quantity).join(' and ')} units are equally nearest. Both may appear in a "Nearest quantities" list.`;
+  const alternativeLabel = farther
+    ? ` ${farther.quantity} units is a valid alternative, not a nearest quantity. If listing both, label the list "Valid alternatives", not "Nearest quantities".`
+    : '';
   const descriptions = alternatives.map(
     ({ quantity, label, direction, cases, distance }) => {
       const availability =
@@ -484,6 +497,7 @@ function casePackAdjustmentContext(
   );
   descriptions.push(
     `${nearest.length === 1 ? 'Nearest valid quantity' : 'Equally nearest valid quantities'}: ${nearest.map(({ quantity }) => quantity).join(' or ')} units (${nearestDistance} ${nearestDistance === 1 ? 'unit' : 'units'} from requested quantity ${requested}). Nearest means smallest absolute quantity difference, not rounding down or a guarantee of stock availability.`,
+    `Response labeling: ${nearestLabel}${alternativeLabel}`,
   );
   return descriptions.join('\n') + '\n';
 }

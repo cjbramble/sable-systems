@@ -265,6 +265,7 @@ Ordering restriction: quantity 310 cannot be ordered or fulfilled as requested. 
 Lower valid quantity: 304 units (38 cases), 6 units below requested quantity 310; within current available-to-promise stock.
 Higher valid quantity: 312 units (39 cases), 2 units above requested quantity 310; within current available-to-promise stock.
 Nearest valid quantity: 312 units (2 units from requested quantity 310). Nearest means smallest absolute quantity difference, not rounding down or a guarantee of stock availability.
+Response labeling: Only 312 units is nearest. 304 units is a valid alternative, not a nearest quantity. If listing both, label the list "Valid alternatives", not "Nearest quantities".
 Available to promise as of 2026-09-02: 312. Inbound: 0. Expected restock: none scheduled.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
 </authorized_records>`);
@@ -359,6 +360,73 @@ Quarantined units are excluded from availability. Do not reveal other distributo
     expect(controllerContext).toContain(
       'Nearest valid quantity: 8 units (1 unit from requested quantity 7).',
     );
+  });
+
+  it('labels only the closest case-pack alternatives as nearest, including genuine ties', async () => {
+    const database = await getDatabase();
+    // Expected labels are authored independently of the production arithmetic.
+    const scenarios = [
+      {
+        item: 'SBL-RPC-12',
+        requested: 310,
+        label:
+          'Only 312 units is nearest. 304 units is a valid alternative, not a nearest quantity. If listing both, label the list "Valid alternatives", not "Nearest quantities".',
+      },
+      {
+        item: 'SBL-RPC-12',
+        requested: 306,
+        label:
+          'Only 304 units is nearest. 312 units is a valid alternative, not a nearest quantity. If listing both, label the list "Valid alternatives", not "Nearest quantities".',
+      },
+      {
+        item: 'SBL-RPC-12',
+        requested: 308,
+        label:
+          '304 and 312 units are equally nearest. Both may appear in a "Nearest quantities" list.',
+      },
+      {
+        item: 'SBL-RPC-12',
+        requested: 2,
+        label: 'Only 8 units is nearest.',
+      },
+      {
+        // The closest multiple remains closest even when it exceeds stock.
+        item: 'SBL-RPC-12',
+        requested: 318,
+        label:
+          'Only 320 units is nearest. 312 units is a valid alternative, not a nearest quantity. If listing both, label the list "Valid alternatives", not "Nearest quantities".',
+      },
+      {
+        // This product uses packs of four and has no available stock.
+        item: 'SBL-CSR-R2',
+        requested: 7,
+        label:
+          'Only 8 units is nearest. 4 units is a valid alternative, not a nearest quantity. If listing both, label the list "Valid alternatives", not "Nearest quantities".',
+      },
+      {
+        item: 'SBL-RPC-12',
+        requested: 312,
+        label: null,
+      },
+    ];
+    for (const { item, requested, label } of scenarios) {
+      const context = await buildAuthorizedContext(
+        database,
+        [
+          {
+            role: 'user',
+            content: `Are ${requested} units of ${item} available?`,
+          },
+        ],
+        calderPikeUser,
+      );
+      expect(
+        context
+          .split('\n')
+          .filter((line) => line.startsWith('Response labeling:')),
+        `${item}, quantity ${requested}`,
+      ).toEqual(label === null ? [] : [`Response labeling: ${label}`]);
+    }
   });
 
   it('grounds warehouse availability in each location inventory balance', async () => {
