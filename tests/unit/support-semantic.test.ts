@@ -5,7 +5,7 @@ import { expect, it, vi } from 'vitest';
 import { evaluateSemanticTranscript } from '../../scripts/support-semantic.mjs';
 import casePack from '../fixtures/semantic/case-pack.json';
 import comparison from '../fixtures/semantic/comparison.json';
-import manifest from '../../scripts/semantic/model.json';
+import { createSemanticEvaluatorReport } from '../fixtures/semantic/evaluator';
 
 vi.mock('node:fs', () => ({
   readFileSync: vi.fn(),
@@ -19,27 +19,7 @@ const bytes = (fixture: typeof casePack) => JSON.stringify(fixture) + '\n';
 const semanticReportFor = (
   fixture: typeof casePack,
   samples: { sample: number; answer: string | null }[],
-) => ({
-  schemaVersion: 1,
-  scenario: fixture.scenario,
-  policy: { mode: 'advisory' },
-  model: { id: manifest.id, revision: manifest.revision },
-  fixtureSha256: hash(bytes(fixture)),
-  samples: samples.map(({ sample, answer }) => ({
-    sample,
-    answer,
-    score: 0.9,
-    referenceScores: [0.9, 0.8],
-    chunks: 1,
-  })),
-  calibration: {
-    minimumCorrectScore: 0.7,
-    maximumIncorrectScore: 0.99,
-    status: 'overlap',
-    examples: fixture.examples.map((example) => ({ ...example, score: 0.8 })),
-  },
-  pairwiseSimilarity: samples.map(() => samples.map(() => 0.9)),
-});
+) => createSemanticEvaluatorReport(fixture, samples, hash(bytes(fixture)));
 
 it('scores only the selected scenario and rejects mismatched reference evidence without changing factual verdicts', () => {
   const batches = [

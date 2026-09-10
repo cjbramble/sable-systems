@@ -1,7 +1,7 @@
 # Test organization
 
 - `unit/**/*.test.ts`: isolated tests that do not use D1, HTTP, a browser, or a language model.
-- `integration/**/*.test.ts`: deterministic tests across application boundaries, including Miniflare and D1.
+- `integration/**/*.test.ts`: deterministic tests across application boundaries, including Miniflare, D1, and filesystem persistence.
 - `model/**/*.test.ts`: fixed-input evaluations that invoke the local support model through `npm run test:model`.
 - `e2e/**/*.spec.ts`: Playwright browser workflows, separate from Vitest and local-model evaluations.
 - `e2e/pages/`: page objects that own browser selectors and user actions; business assertions stay in the specs.
@@ -10,6 +10,14 @@
 - `assertions/`: test-only response checks shared by deterministic checker tests and live-model evaluations; no application or database dependencies.
 
 Keep model evaluations separate from the default deterministic suite. Do not create an empty category directory before its first test is added.
+
+The default suite uses named [Vitest projects](https://vitest.dev/guide/projects.html)
+to keep runtime boundaries explicit. `worker` preserves the existing unit and
+database-test runtime. `node` runs the filesystem-backed semantic-report test in
+Node, matching the local report writer rather than workerd's virtual filesystem.
+The Node test's path is included only there and excluded from `worker`, so it runs
+once. `npm test` runs both projects; `npm test -- --project node` selects only the
+Node checks. Model-test mode includes only the existing Worker-backed model suite.
 
 Run deterministic checks with `npm test` and the full local model suite with
 `npm run test:model`. The model runner also forwards Vitest filters, for example:
@@ -204,6 +212,17 @@ invalid score values, and missing pairwise evidence are rejected before creating
 a report directory, writing a report, or logging success. Each attempt calls the
 mocked evaluator once, with no retry; a valid-output control proves the same input
 can still produce a report. These tests do not invoke Python or either model.
+
+`integration/support-semantic-report.test.ts` uses real temporary files and the
+production report writer, with only the evaluator subprocess mocked. For both
+scenarios, it first saves a valid report, then attempts to replace it with a
+different result or save beneath a file used as a directory. Both failures must
+propagate their filesystem errors, make no automatic retry, and produce no success
+logs. Existing reports, source transcripts, and blocking files remain byte-for-byte
+unchanged, with no extra entries left behind. Test files are created under a unique
+temporary directory and cleaned up in `finally`, never under `reports/model-runs`.
+`fixtures/semantic/evaluator.ts` shares controlled subprocess responses with the
+unit tests; its scores are test data, not measured Sentence Transformers results.
 
 ### What the scores mean
 
@@ -585,8 +604,22 @@ restored before validation. No production behavior, fixtures, or thresholds chan
 type checking, seed validation, and the production build. No new model generations
 or real semantic reports were produced.
 
-**Next task:** add one focused scorer regression for report-write failures,
-including existing reports that must not be overwritten or announced as saved.
+One new filesystem integration regression now verifies report-write failures and
+retained-evidence protection for both scenarios. The initial attempt exposed that
+the Worker test runtime cannot read Node's actual fixture files; the configuration
+now separates this test into a Node project while retaining all existing tests in
+the Worker project. Temporary mutations allowing overwrites and announcing success
+before saving were both caught, then restored. Production scorer behavior, model
+references, and thresholds remain unchanged.
+
+`npm run check` passes **138 deterministic tests across 22 files**, plus lint,
+type checking, seed validation, and the production build. Model-mode discovery
+still lists exactly **31 model tests** in the Worker project; listing did not run
+them. Neither model was invoked and no retained model evidence was modified.
+
+**Next task:** add one mixed-scenario filesystem regression proving a report-write
+failure for one scenario does not prevent saving the other scenario's evidence,
+while the overall run still fails.
 
 ## API response fixtures
 
