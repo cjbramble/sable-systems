@@ -12,6 +12,7 @@ import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 import casePackFixture from '../fixtures/semantic/case-pack.json';
 import { findIncorrectNearestCasePackClaims } from '../assertions/nearest-case-pack';
 import { findPositiveStockShortfallClaims } from '../assertions/stock-shortfall';
+import { findPartialFulfillmentPromises } from '../assertions/partial-fulfillment';
 
 function claimsMatching(value: string, pattern: RegExp) {
   return new Set(value.match(pattern) ?? []);
@@ -99,15 +100,10 @@ function expectCasePackResponse(answer: string, authorizedContext: string) {
     findPositiveStockShortfallClaims(answer, 310),
     'An invalid case-pack quantity must not be described as a stock shortage',
   ).toEqual([]);
-  // An invalid-pack explanation must not also promise a fulfillment exception.
-  // Allow both "cannot be fulfilled as partial units" and "No partial units can
-  // be shipped". The lookbehind scopes "no" to that claim, not the whole reply.
   expect(
-    normalizedAnswer,
+    findPartialFulfillmentPromises(answer),
     `Unsupported partial-unit fulfillment promise: ${answer}`,
-  ).not.toMatch(
-    /\b(?:can|may|will)\s+(?:still\s+)?(?:be\s+)?(?:handled|fulfilled|shipped|processed|supplied|sold|ordered)\b[^.!?\n]{0,60}\b(?:partial|individual|loose|single|broken)\s+(?:units?|packs?|cases?)\b|(?<!\bno\s+)\b(?:partial|individual|loose|single|broken)\s+(?:units?|packs?|cases?)\s+(?:can|may|will|are|is)\s+(?:still\s+)?(?:be\s+)?(?:fulfilled|shipped|processed|supplied|sold|ordered|allowed|permitted|accepted)\b/i,
-  );
+  ).toEqual([]);
   expect(
     normalizedAnswer,
     `Expected an ordering restriction or required quantity adjustment: ${answer}`,

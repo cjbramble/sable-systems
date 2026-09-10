@@ -223,9 +223,10 @@ Only samples 2 and 3 passed every assertion. The retained failures are:
 - Sample 4 says "Stock shortfall: 310 units is not a multiple of 8." This is a
   case-pack explanation, not a shortage claim, but the predicate check at the
   time did not recognize this wording and falsely rejected it.
-- Sample 5 says "no partial units or broken cases are permitted." The existing
-  fulfillment checker matches "broken cases are permitted" without carrying
-  the coordinated negation across, creating another false positive.
+- Sample 5 says "no partial units or broken cases are permitted." The
+  fulfillment checker at the time matched "broken cases are permitted"
+  without carrying the coordinated negation across, creating another false
+  positive.
 
 The unchanged assertions retained a failed overall verdict; there were no
 retries or favorable resampling. The transcript and actual local Sentence
@@ -250,13 +251,32 @@ still hits the unchanged fulfillment checker. The separate ignored
 for the shortfall, nearest-quantity, and partial-fulfillment checks only. It
 does not rerun every model assertion or generate any responses; original
 transcripts, verdicts, and semantic scores remain unchanged. `npm run check`
-passes 126 deterministic tests. The historical model run is still failed.
+passed 126 deterministic tests at that milestone. The historical model run
+is still failed.
 
-**Next task:** add a regression and fix the coordinated-negation false positive
-in saved sample 5 ("no partial units or broken cases are permitted"), retaining
-positive and contradictory fulfillment promises as negative controls. Recheck
-saved replies without generating new ones. The genuine model shortfall error
-and product-name routing collision remain queued as separate bounded tasks.
+Both case-pack model cases now use `assertions/partial-fulfillment.ts` to detect
+affirmative partial-unit promises. It carries "no" across an uninterrupted
+list of recognized unit phrases joined by "or", "and", or commas. The scoped
+exception does not cross a completed predicate, contrast, or sentence boundary
+to excuse a later promise. The unit regression covers plain/emphasized lists,
+single-subject refusals (including line wraps), affirmative promises, and
+contradictions before or after a refusal. This is targeted phrase coverage,
+not a general language parser or a guarantee of complete promise detection.
+
+The saved-response replay on 2026-09-10T13:56:25Z clears sample 5's false
+fulfillment flag. Across the shortfall, nearest-quantity, and partial-fulfillment
+checks, only sample 1 still fails for its genuine invented stock shortage.
+The new ignored `.partial-fulfillment-replay.json` report records source/checker
+hashes and each diagnostic; the source transcript and semantic report hashes
+were verified unchanged. This is not a replay of every model assertion or a
+new model run. No responses or semantic scores were regenerated. The historical
+model run remains failed. `npm run check` passes 127 deterministic tests.
+
+**Next task:** address the genuine model stock-shortfall error by supplying
+an explicit calculated requested-quantity shortfall, separate from the
+case-pack adjustment distance, with a database-backed regression. Then run one
+fresh targeted model evaluation with all factual checks intact. The separate
+product-name routing collision remains queued.
 
 ## API response fixtures
 
