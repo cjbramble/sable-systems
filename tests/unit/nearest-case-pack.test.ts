@@ -78,3 +78,65 @@ it('rejects incorrect nearest case-pack claims without rejecting valid alternati
     { claimedQuantity: 320, expectedQuantities: [304, 312] },
   ]);
 });
+
+it('rejects contradictory nearest-quantity lists while respecting list boundaries', () => {
+  const contradictory = `2. Case-pack validity:
+   - Valid nearest quantities:
+     - 304 units (38 cases) — 6 units below requested
+     - 312 units (39 cases) — 2 units above requested
+   - Nearest valid quantity: 312 units (smallest absolute difference).`;
+  const issues = findIncorrectNearestCasePackClaims(contradictory, 310, 8);
+  expect(issues).toMatchObject([
+    { claimedQuantity: 304, expectedQuantities: [312] },
+  ]);
+  expect(issues).toHaveLength(1);
+  expect(issues[0].claim).toContain('Valid nearest quantities');
+
+  for (const answer of [
+    '**Nearest valid quantities:**\n- 312 units\n- 304 units\n\nThe nearest valid quantity is 312 units.',
+    '### Closest valid quantities\n+ 304 units (38 cases)\n+ 312 units (39 cases)',
+    '* **Valid nearest quantities:**\n  * **304 units** (38 cases)\n  * 312 units (39 cases)',
+    'Nearest valid quantities:\n1. 312 units\n2. 304 units',
+  ]) {
+    expect(
+      findIncorrectNearestCasePackClaims(answer, 310, 8),
+      answer,
+    ).toMatchObject([{ claimedQuantity: 304, expectedQuantities: [312] }]);
+    expect(
+      findIncorrectNearestCasePackClaims(answer, 310, 8),
+      answer,
+    ).toHaveLength(1);
+  }
+
+  for (const answer of [
+    'Valid alternatives:\n- 304 units\n- 312 units\n\nThe nearest valid quantity is 312 units.',
+    'Nearest valid quantities:\n- 312 units (39 cases)\n\nOther valid alternatives:\n- 304 units (38 cases)',
+    'Nearest valid quantities:\n  - 312 units\n  Other valid alternatives:\n  - 304 units',
+    'Nearest valid quantities:\n- 312 units\n  ### Other valid alternatives\n- 304 units',
+    '- Nearest valid quantities:\n  - 312 units\n- Valid alternatives:\n  - 304 units',
+    '- Nearest valid quantities:\n  - 312 units\n- 304 units is a lower valid alternative.',
+    'Nearest valid quantities:\n1. 312 units (39 cases)\n\nOther quantities:\n1. 304 units',
+    'Nearest valid quantities:\n* **312 units** (39 cases)\n\nOther quantities:\n* 304 units',
+    'Nearest valid quantities:\n- 312 units\n  - 39 cases\n  - 2 units above requested',
+    'Not nearest quantities:\n- 304 units\n\nNearest valid quantities:\n- 312 units',
+    'Nearest lower valid quantities:\n- 304 units\n\nNearest higher valid quantities:\n- 312 units',
+  ])
+    expect(findIncorrectNearestCasePackClaims(answer, 310, 8), answer).toEqual(
+      [],
+    );
+
+  expect(
+    findIncorrectNearestCasePackClaims(
+      'Nearest lower valid quantities:\n- 312 units',
+      310,
+      8,
+    ),
+  ).toMatchObject([{ claimedQuantity: 312, expectedQuantities: [304] }]);
+  expect(
+    findIncorrectNearestCasePackClaims(
+      'Equally nearest valid quantities:\n- 304 units\n- 312 units',
+      308,
+      8,
+    ),
+  ).toEqual([]);
+});

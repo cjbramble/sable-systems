@@ -135,7 +135,8 @@ nearest without that qualifier fails. A list described as nearest must contain
 only nearest quantities; ties are accepted when genuinely equidistant.
 
 This is targeted phrase coverage (quantity-first statements, nearest-first
-statements, and parenthetical examples), not a general language judge. It does
+statements, parenthetical examples, and nearest-quantity list headings), not a
+general language judge. It does
 not require an unsolicited nearest-quantity claim or validate every arithmetic
 statement. The deterministic checker regression covers incorrect quantities,
 valid alternatives, direction qualifiers, ties, and scoped negation. Rechecking
@@ -157,10 +158,11 @@ the fixed-seed reply and all five normal-generation replies, but it is **not a
 clean model pass**: one of three selected tests passed and two failed. Retained
 evidence identifies these follow-ups, without altering assertions or resampling:
 
-- **Next regression:** sample 5 uses a bulleted "Valid nearest quantities"
-  heading for both 304 and 312 before correctly selecting 312. The checker
-  currently misses that contradictory heading/list form.
-- The fixed-seed reply and samples 2–4 are rejected because the shortfall
+- Sample 5 uses a bulleted "Valid nearest quantities" heading for both 304 and
+  312 before correctly selecting 312. A deterministic regression now catches
+  that contradictory heading/list form when the retained reply is rechecked.
+  This fixes the checker gap, not the model's contradictory response.
+- **Next regression:** the fixed-seed reply and samples 2–4 are rejected because the shortfall
   pattern matches "shortfall: 310" in an ordering-restriction explanation. It
   needs a counterexample-driven correction that still rejects real shortages.
 - Separately, the new second-product check exposed a product-name collision:
@@ -171,6 +173,14 @@ evidence identifies these follow-ups, without altering assertions or resampling:
 The run transcript and semantic report share the prefix
 `reports/model-runs/2026-09-10T04-18-32-239Z-71fd1c54-7e8d-4bee-9f0f-651cc27b5eb1`.
 Semantic scores remain advisory and do not override the failed verdicts.
+
+The nearest-list checker supports plain, emphasized, and Markdown headings;
+unordered and numbered lists; and indented child items. Only direct quantity
+items inherit the heading's nearest/lower/higher meaning. Nested explanation
+items, sibling lists, and later sections do not inherit it. A subsequent correct
+nearest claim does not erase an earlier contradictory list. List numbering and
+case-count annotations are not treated as quantities. This is bounded Markdown
+coverage, not a complete Markdown parser or a general factuality guarantee.
 
 ## API response fixtures
 

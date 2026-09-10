@@ -1,12 +1,14 @@
+type IncorrectNearestCasePackClaim = {
+  claim: string;
+  claimedQuantity: number;
+  expectedQuantities: number[];
+};
+
 export function findIncorrectNearestCasePackClaims(
   answer: string,
   requestedQuantity: number,
   casePackSize: number,
-): Array<{
-  claim: string;
-  claimedQuantity: number;
-  expectedQuantities: number[];
-}> {
+): IncorrectNearestCasePackClaim[] {
   if (
     !Number.isSafeInteger(requestedQuantity) ||
     requestedQuantity <= 0 ||
@@ -43,27 +45,113 @@ export function findIncorrectNearestCasePackClaims(
       'gi',
     ),
   ];
-  const issues = [];
-  for (const pattern of patterns) {
-    for (const match of text.matchAll(pattern)) {
-      // Do not turn a local negation into an affirmative claim or let it
-      // excuse a separate, later incorrect nearest-quantity statement.
-      if (/\b(?:not|never)\s+(?:the\s+)?$/i.test(text.slice(0, match.index)))
-        continue;
-      const description = match.groups!.description;
-      const expectedQuantities = /\blower\b/i.test(description)
-        ? lower > 0
-          ? [lower]
-          : []
-        : /\b(?:higher|upper)\b/i.test(description)
-          ? [upper]
-          : nearest;
-      for (const value of match.groups!.quantities.match(/\d+/g)!) {
-        const claimedQuantity = Number(value);
-        if (!expectedQuantities.includes(claimedQuantity))
-          issues.push({ claim: match[0], claimedQuantity, expectedQuantities });
+  const issues: IncorrectNearestCasePackClaim[] = [];
+  function checkClaim(claim: string, values: string, description: string) {
+    const expectedQuantities = /\blower\b/i.test(description)
+      ? lower > 0
+        ? [lower]
+        : []
+      : /\b(?:higher|upper)\b/i.test(description)
+        ? [upper]
+        : nearest;
+    for (const value of values.match(/\d+/g)!) {
+      const claimedQuantity = Number(value);
+      if (!expectedQuantities.includes(claimedQuantity))
+        issues.push({ claim, claimedQuantity, expectedQuantities });
+    }
+  }
+
+  // Inline claims cannot consume the next line's ordered-list marker as a
+  // quantity. Heading/list relationships are checked separately below.
+  for (const line of text.split(/\r?\n/)) {
+    for (const pattern of patterns) {
+      for (const match of line.matchAll(pattern)) {
+        // Negation is local; a correct later claim cannot excuse an earlier
+        // contradictory claim (or vice versa).
+        if (/\b(?:not|never)\s+(?:the\s+)?$/i.test(line.slice(0, match.index)))
+          continue;
+        checkClaim(
+          match[0],
+          match.groups!.quantities,
+          match.groups!.description,
+        );
       }
     }
+  }
+
+  // This is a bounded Markdown-list reader, not a general Markdown parser.
+  // Preserve list markers before stripping emphasis, including '*' bullets.
+  const headingPattern = new RegExp(
+    String.raw`^(?:(?:the|valid|equally)\s+)*${subject}\s*:?$`,
+    'i',
+  );
+  const itemPattern = new RegExp(
+    String.raw`^${quantities}(?=[ \t]*(?:$|[.(:;—–-]))`,
+    'i',
+  );
+  let heading:
+    | {
+        indent: number;
+        isListItem: boolean;
+        childIndent?: number;
+        description: string;
+        text: string;
+      }
+    | undefined;
+  for (const rawLine of answer.split(/\r?\n/)) {
+    const parts = /^([ ]*)(?:([-+*]|\d+[.)])[ ]+)?(.*)$/.exec(
+      rawLine.replace(/\t/g, '    '),
+    )!;
+    const indent = parts[1].length;
+    const isListItem = Boolean(parts[2]);
+    const content = parts[3]
+      .replace(/[*`]/g, '')
+      .replace(/^#{1,6}\s+/, '')
+      .trim();
+    if (!content) continue;
+    const match = headingPattern.exec(content);
+    if (match) {
+      heading = {
+        indent,
+        isListItem,
+        description: match.groups!.description,
+        text: content,
+      };
+      continue;
+    }
+    if (!heading) continue;
+    if (!isListItem) {
+      if (
+        indent <= (heading.childIndent ?? heading.indent) ||
+        content.endsWith(':') ||
+        /^#{1,6}\s+/.test(parts[3])
+      )
+        heading = undefined;
+      continue;
+    }
+    if (
+      indent < heading.indent ||
+      (heading.isListItem && indent === heading.indent)
+    ) {
+      heading = undefined;
+      continue;
+    }
+    heading.childIndent ??= indent;
+    if (indent < heading.childIndent) {
+      heading = undefined;
+      continue;
+    }
+    if (indent > heading.childIndent) continue; // Nested explanatory details.
+    const item = itemPattern.exec(content);
+    if (!item) {
+      heading = undefined; // A different direct-child topic ends this quantity list.
+      continue;
+    }
+    checkClaim(
+      `${heading.text}\n${rawLine}`,
+      item.groups!.quantities,
+      heading.description,
+    );
   }
   return issues;
 }
