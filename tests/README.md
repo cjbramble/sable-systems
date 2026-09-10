@@ -68,8 +68,9 @@ npm run test:model -- -t 'preserves overlapping-name comparison facts across fiv
 
 Comparison requests, raw responses, answers, individual verdicts, and the final
 batch summary are retained under separate `Comparison` log labels. Automatic
-Sentence Transformers scoring still applies only to the case-pack scenario;
-comparison replies are not scored against unrelated case-pack references.
+Sentence Transformers scoring now applies to both sampling scenarios, each with
+its own references and report; comparison replies are never scored against
+unrelated case-pack references.
 
 `parseComparisonSamplingTranscript` now validates retained comparison evidence
 separately: one request with the exact scenario question and normal generation
@@ -99,7 +100,8 @@ Holdout texts are distinct, but this remains a small authored set with overlappi
 vocabulary and answer formats, not an independent real-world benchmark. Comparison
 scoring is now available through `test:semantic -- --scenario comparison`.
 Calibration overlaps, so no comparison threshold is approved. Automatic scoring
-after `test:model` remains case-pack-only until the next runner-integration step.
+after `test:model` evaluates whichever sampling scenarios ran, including both
+when a transcript contains both.
 
 When `npm run test:model` starts Vitest, it saves test output to a new, gitignored
 `reports/model-runs/<timestamp>-<unique-id>.log` file and prints its location.
@@ -113,7 +115,8 @@ remain supported.
 
 ## Local Sentence Transformers evaluation
 
-The model-test runner now scores the five case-pack replies with the actual
+The model-test runner scores the five replies from each sampling scenario with the
+actual
 Python [Sentence Transformers](https://www.sbert.net/docs/sentence_transformer/usage/semantic_textual_similarity.html)
 library and a separate local
 [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)
@@ -134,15 +137,29 @@ offline loading, safetensors, and no remote model code; a missing model/runtime
 or changed model-file receipt fails evaluation rather than silently skipping it.
 Keep the generated dependency lockfile and the model manifest committed.
 
-`npm run test:model` automatically adds a sibling `.semantic.json` report when
-the case-pack sampling scenario runs. Filtered tests without that scenario do
-not require Sentence Transformers. `npm test` remains model-free. Every semantic
+`npm run test:model` automatically adds sibling reports for executed scenarios:
+`<run>.semantic.json` for case-pack (preserving its existing filename) and
+`<run>.comparison.semantic.json` for comparison. Absent scenarios are skipped
+before loading Python. Filtered tests without either sampling scenario do not
+require Sentence Transformers. `npm test` remains model-free. Every semantic
 report records model/file hashes, package versions, evaluator and reference-set
 hashes, the source transcript hash, per-reference cosine scores, pairwise reply
 similarities, calibration results, and the original factual verdicts. Responses
 over the encoder token limit are scored in complete token chunks, pooled by
 token count and normalized; the report includes chunk counts. No answer suffix
 is silently discarded.
+
+The runner attempts each scenario once, even if the other has a factual failure,
+malformed evidence, or a scoring/report-write error. Successful reports are kept;
+errors are reported with their scenario names. A semantic failure makes a passing
+model run fail, and no semantic success can clear an existing Vitest failure.
+Original nonzero test exit codes are preserved. Reports remain exclusive writes:
+an existing report is not replaced, and a failed scenario is not retried.
+
+`unit/support-semantic-runs.test.ts` checks case-pack-only, comparison-only, mixed,
+and absent-scenario outcomes, plus factual failures, scoring exceptions in either
+order, and original test failures. It mocks the single-scenario scorer; existing
+parser/scorer tests cover the underlying evidence selection and validation.
 
 Run calibration alone, or score retained answers without generating new ones:
 
@@ -159,8 +176,9 @@ npm run test:semantic -- --scenario comparison
 npm run test:semantic -- --scenario comparison --transcript reports/model-runs/<run>.log
 ```
 
-For mixed transcripts, only the selected scenario is scored. Both the JavaScript
-host and Python evaluator allow only `case-pack` and `comparison`. Report
+When replaying mixed transcripts with `test:semantic`, only the selected scenario
+is scored. Both the JavaScript host and Python evaluator allow only `case-pack`
+and `comparison`. Report
 validation checks the selected scenario, exact answer association, its calibration
 examples, and the reference-file hash before saving a result. A missing selected
 scenario is reported as an error by the replay command, not treated as a successful
@@ -507,9 +525,34 @@ semantic report remain unchanged. Both command-line entry points reject unknown
 scenario names before evaluation. No references or thresholds were tuned after
 observing these scores.
 
-**Next task:** automatically score every executed sampling scenario after model
-tests, saving separate reports and retaining failure status, with a focused
-regression covering case-pack-only, comparison-only, and mixed runs.
+The model-test runner now uses a shared scenario registry to attempt each executed
+sampling scenario once, writing distinct reports and keeping other scenarios'
+evidence even if one fails. One deterministic orchestration regression covers
+case-pack-only, comparison-only, mixed, and absent scenarios, factual failures,
+scoring/write exceptions, and preservation of original test exit codes. `npm run
+check` passes **135 deterministic tests across 21 files**, plus lint, type
+checking, seed validation, and the production build.
+
+One fresh targeted model run on 2026-09-10T21:37:12Z passed **2 model tests, with
+29 skipped** (31 total). All five case-pack and all five comparison replies passed
+their existing factual checks. Both real Sentence Transformers reports were
+created automatically by `test:model`, without a separate replay or retry.
+This is bounded regression evidence, not a reliability estimate.
+
+The transcript and reports share the prefix
+`reports/model-runs/2026-09-10T21-37-12-980Z-fe444d42-4e77-4b8a-b586-ffab5da36eed`,
+with suffixes `.log`, `.semantic.json`, and `.comparison.semantic.json`.
+Case-pack scores were 0.5672, 0.5672, 0.5677, 0.5698, and 0.5381; comparison
+scores were 0.7904, 0.8232, 0.7940, 0.7904, and 0.7904. Both calibrations still
+overlap and scores remain advisory. Read-only audits verified raw answer
+association, five ordered verdicts per scenario, generation settings, source,
+fixture and evaluator hashes, and report isolation. The earlier mixed transcript
+and original semantic report were hash-checked unchanged; all new evidence files
+remain gitignored.
+
+**Next task:** add a focused scorer regression for inference failures with no
+answer, verifying they remain explicitly unscored and cannot produce a passing
+sampling result while the available answers are still evaluated.
 
 ## API response fixtures
 

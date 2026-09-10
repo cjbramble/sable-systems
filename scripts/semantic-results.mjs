@@ -127,17 +127,22 @@ export function parseComparisonSamplingTranscript(text) {
   return batch;
 }
 
+const semanticScenarios = {
+  'case-pack': { fixture, parseTranscript: parseSamplingTranscript },
+  comparison: {
+    fixture: comparisonFixture,
+    parseTranscript: parseComparisonSamplingTranscript,
+  },
+};
+
+export function listSemanticScenarios() {
+  return Object.keys(semanticScenarios);
+}
+
 export function getSemanticScenario(name = 'case-pack') {
-  const scenarios = {
-    'case-pack': { fixture, parseTranscript: parseSamplingTranscript },
-    comparison: {
-      fixture: comparisonFixture,
-      parseTranscript: parseComparisonSamplingTranscript,
-    },
-  };
-  if (!Object.hasOwn(scenarios, name))
+  if (!Object.hasOwn(semanticScenarios, name))
     throw new Error(`Unknown semantic scenario: ${name}`);
-  return scenarios[name];
+  return semanticScenarios[name];
 }
 
 export function validateSemanticReport(

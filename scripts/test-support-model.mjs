@@ -2,7 +2,7 @@ import { closeSync, existsSync, mkdirSync, openSync, writeSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
-import { evaluateSemanticTranscript } from './support-semantic.mjs';
+import { evaluateModelRunSemantics } from './support-semantic-runs.mjs';
 
 const modelPath = resolve(
   process.env.CUSTOMER_SUPPORT_MODEL_PATH ||
@@ -162,14 +162,13 @@ try {
   const { code, transcriptPath } = await runVitest();
   process.exitCode = code;
   try {
-    const report = evaluateSemanticTranscript(
-      transcriptPath,
-      transcriptPath.replace(/\.log$/, '.semantic.json'),
-    );
-    if (report?.factualSamplesPassed === false) process.exitCode = 1;
+    const outcome = evaluateModelRunSemantics(transcriptPath, code);
+    process.exitCode = outcome.exitCode;
+    for (const { scenario, error } of outcome.errors)
+      console.error(`Semantic evaluation failed (${scenario}):`, error);
   } catch (error) {
     console.error(error);
-    process.exitCode = 1;
+    process.exitCode = code || 1;
   }
 } finally {
   stopOwnedModel();
