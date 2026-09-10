@@ -249,26 +249,36 @@ describe('support response safety', () => {
       invalid: 'a 121-character message ID',
       caseId: 'MESSAGE-ID-MAX-LENGTH',
     },
+    {
+      invalid: 'a 9-character incident ID',
+      caseId: 'INCIDENT-ID-MIN-LENGTH',
+    },
   ])(
     'rejects $invalid in a paired-ID request before model or database activity and allows a corrected retry',
     async ({ caseId }) => {
       const database = await getDatabase();
       const fixture = createSupportApiFixture(database);
-      const isIncidentLengthBoundary = caseId === 'INCIDENT-ID-MAX-LENGTH';
+      const isIncidentMinimum = caseId === 'INCIDENT-ID-MIN-LENGTH';
+      const isIncidentLengthBoundary =
+        caseId === 'INCIDENT-ID-MAX-LENGTH' || isIncidentMinimum;
       const isMessageLengthBoundary = caseId === 'MESSAGE-ID-MAX-LENGTH';
-      const incidentId = isIncidentLengthBoundary
-        ? `INC-${caseId}`.padEnd(104, 'A')
-        : `INC-${caseId}`;
+      const incidentId = isIncidentMinimum
+        ? 'INC-MINLEN'
+        : isIncidentLengthBoundary
+          ? `INC-${caseId}`.padEnd(104, 'A')
+          : `INC-${caseId}`;
       const messageId = isMessageLengthBoundary
         ? `MSG-${caseId}`.padEnd(120, 'A')
         : `MSG-${caseId}`;
-      // Length coverage adds an allowed character; format coverage adds a forbidden one.
-      const invalidIncidentId = `${incidentId}${isIncidentLengthBoundary ? 'A' : '!'}`;
+      // Length coverage uses allowed characters; format coverage adds a forbidden one.
+      const invalidIncidentId = isIncidentMinimum
+        ? incidentId.slice(0, -1)
+        : `${incidentId}${isIncidentLengthBoundary ? 'A' : '!'}`;
       const invalidMessageId = `${messageId}${isMessageLengthBoundary ? 'A' : '!'}`;
       if (isIncidentLengthBoundary) {
-        // The four-character prefix is additional to the 100-character suffix limit.
-        expect(incidentId).toHaveLength(104);
-        expect(invalidIncidentId).toHaveLength(105);
+        // The four-character prefix is additional to the 6–100-character suffix.
+        expect(incidentId).toHaveLength(isIncidentMinimum ? 10 : 104);
+        expect(invalidIncidentId).toHaveLength(isIncidentMinimum ? 9 : 105);
         expect(invalidIncidentId).toMatch(/^INC-[A-Za-z0-9-]+$/);
       }
       if (isMessageLengthBoundary) {
