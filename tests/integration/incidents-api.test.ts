@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { DELETE, GET } from '@/app/api/incidents/route';
 import { getDatabase } from '@/db/database';
@@ -11,6 +11,72 @@ import {
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support incident API', () => {
+  it('rejects cross-origin deletion before database work and accepts the same-origin control', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-DELETE-CROSS-ORIGIN';
+
+    try {
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      await saveSupportExchange(
+        database,
+        calderPikeUser,
+        incidentId,
+        'MSG-DELETE-CROSS-ORIGIN',
+        'Keep this incident safe.',
+        'This conversation belongs to your account.',
+      );
+      const session = await fixture.session(calderPikeUser);
+      const beforeIncident = await fixture.findIncident(incidentId);
+      const beforeMessages = (await fixture.messages(incidentId)).results;
+      expect(beforeIncident).toMatchObject({
+        incident_id: incidentId,
+        user_id: calderPikeUser.userId,
+      });
+      expect(beforeMessages).toHaveLength(2);
+      const requestDeletion = (origin: string) => {
+        const headers = new Headers(session.request({}).headers);
+        headers.set('Origin', origin);
+        return new Request('http://localhost/api/incidents', {
+          method: 'DELETE',
+          headers,
+          body: JSON.stringify({ incidentId }),
+        });
+      };
+
+      // Observe real D1 calls; do not replace database behavior with a mock.
+      const prepareSpy = vi.spyOn(database, 'prepare');
+      const batchSpy = vi.spyOn(database, 'batch');
+      try {
+        const rejected = await DELETE(
+          requestDeletion('https://untrusted.example'),
+        );
+        expect(rejected.status).toBe(403);
+        expect(await rejected.json()).toEqual({
+          error: 'Cross-origin access denied.',
+        });
+        expect(prepareSpy).not.toHaveBeenCalled();
+        expect(batchSpy).not.toHaveBeenCalled();
+      } finally {
+        prepareSpy.mockRestore();
+        batchSpy.mockRestore();
+      }
+      expect(await fixture.findIncident(incidentId)).toEqual(beforeIncident);
+      expect((await fixture.messages(incidentId)).results).toEqual(
+        beforeMessages,
+      );
+
+      // Only the Origin changes; the session, incident, and body stay identical.
+      const accepted = await DELETE(requestDeletion('http://localhost'));
+      expect(accepted.status).toBe(204);
+      expect(await accepted.text()).toBe('');
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   it('leaves another user’s incident untouched for same-distributor and cross-distributor deletion attempts', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);
