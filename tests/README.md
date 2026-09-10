@@ -71,6 +71,21 @@ batch summary are retained under separate `Comparison` log labels. Automatic
 Sentence Transformers scoring still applies only to the case-pack scenario;
 comparison replies are not scored against unrelated case-pack references.
 
+`parseComparisonSamplingTranscript` now validates retained comparison evidence
+separately: one request with the exact scenario question and normal generation
+settings, five uniquely ordered verdicts, and one matching batch summary. Missing,
+duplicated, malformed, or mismatched records fail instead of silently skipping.
+Inference, response-format, and factuality failures retain their original verdicts
+and details; failed runs are not promoted to passes. The parser preserves raw
+response fields and answers, but does not re-run the factual checker or authenticate
+the raw responses. Mixed transcripts remain isolated from the case-pack parser.
+
+The comparison question is shared through `tests/fixtures/semantic/comparison.json`
+to prevent producer/parser drift. This fixture currently contains identity and
+question metadata only, not semantic references or calibration examples. The new
+parser is not wired into the Sentence Transformers runner yet; automatic scoring
+remains case-pack-only.
+
 When `npm run test:model` starts Vitest, it saves test output to a new, gitignored
 `reports/model-runs/<timestamp>-<unique-id>.log` file and prints its location.
 The sampling case records the actual request/settings/context and each raw
@@ -410,9 +425,23 @@ scores were 0.5677, 0.5242, 0.5815, 0.5677, and 0.5100; calibration remains
 overlapping and scores advisory. Comparison samples were not embedded or scored
 against case-pack references. All earlier evidence remains unchanged.
 
-**Next task:** add validated parsing of retained comparison-sampling transcripts,
-so comparison-specific Sentence Transformers scoring can consume complete,
-correctly identified evidence without weakening the existing case-pack path.
+One new deterministic transcript regression now covers comparison-only and mixed
+runs, skipped versus completed tests, missing/duplicate/malformed records, wrong
+questions/settings, and failed samples whose details must match the summary. The
+test failed before the parser existed and passed after implementation. The existing
+case-pack regression still passes, and `npm run check` passes **132 deterministic
+tests** plus lint, type checking, seed validation, and the production build.
+
+A read-only replay of the retained 2026-09-10T20:55:06Z mixed transcript validated
+all five comparison responses separately from all five case-pack responses. The
+comparison raw content matched each retained answer; the existing semantic report
+still matched only the case-pack samples and the full transcript's source hash.
+Both evidence files were hash-checked unchanged. No new model generations or
+semantic scores were produced for this parser-only step.
+
+**Next task:** add authored comparison-specific reference answers, calibration
+examples, and separate holdout examples, with a deterministic fixture-integrity
+test, before wiring comparison transcripts into Sentence Transformers scoring.
 
 ## API response fixtures
 

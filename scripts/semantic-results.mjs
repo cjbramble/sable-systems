@@ -1,40 +1,44 @@
 import fixture from '../tests/fixtures/semantic/case-pack.json' with { type: 'json' };
+import comparisonFixture from '../tests/fixtures/semantic/comparison.json' with { type: 'json' };
 import manifest from './semantic/model.json' with { type: 'json' };
 
-export function parseSamplingTranscript(text) {
-  const readRows = (prefix) =>
-    text
-      .split('\n')
-      .filter((line) => line.startsWith(prefix))
-      .map((line) => JSON.parse(line.slice(prefix.length)));
-  const requests = readRows('Case-pack sampling request: ');
-  const samples = readRows('Case-pack sample: ');
+function readTranscriptRows(text, prefix) {
+  return text
+    .split('\n')
+    .filter((line) => line.startsWith(prefix))
+    .map((line) => JSON.parse(line.slice(prefix.length)));
+}
+
+function parseSamplingScenario(text, { label, question, testName }) {
+  const requests = readTranscriptRows(text, `${label} sampling request: `);
+  const samples = readTranscriptRows(text, `${label} sample: `);
   if (!requests.length && !samples.length) {
     if (
       text
         .split('\n')
-        .some(
-          (line) =>
-            /[✓×]/u.test(line) &&
-            line.includes('preserves case-pack facts across five samples'),
-        )
+        .some((line) => /[✓×]/u.test(line) && line.includes(testName))
     )
       throw new Error('Completed sampling test omitted its semantic evidence');
     return null;
   }
   if (
     requests.length !== 1 ||
-    requests[0].samples !== 5 ||
+    requests[0]?.samples !== 5 ||
     samples.length !== 5
   )
-    throw new Error('Expected one complete five-sample case-pack run');
+    throw new Error(
+      `Expected one complete five-sample ${label.toLowerCase()} run`,
+    );
   const request = requests[0].requestBody;
-  if (request?.messages?.at(-1)?.content !== fixture.question)
+  if (
+    !Array.isArray(request?.messages) ||
+    request.messages.at(-1)?.content !== question
+  )
     throw new Error(
       'Sampling question does not match the semantic reference fixture',
     );
   for (const [index, sample] of samples.entries()) {
-    if (sample.sample !== index + 1 || typeof sample.passed !== 'boolean')
+    if (sample?.sample !== index + 1 || typeof sample.passed !== 'boolean')
       throw new Error('Missing, duplicated, or malformed sample verdict');
     if (
       sample.passed &&
@@ -43,6 +47,84 @@ export function parseSamplingTranscript(text) {
       throw new Error('A passing sample must contain an answer');
   }
   return { request, samples };
+}
+
+// Keep the existing case-pack entry point and transcript contract unchanged.
+export function parseSamplingTranscript(text) {
+  return parseSamplingScenario(text, {
+    label: 'Case-pack',
+    question: fixture.question,
+    testName: 'preserves case-pack facts across five samples',
+  });
+}
+
+export function parseComparisonSamplingTranscript(text) {
+  const batch = parseSamplingScenario(text, {
+    label: 'Comparison',
+    question: comparisonFixture.question,
+    testName: 'preserves overlapping-name comparison facts across five samples',
+  });
+  const summaries = readTranscriptRows(text, 'Comparison sampling summary: ');
+  if (batch === null && summaries.length === 0) return null;
+  if (batch === null || summaries.length !== 1)
+    throw new Error('Expected one complete five-sample comparison run');
+
+  const { request, samples } = batch;
+  if (
+    request.temperature !== 0.35 ||
+    request.top_p !== 0.9 ||
+    request.max_tokens !== 600 ||
+    request.stream !== false ||
+    Object.hasOwn(request, 'seed') ||
+    request.messages.length !== 2 ||
+    request.messages[0]?.role !== 'system' ||
+    typeof request.messages[0].content !== 'string' ||
+    !request.messages[0].content.trim() ||
+    request.messages[1]?.role !== 'user'
+  )
+    throw new Error(
+      'Comparison request must use normal settings and independent messages',
+    );
+
+  const failures = [];
+  for (const sample of samples) {
+    const failure = sample.failure;
+    if (sample.answer !== null && typeof sample.answer !== 'string')
+      throw new Error('Malformed comparison answer');
+    if (sample.passed) {
+      if (failure !== undefined)
+        throw new Error('Passing comparison sample contains a failure');
+    } else {
+      if (
+        failure?.sample !== sample.sample ||
+        !['inference', 'response-format', 'factuality'].includes(
+          failure.phase,
+        ) ||
+        typeof failure.error !== 'string' ||
+        !failure.error.trim() ||
+        (failure.phase === 'factuality' && !sample.answer?.trim())
+      )
+        throw new Error('Malformed comparison failure evidence');
+      failures.push(failure);
+    }
+  }
+  const summary = summaries[0];
+  if (
+    summary?.samples !== 5 ||
+    summary.passed !== 5 - failures.length ||
+    !Array.isArray(summary.failures) ||
+    summary.failures.length !== failures.length ||
+    summary.failures.some((failure, index) =>
+      ['sample', 'phase', 'error'].some(
+        (field) => failure?.[field] !== failures[index][field],
+      ),
+    )
+  )
+    throw new Error(
+      'Comparison summary does not match the retained sample verdicts',
+    );
+  // Preserve original answers/raw responses/verdicts; do not rejudge factuality here.
+  return batch;
 }
 
 export function validateSemanticReport(report, samples) {

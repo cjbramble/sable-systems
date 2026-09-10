@@ -10,6 +10,7 @@ import {
 } from '@/lib/support-model';
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 import casePackFixture from '../fixtures/semantic/case-pack.json';
+import comparisonFixture from '../fixtures/semantic/comparison.json';
 import { findIncorrectNearestCasePackClaims } from '../assertions/nearest-case-pack';
 import { findPositiveStockShortfallClaims } from '../assertions/stock-shortfall';
 import { findPartialFulfillmentPromises } from '../assertions/partial-fulfillment';
@@ -125,8 +126,7 @@ async function askSupportModel(
 }
 
 const casePackQuestion = casePackFixture.question;
-const overlappingComparisonQuestion =
-  'Compare Coldstart Rack Controller R2 versus Redline Power Cell R12. Use one line per product with these labeled fields: item number, price, case pack, lead time, available units.';
+const overlappingComparisonQuestion = comparisonFixture.question;
 
 function expectOverlappingComparisonContext(authorizedContext: string) {
   // Independent expectations: do not derive the allowed product set or facts

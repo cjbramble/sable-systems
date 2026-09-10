@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "scenario": "coldstart-redline-comparison",
+  "question": "Compare Coldstart Rack Controller R2 versus Redline Power Cell R12. Use one line per product with these labeled fields: item number, price, case pack, lead time, available units."
+}
