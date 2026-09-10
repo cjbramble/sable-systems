@@ -640,8 +640,8 @@ evidence.
 
 Further report-harness edge cases are deferred in favor of fixture cleanup and
 coverage of checkout, authentication, order history, and representative model
-sampling. The next test will verify that insufficient stock rejects checkout
-without leaving an order, charge, or inventory reservation behind.
+sampling. The next test will verify that two simultaneous checkouts competing
+for the remaining stock cannot oversell or leave a partial losing order.
 
 ## Checkout integration
 
@@ -652,9 +652,17 @@ line snapshots, the independently calculated total, the account charge, the
 confirmation event, and exact stock reservations. No checkout or database logic
 is mocked. Only Date is frozen so order/ship dates remain stable over time.
 
-It reuses the shared session fixture. Test-local teardown removes only the new PO
-and restores the affected inventory rows, even after failure; it never touches
-the development database. Run it with `npm test -- tests/integration/orders-api.test.ts`.
+The insufficient-stock case puts a valid in-stock line before an over-stock line
+with a valid case-pack quantity. It requires a 409 response with the available
+quantity and compares complete order, line, charge, event, and inventory rows
+before cleanup, ensuring rejection has no partial effects. A temporary negative
+control that left 16 units reserved was detected, then removed.
+
+Both cases reuse the session fixture and `fixtures/checkout.ts` for inventory
+reads and scoped cleanup. Teardown removes only the new PO and restores the
+affected inventory rows, even after failure; it never touches the development
+database. Request inputs and business assertions remain in the tests. Run them
+with `npm test -- tests/integration/orders-api.test.ts`.
 
 ## API response fixtures
 

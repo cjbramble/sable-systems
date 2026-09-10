@@ -1,19 +1,9 @@
 import { describe, expect, vi } from 'vitest';
 
 import { POST } from '@/app/api/orders/route';
+import { createCheckoutFixture } from '../fixtures/checkout';
 import { test } from '../fixtures/support-integration';
 import { loadActiveUserFixture } from '../fixtures/users';
-
-type InventoryBalance = {
-  item_number: string;
-  location_id: string;
-  on_hand_quantity: number;
-  reserved_quantity: number;
-  quarantined_quantity: number;
-  inbound_quantity: number;
-  expected_restock_date: string | null;
-  updated_at: string;
-};
 
 describe('orders API', () => {
   test('creates a charge-account order for the authenticated distributor and reserves its inventory', async ({
@@ -24,58 +14,12 @@ describe('orders API', () => {
     const customerPoNumber = 'MCS-TEST-CHECKOUT-SUCCESS';
     const requestedShipDate = '2026-10-15';
     const shippingRegion = 'Great Lakes District';
-    const inventory = () =>
-      database
-        .prepare(`SELECT * FROM inventory_balances
-          WHERE item_number IN (?, ?) ORDER BY item_number, location_id`)
-        .bind('SBL-RPC-12', 'SBL-SWC-12')
-        .all<InventoryBalance>();
-    const stockTotals = () =>
-      database
-        .prepare(`SELECT item_number, SUM(on_hand_quantity) AS on_hand,
-          SUM(reserved_quantity) AS reserved,
-          SUM(on_hand_quantity - reserved_quantity - quarantined_quantity) AS available
-          FROM inventory_balances WHERE item_number IN (?, ?)
-          GROUP BY item_number ORDER BY item_number`)
-        .bind('SBL-RPC-12', 'SBL-SWC-12')
-        .all();
-    const ordersForPO = () =>
-      database
-        .prepare('SELECT * FROM orders WHERE customer_po_number = ?')
-        .bind(customerPoNumber)
-        .all();
-
-    // Refuse to register cleanup for an existing order. These are test-DB rows.
-    expect((await ordersForPO()).results).toEqual([]);
-    const beforeInventory = (await inventory()).results;
-    expect(beforeInventory).toHaveLength(6);
-    onTestFinished(async () => {
-      await database.batch([
-        // Cascades remove this order's lines, charge, and confirmation event.
-        database
-          .prepare('DELETE FROM orders WHERE customer_po_number = ?')
-          .bind(customerPoNumber),
-        ...beforeInventory.map((row) =>
-          database
-            .prepare(`UPDATE inventory_balances SET on_hand_quantity = ?,
-              reserved_quantity = ?, quarantined_quantity = ?, inbound_quantity = ?,
-              expected_restock_date = ?, updated_at = ?
-              WHERE item_number = ? AND location_id = ?`)
-            .bind(
-              row.on_hand_quantity,
-              row.reserved_quantity,
-              row.quarantined_quantity,
-              row.inbound_quantity,
-              row.expected_restock_date,
-              row.updated_at,
-              row.item_number,
-              row.location_id,
-            ),
-        ),
+    const { stockTotals, ordersForPO, beforeInventory } =
+      await createCheckoutFixture(database, customerPoNumber, [
+        'SBL-RPC-12',
+        'SBL-SWC-12',
       ]);
-      expect((await ordersForPO()).results).toEqual([]);
-      expect((await inventory()).results).toEqual(beforeInventory);
-    });
+    expect(beforeInventory).toHaveLength(6);
 
     // Freeze only the date: database I/O and real timers continue normally.
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -206,5 +150,88 @@ describe('orders API', () => {
         available: 684,
       },
     ]);
+  });
+
+  test('rejects insufficient stock on a later line without changing orders, charges, or inventory', async ({
+    database,
+    supportApi,
+    onTestFinished,
+  }) => {
+    const customerPoNumber = 'MCS-TEST-CHECKOUT-SHORTFALL';
+    const { stockTotals } = await createCheckoutFixture(
+      database,
+      customerPoNumber,
+      ['SBL-RPC-12', 'SBL-SWC-12'],
+    );
+    vi.useFakeTimers({ toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    vi.setSystemTime(new Date('2026-09-10T09:00:00.000Z'));
+    const user = await loadActiveUserFixture(database, 'USR-MCS-001');
+    const session = await supportApi.session(user);
+    const headers = new Headers(session.request({}).headers);
+    headers.set('Origin', 'http://localhost');
+    headers.set('Sec-Fetch-Site', 'same-origin');
+
+    expect((await stockTotals()).results).toEqual([
+      { item_number: 'SBL-RPC-12', on_hand: 376, reserved: 64, available: 312 },
+      {
+        item_number: 'SBL-SWC-12',
+        on_hand: 864,
+        reserved: 144,
+        available: 720,
+      },
+    ]);
+    // Full, ordered rows catch partial inserts, altered metadata, and changes to
+    // existing records, not just a missing order with this PO or unchanged counts.
+    const snapshot = async () => {
+      const tables = await database.batch([
+        database.prepare('SELECT * FROM orders ORDER BY order_id'),
+        database.prepare(
+          'SELECT * FROM order_items ORDER BY order_id, line_number',
+        ),
+        database.prepare('SELECT * FROM account_charges ORDER BY charge_id'),
+        database.prepare('SELECT * FROM order_events ORDER BY event_id'),
+        database.prepare(
+          'SELECT * FROM inventory_balances ORDER BY item_number, location_id',
+        ),
+      ]);
+      return tables.map((table) => table.results);
+    };
+    const before = await snapshot();
+    const response = await POST(
+      new Request('http://localhost/api/orders', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          customerPoNumber,
+          requestedShipDate: '2026-10-15',
+          shippingRegion: 'Great Lakes District',
+          items: [
+            // A valid first line must not be reserved when a later line fails.
+            { itemNumber: 'SBL-RPC-12', quantity: 16 },
+            // Valid pack of 12, but 732 requested exceeds 720 available.
+            { itemNumber: 'SBL-SWC-12', quantity: 732 },
+          ],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: 'Signal-Weave Active Cable, 12 m has only 720 units available.',
+    });
+    // Check before fixture cleanup so cleanup cannot hide partial writes.
+    const after = await snapshot();
+    for (const [index, table] of [
+      'orders',
+      'order_items',
+      'account_charges',
+      'order_events',
+      'inventory_balances',
+    ].entries()) {
+      expect(after[index], `No changes to ${table}`).toEqual(before[index]);
+    }
   });
 });
