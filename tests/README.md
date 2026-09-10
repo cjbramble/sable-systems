@@ -96,10 +96,10 @@ general factuality judge. In-memory corruption controls prove that duplicate tex
 bad labels, incorrect prices/units/names, and accidentally repaired negatives fail.
 
 Holdout texts are distinct, but this remains a small authored set with overlapping
-vocabulary and answer formats, not an independent real-world benchmark. No
-comparison similarity scores or thresholds have been selected. The comparison
-parser/reference fixture is not wired into the Sentence Transformers runner yet;
-automatic scoring remains case-pack-only.
+vocabulary and answer formats, not an independent real-world benchmark. Comparison
+scoring is now available through `test:semantic -- --scenario comparison`.
+Calibration overlaps, so no comparison threshold is approved. Automatic scoring
+after `test:model` remains case-pack-only until the next runner-integration step.
 
 When `npm run test:model` starts Vitest, it saves test output to a new, gitignored
 `reports/model-runs/<timestamp>-<unique-id>.log` file and prints its location.
@@ -150,6 +150,22 @@ Run calibration alone, or score retained answers without generating new ones:
 npm run test:semantic
 npm run test:semantic -- --transcript reports/model-runs/<run>.log
 ```
+
+The default scenario is still `case-pack`. Select comparison explicitly for its
+own references, calibration examples, and saved answers:
+
+```sh
+npm run test:semantic -- --scenario comparison
+npm run test:semantic -- --scenario comparison --transcript reports/model-runs/<run>.log
+```
+
+For mixed transcripts, only the selected scenario is scored. Both the JavaScript
+host and Python evaluator allow only `case-pack` and `comparison`. Report
+validation checks the selected scenario, exact answer association, its calibration
+examples, and the reference-file hash before saving a result. A missing selected
+scenario is reported as an error by the replay command, not treated as a successful
+evaluation. `npm test` uses a mocked subprocess for the routing regression; it
+still does not load either model.
 
 Each completed scoring run writes a new report; existing evidence is never
 overwritten. Replaying a transcript with any failed factual sample still exits
@@ -464,9 +480,36 @@ case-pack semantic report hashes are unchanged. `npm run check` passes all **133
 deterministic tests across 19 files**, plus lint, type checking, seed validation,
 and the production build.
 
-**Next task:** make the Sentence Transformers evaluator and report validation
-scenario-aware, with a focused regression proving comparison answers use the
-comparison references while preserving the case-pack evaluation path.
+The evaluator and report validation now accept an explicit scenario, retaining
+case-pack as the default. One focused routing regression checks isolated sample
+selection from a mixed transcript, offline subprocess settings, reference hashes,
+calibration identity, rejection of unknown scenarios, exclusive report writes,
+and preservation of factual failures despite high similarity. It failed before
+scenario routing was implemented and passes now. `npm run check` passes **134
+deterministic tests across 20 files**, plus lint, type checking, seed validation,
+and the production build.
+
+Both scenarios were scored once with the real local Sentence Transformers runtime
+using the existing 2026-09-10T20:55:06Z transcript, without generating new Qwen
+answers. Comparison scores were 0.7904, 0.7904, 0.7904, 0.7854, and 0.8232.
+Comparison calibration overlaps: minimum correct 0.9292 versus maximum incorrect
+0.9998, with no candidate threshold. These scores do not supersede the original
+factual verdicts. Case-pack scores matched the earlier report exactly.
+
+New replay reports are retained at:
+
+- `reports/model-runs/semantic-2026-09-10T21-22-19-912Z-2010d3cd-b0d2-4368-862c-d48c0acc258e.json` (comparison).
+- `reports/model-runs/semantic-2026-09-10T21-22-28-903Z-bdc21156-121d-4be4-a1d9-6d351dc0f144.json` (case-pack).
+
+Read-only audits verified both reports' scenario/sample associations, source,
+fixture and evaluator hashes, and factual verdicts. The original transcript and
+semantic report remain unchanged. Both command-line entry points reject unknown
+scenario names before evaluation. No references or thresholds were tuned after
+observing these scores.
+
+**Next task:** automatically score every executed sampling scenario after model
+tests, saving separate reports and retaining failure status, with a focused
+regression covering case-pack-only, comparison-only, and mixed runs.
 
 ## API response fixtures
 

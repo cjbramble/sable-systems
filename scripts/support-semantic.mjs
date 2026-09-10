@@ -5,20 +5,32 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  parseSamplingTranscript,
+  getSemanticScenario,
   validateSemanticReport,
   combinedSamplingPassed,
 } from './semantic-results.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
-export function evaluateSemanticTranscript(transcriptPath, outputPath) {
+export function evaluateSemanticTranscript(
+  transcriptPath,
+  outputPath,
+  scenario = 'case-pack',
+) {
+  const { parseTranscript } = getSemanticScenario(scenario);
   const transcript = transcriptPath
     ? readFileSync(transcriptPath, 'utf8')
     : null;
-  const batch =
-    transcript === null ? null : parseSamplingTranscript(transcript);
-  if (transcript !== null && batch === null) return null; // A filtered fixed-seed test.
+  const batch = transcript === null ? null : parseTranscript(transcript);
+  if (transcript !== null && batch === null) return null; // Selected scenario did not run.
+  // Scenario is allowlisted before constructing a path or starting Python.
+  const fixtureSha256 = createHash('sha256')
+    .update(
+      readFileSync(
+        resolve(root, 'tests/fixtures/semantic', `${scenario}.json`),
+      ),
+    )
+    .digest('hex');
   const samples = (batch?.samples ?? []).filter(
     (sample) => typeof sample.answer === 'string' && sample.answer.trim(),
   );
@@ -29,7 +41,7 @@ export function evaluateSemanticTranscript(transcriptPath, outputPath) {
   );
   const result = spawnSync(
     python,
-    [resolve(root, 'scripts/semantic/evaluate.py')],
+    [resolve(root, 'scripts/semantic/evaluate.py'), '--scenario', scenario],
     {
       input: JSON.stringify({ samples }),
       encoding: 'utf8',
@@ -47,7 +59,13 @@ export function evaluateSemanticTranscript(transcriptPath, outputPath) {
     throw new Error(
       `Local Sentence Transformers evaluation failed. Run npm run setup:semantic. ${result.error?.message ?? result.stderr}`,
     );
-  const semantic = validateSemanticReport(JSON.parse(result.stdout), samples);
+  const semantic = validateSemanticReport(
+    JSON.parse(result.stdout),
+    samples,
+    scenario,
+  );
+  if (semantic.fixtureSha256 !== fixtureSha256)
+    throw new Error('Semantic evaluator used a mismatched reference fixture');
   const report = {
     ...semantic,
     sourceTranscript: transcriptPath ? resolve(transcriptPath) : null,
@@ -86,7 +104,7 @@ export function evaluateSemanticTranscript(transcriptPath, outputPath) {
   });
   console.info(`Sentence Transformers report: ${destination}`);
   console.info(
-    `Semantic calibration: ${report.calibration.status}; scores are advisory, factual checks remain mandatory.`,
+    `Semantic calibration (${scenario}): ${report.calibration.status}; scores are advisory, factual checks remain mandatory.`,
   );
   for (const sample of report.samples)
     console.info(

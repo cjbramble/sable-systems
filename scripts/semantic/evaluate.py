@@ -13,7 +13,7 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = Path(__file__).with_name("model.json")
-FIXTURE_PATH = ROOT / "tests/fixtures/semantic/case-pack.json"
+SCENARIOS = ("case-pack", "comparison")
 
 
 def digest(path):
@@ -41,7 +41,10 @@ def download_model(manifest):
     print(json.dumps({"downloaded": str(destination), "revision": manifest["revision"]}))
 
 
-def evaluate(payload, manifest):
+def evaluate(payload, manifest, scenario="case-pack"):
+    if scenario not in SCENARIOS:
+        raise ValueError(f"Unknown semantic scenario: {scenario}")
+    fixture_path = ROOT / f"tests/fixtures/semantic/{scenario}.json"
     # Downloads are an explicit setup step, never a fallback during evaluation.
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
@@ -64,7 +67,7 @@ def evaluate(payload, manifest):
     if receipt != {"id": manifest["id"], "revision": manifest["revision"], "files": hashes}:
         raise ValueError("Local embedding model differs from its setup receipt; rerun setup:semantic")
 
-    fixture = json.loads(FIXTURE_PATH.read_text())
+    fixture = json.loads(fixture_path.read_text())
     references = fixture["references"]
     examples = fixture["examples"]
     if fixture["schemaVersion"] != 1 or len(references) < 2:
@@ -147,7 +150,7 @@ def evaluate(payload, manifest):
         },
         "model": {"id": manifest["id"], "revision": manifest["revision"], "device": "cpu", "files": hashes},
         "versions": {name: importlib.metadata.version(name) for name in ("sentence-transformers", "torch", "transformers", "huggingface-hub")},
-        "fixtureSha256": digest(FIXTURE_PATH),
+        "fixtureSha256": digest(fixture_path),
         "evaluatorSha256": digest(Path(__file__)),
         "pythonVersion": sys.version,
         "lockSha256": digest(Path(__file__).with_name("uv.lock")),
@@ -165,13 +168,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--download", action="store_true")
     parser.add_argument("--calibrate", action="store_true")
+    parser.add_argument("--scenario", choices=SCENARIOS, default="case-pack")
     args = parser.parse_args()
     manifest = json.loads(MANIFEST_PATH.read_text())
     if args.download:
         download_model(manifest)
     else:
         payload = {"samples": []} if args.calibrate else json.load(sys.stdin)
-        print(json.dumps(evaluate(payload, manifest), allow_nan=False))
+        print(json.dumps(evaluate(payload, manifest, args.scenario), allow_nan=False))
 
 
 if __name__ == "__main__":

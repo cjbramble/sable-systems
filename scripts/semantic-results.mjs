@@ -127,7 +127,25 @@ export function parseComparisonSamplingTranscript(text) {
   return batch;
 }
 
-export function validateSemanticReport(report, samples) {
+export function getSemanticScenario(name = 'case-pack') {
+  const scenarios = {
+    'case-pack': { fixture, parseTranscript: parseSamplingTranscript },
+    comparison: {
+      fixture: comparisonFixture,
+      parseTranscript: parseComparisonSamplingTranscript,
+    },
+  };
+  if (!Object.hasOwn(scenarios, name))
+    throw new Error(`Unknown semantic scenario: ${name}`);
+  return scenarios[name];
+}
+
+export function validateSemanticReport(
+  report,
+  samples,
+  scenario = 'case-pack',
+) {
+  const { fixture } = getSemanticScenario(scenario);
   const isScore = (value) =>
     typeof value === 'number' &&
     Number.isFinite(value) &&
