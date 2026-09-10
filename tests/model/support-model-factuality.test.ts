@@ -11,6 +11,7 @@ import {
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 import casePackFixture from '../fixtures/semantic/case-pack.json';
 import { findIncorrectNearestCasePackClaims } from '../assertions/nearest-case-pack';
+import { findPositiveStockShortfallClaims } from '../assertions/stock-shortfall';
 
 function claimsMatching(value: string, pattern: RegExp) {
   return new Set(value.match(pattern) ?? []);
@@ -94,9 +95,10 @@ function expectCasePackResponse(answer: string, authorizedContext: string) {
   expect(normalizedAnswer).toMatch(
     /\b(?:invalid|not (?:a )?(?:valid )?multiple|not (?:a )?valid|not divisible)\b/i,
   );
-  expect(normalizedAnswer).not.toMatch(
-    /\bout of stock\b|\b(?:shortfall|shortage)\s*(?:of|is|:)?\s*[1-9]\d*\b/i,
-  );
+  expect(
+    findPositiveStockShortfallClaims(answer, 310),
+    'An invalid case-pack quantity must not be described as a stock shortage',
+  ).toEqual([]);
   // An invalid-pack explanation must not also promise a fulfillment exception.
   // Allow both "cannot be fulfilled as partial units" and "No partial units can
   // be shipped". The lookbehind scopes "no" to that claim, not the whole reply.

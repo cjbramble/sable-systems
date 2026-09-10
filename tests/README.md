@@ -162,9 +162,11 @@ evidence identifies these follow-ups, without altering assertions or resampling:
   312 before correctly selecting 312. A deterministic regression now catches
   that contradictory heading/list form when the retained reply is rechecked.
   This fixes the checker gap, not the model's contradictory response.
-- **Next regression:** the fixed-seed reply and samples 2–4 are rejected because the shortfall
-  pattern matches "shortfall: 310" in an ordering-restriction explanation. It
-  needs a counterexample-driven correction that still rejects real shortages.
+- The fixed-seed reply and samples 2–4 were rejected because the old shortfall
+  pattern matched "shortfall: 310" in an ordering-restriction explanation.
+  `assertions/stock-shortfall.ts` now distinguishes that requested-quantity
+  subject from a positive shortage amount. A deterministic regression covers
+  those explanations alongside genuine shortages and contradictory claims.
 - Separately, the new second-product check exposed a product-name collision:
   "Coldstart Rack Controller R2" can select Blackchannel Haptic Controller via
   a shared search term. This arithmetic test uses the exact item number
@@ -181,6 +183,30 @@ items, sibling lists, and later sections do not inherit it. A subsequent correct
 nearest claim does not erase an earlier contradictory list. List numbering and
 case-count annotations are not treated as quantities. This is bounded Markdown
 coverage, not a complete Markdown parser or a general factuality guarantee.
+
+The shortfall check makes a narrow exception for a colon label followed by the
+actual requested quantity, an explicit ordering-restriction predicate and
+reason, and no stock-deficit wording in the same clause. It also recognizes
+locally negated shortage claims and quantified forms such as "8 units short"
+and "short by 8 units". Neither a valid ordering explanation nor a negation
+exempts another positive shortage or "out of stock" claim elsewhere. This is
+targeted phrase coverage, not a general language judge.
+
+The saved-response replay on 2026-09-10T04:43:09Z clears the shortfall false
+positives for the fixed-seed reply and samples 2–4. All five sampled replies
+clear the shortfall checker, but sample 5 still fails the nearest-list checker.
+The saved 320-unit request's real 8-unit shortage remains detectable as a
+positive control. The separate ignored `.shortfall-replay.json` report records
+the source and checker hashes; the original transcript, verdicts, and semantic
+scores are untouched. This replay covers these two checkers only, not every
+model assertion, and does not generate new responses. `npm run check` passes
+124 deterministic tests; the historical model run remains failed.
+
+**Next task:** address the model's remaining contradictory nearest-quantity
+list by clarifying the distinction between adjacent valid choices and the
+nearest choice in its authorized context, then evaluate a fresh run with all
+factual checks intact. The separate product-name routing collision remains
+queued.
 
 ## API response fixtures
 
