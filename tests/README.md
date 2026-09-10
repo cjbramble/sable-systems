@@ -68,7 +68,11 @@ configured sequence are blocked and fail the test, never sent to the real model.
 `LoginPage` and `SupportPage` encapsulate selectors and interactions, following
 the [Playwright page-object pattern](https://playwright.dev/docs/pom). Keep
 scenario-specific inputs, expected responses, and database assertions in the
-spec. Prefer locator assertions and observed responses over fixed sleeps. The
-suite uses Chromium with one worker and no retries; traces and screenshots are
+spec. `SupportMessage` is a message-scoped page component for inspecting formatted
+replies; it keeps Markdown/HTML selectors out of scenarios and works after reload.
+The rendering scenario uses harmless, local-only script probes and checks both
+new and persisted replies. It is targeted regression coverage, not a complete
+security audit. Prefer locator assertions and observed responses over fixed
+sleeps. The suite uses Chromium with one worker and no retries; traces and screenshots are
 retained on failure in ignored `test-results/`, with an HTML report in ignored
 `playwright-report/` (`npx playwright show-report` opens it).

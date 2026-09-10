@@ -1,5 +1,7 @@
 import type { Page } from '@playwright/test';
 
+import { SupportMessage } from './support-message';
+
 export class SupportPage {
   constructor(private readonly page: Page) {}
 
@@ -15,6 +17,10 @@ export class SupportPage {
 
   get messages() {
     return this.messageEntries.locator('.message-bubble');
+  }
+
+  messageContaining(text: string) {
+    return new SupportMessage(this.messages.filter({ hasText: text }));
   }
 
   get requestError() {
@@ -60,6 +66,10 @@ export class SupportPage {
 
   async reload() {
     await this.page.reload();
+  }
+
+  async title() {
+    return this.page.title();
   }
 
   async openIncident(title: string) {

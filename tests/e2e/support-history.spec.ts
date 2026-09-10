@@ -352,3 +352,97 @@ test.describe('model failure recovery', () => {
     ]);
   });
 });
+
+test.describe('Markdown rendering', () => {
+  // These probes only change the disposable browser page's title if executed.
+  const executionMarker = 'unsafe-markdown-executed';
+  const markdownReply = [
+    '## Formatting sample',
+    '',
+    'A **verified reply** with *careful handling* and `read-only` context.',
+    '',
+    '- Check the order number',
+    '- Confirm the requested quantity',
+    '',
+    '| Field | Value |',
+    '| --- | --- |',
+    '| Channel | Support |',
+    '| Access | Read only |',
+    '',
+    '[Order history](/orders)',
+    '',
+    `[Unsafe script](javascript:document.title='${executionMarker}')`,
+    '',
+    `[Unsafe document](data:text/html,%3Cscript%3Edocument.title%3D%27${executionMarker}%27%3C%2Fscript%3E)`,
+    '',
+    `<script>document.title='${executionMarker}'</script>`,
+    '',
+    `<img src="data:image/png,invalid" onerror="document.title='${executionMarker}'">`,
+    '',
+    `<iframe srcdoc="<script>parent.document.title='${executionMarker}'</script>"></iframe>`,
+  ].join('\n');
+
+  test.use({ modelReply: markdownReply });
+
+  test('renders formatted replies while blocking executable HTML and unsafe links, including after reload', async ({
+    supportPage,
+    supportApp,
+  }) => {
+    const initialTitle = await supportPage.title();
+    const prompt = 'Show a formatted support checklist.';
+    await supportPage.startIncident();
+    const response = await supportPage.sendMessage(prompt);
+    expect(response.status()).toBe(200);
+    expect(await response.json()).toEqual({ message: markdownReply });
+    await expect(supportPage.requestError).toHaveCount(0);
+
+    const message = supportPage.messageContaining('Formatting sample');
+    const expectSafeRendering = async () => {
+      await expect(message.bubble).toHaveCount(1);
+      await expect(message.headings).toHaveText(['Formatting sample']);
+      await expect(message.strongText).toHaveText(['verified reply']);
+      await expect(message.emphasizedText).toHaveText(['careful handling']);
+      await expect(message.code).toHaveText(['read-only']);
+      await expect(message.listItems).toHaveText([
+        'Check the order number',
+        'Confirm the requested quantity',
+      ]);
+      await expect(message.tableHeaders).toHaveText(['Field', 'Value']);
+      await expect(message.tableCells).toHaveText([
+        'Channel',
+        'Support',
+        'Access',
+        'Read only',
+      ]);
+      await expect(message.link('Order history')).toHaveAttribute(
+        'href',
+        '/orders',
+      );
+      await expect(message.link('Unsafe script')).toHaveAttribute('href', '');
+      await expect(message.link('Unsafe document')).toHaveAttribute('href', '');
+      await expect(message.embeddedHtml).toHaveCount(0);
+      expect(await supportPage.title()).toBe(initialTitle);
+      await expect(message.bubble).not.toContainText(executionMarker);
+    };
+    await expectSafeRendering();
+
+    const { incidentId } = response.request().postDataJSON();
+    const readReply = async () => {
+      const result = await supportApp.database
+        .prepare(`SELECT content FROM support_messages
+          WHERE incident_id = ? AND role = 'assistant' ORDER BY sequence_number`)
+        .bind(incidentId)
+        .all();
+      return result.results;
+    };
+    // The stored reply stays untrusted text; rendering must remain safe on reload.
+    expect(await readReply()).toEqual([{ content: markdownReply }]);
+    expect(supportApp.modelRequests).toHaveLength(1);
+
+    await supportPage.reload();
+    await supportPage.openIncident(prompt);
+    await expectSafeRendering();
+    expect(await readReply()).toEqual([{ content: markdownReply }]);
+    expect(supportApp.modelRequests).toHaveLength(1);
+  });
+});
