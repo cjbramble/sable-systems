@@ -11,6 +11,101 @@ import {
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support incident API', () => {
+  it('denies incident listing and deletion at session expiry without disclosing or changing history', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-EXPIRED-SESSION-HISTORY';
+    const messageId = 'MSG-EXPIRED-SESSION-HISTORY';
+    const customerMessage = 'Keep my private incident history.';
+    const assistantMessage = 'This discussion belongs to your account.';
+    const makeRequest = (
+      session: SupportApiSession,
+      method: 'GET' | 'DELETE',
+    ) => {
+      const headers = new Headers(session.request({}).headers);
+      headers.set('Origin', 'http://localhost');
+      headers.set('Sec-Fetch-Site', 'same-origin');
+      return new Request('http://localhost/api/incidents', {
+        method,
+        headers,
+        ...(method === 'DELETE'
+          ? { body: JSON.stringify({ incidentId }) }
+          : {}),
+      });
+    };
+
+    try {
+      // Freeze only Date so real database I/O and timers continue normally.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-09-02T12:00:00.000Z'));
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      await saveSupportExchange(
+        database,
+        calderPikeUser,
+        incidentId,
+        messageId,
+        customerMessage,
+        assistantMessage,
+      );
+      const session = await fixture.session(calderPikeUser);
+      const beforeIncident = await fixture.findIncident(incidentId);
+      const beforeMessages = (await fixture.messages(incidentId)).results;
+      expect(beforeIncident).toMatchObject({ user_id: calderPikeUser.userId });
+      expect(beforeMessages).toHaveLength(2);
+
+      vi.setSystemTime(new Date('2026-09-02T23:59:59.999Z'));
+      const allowed = await GET(makeRequest(session, 'GET'));
+      expect(allowed.status).toBe(200);
+      const payload = (await allowed.json()) as {
+        incidents: SupportIncident[];
+      };
+      expect(
+        payload.incidents.find((incident) => incident.id === incidentId),
+      ).toMatchObject({
+        id: incidentId,
+        title: customerMessage,
+        messages: [
+          { id: messageId, role: 'user', content: customerMessage },
+          {
+            id: `AST-${messageId}`,
+            role: 'assistant',
+            content: assistantMessage,
+          },
+        ],
+      });
+
+      // Reuse the original cookie; expiration alone must invalidate both routes.
+      vi.setSystemTime(new Date('2026-09-03T00:00:00.000Z'));
+      for (const method of ['GET', 'DELETE'] as const) {
+        const request = makeRequest(session, method);
+        const denied = await (method === 'GET'
+          ? GET(request)
+          : DELETE(request));
+        expect(denied.status, method).toBe(401);
+        expect(await denied.json(), method).toEqual({
+          error: 'Authentication required.',
+        });
+        expect(await fixture.findIncident(incidentId), method).toEqual(
+          beforeIncident,
+        );
+        expect((await fixture.messages(incidentId)).results, method).toEqual(
+          beforeMessages,
+        );
+      }
+
+      // A new session for the same owner proves the target is still deletable.
+      const freshSession = await fixture.session(calderPikeUser);
+      const deleted = await DELETE(makeRequest(freshSession, 'DELETE'));
+      expect(deleted.status).toBe(204);
+      expect(await deleted.text()).toBe('');
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+      await fixture.cleanup();
+    }
+  });
+
   it('rejects cross-origin deletion before database work and accepts the same-origin control', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);
