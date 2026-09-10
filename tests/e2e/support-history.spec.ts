@@ -138,3 +138,100 @@ test('searches incident titles case-insensitively, selects a match, and restores
   expect(await readConversation()).toEqual(savedConversation);
   expect(supportApp.modelRequests).toHaveLength(0);
 });
+
+test('cancels and confirms incident deletion with the remaining conversation preserved after reload', async ({
+  supportPage,
+  supportApp,
+}) => {
+  const deletedId = 'INC-USR-CPD-001-01';
+  const deletedTitle = 'Priority shipment trace';
+  const remainingId = 'INC-USR-CPD-001-02';
+  const remainingTitle = 'Nerveline allocation';
+  const titles = [deletedTitle, remainingTitle, '2030 contract releases'];
+  const expectedPrompt = {
+    type: 'confirm',
+    message: `Delete “${deletedTitle}”?`,
+  };
+
+  const readHistory = async () => {
+    const [incidents, messages] = await Promise.all([
+      supportApp.database
+        .prepare('SELECT * FROM support_incidents ORDER BY incident_id')
+        .all<{ incident_id: string }>(),
+      supportApp.database
+        .prepare(`SELECT * FROM support_messages
+          ORDER BY incident_id, sequence_number`)
+        .all<{ incident_id: string; content: string }>(),
+    ]);
+    return { incidents: incidents.results, messages: messages.results };
+  };
+  const before = await readHistory();
+  expect(
+    before.incidents.filter((incident) => incident.incident_id === deletedId),
+  ).toHaveLength(1);
+  const deletedMessages = before.messages
+    .filter((message) => message.incident_id === deletedId)
+    .map((message) => message.content);
+  const remainingMessages = before.messages
+    .filter((message) => message.incident_id === remainingId)
+    .map((message) => message.content);
+  expect(deletedMessages).toHaveLength(2);
+  expect(remainingMessages).toHaveLength(2);
+  await expect(supportPage.incidentTitles).toHaveText(titles);
+  await expect(supportPage.incident(deletedTitle)).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(supportPage.messages).toHaveText(deletedMessages);
+
+  const cancelled = await supportPage.deleteIncident(deletedTitle, 'cancel');
+  expect(cancelled.prompt).toEqual(expectedPrompt);
+  await expect(supportPage.incidentTitles).toHaveText(titles);
+  await expect(supportPage.incident(deletedTitle)).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(supportPage.messages).toHaveText(deletedMessages);
+  expect(await readHistory()).toEqual(before);
+
+  await supportPage.reload();
+  await expect(supportPage.incidentTitles).toHaveText(titles);
+  await expect(supportPage.incident(deletedTitle)).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(supportPage.messages).toHaveText(deletedMessages);
+  expect(await readHistory()).toEqual(before);
+
+  const confirmed = await supportPage.deleteIncident(deletedTitle, 'confirm');
+  expect(confirmed.prompt).toEqual(expectedPrompt);
+  expect(confirmed.response?.status()).toBe(204);
+  expect(confirmed.response?.request().postDataJSON()).toEqual({
+    incidentId: deletedId,
+  });
+  await expect(supportPage.incidentTitles).toHaveText(titles.slice(1));
+  await expect(supportPage.incident(remainingTitle)).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(supportPage.messages).toHaveText(remainingMessages);
+  const afterDeletion = {
+    incidents: before.incidents.filter(
+      (incident) => incident.incident_id !== deletedId,
+    ),
+    messages: before.messages.filter(
+      (message) => message.incident_id !== deletedId,
+    ),
+  };
+  expect(await readHistory()).toEqual(afterDeletion);
+
+  await supportPage.reload();
+  await expect(supportPage.incidentTitles).toHaveText(titles.slice(1));
+  await expect(supportPage.incident(remainingTitle)).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(supportPage.messages).toHaveText(remainingMessages);
+  expect(await readHistory()).toEqual(afterDeletion);
+  expect(supportApp.modelRequests).toHaveLength(0);
+});

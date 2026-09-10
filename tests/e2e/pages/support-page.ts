@@ -63,4 +63,33 @@ export class SupportPage {
   async clearIncidentSearch() {
     await this.incidentSearch.clear();
   }
+
+  async deleteIncident(title: string, decision: 'cancel' | 'confirm') {
+    // Register both listeners before clicking; native dialogs block page code
+    // until handled, and a confirmed deletion may respond immediately.
+    const dialogHandled = this.page
+      .waitForEvent('dialog')
+      .then(async (dialog) => {
+        const prompt = { type: dialog.type(), message: dialog.message() };
+        if (decision === 'confirm') await dialog.accept();
+        else await dialog.dismiss();
+        return prompt;
+      });
+    const response =
+      decision === 'confirm'
+        ? this.page.waitForResponse(
+            (response) =>
+              new URL(response.url()).pathname === '/api/incidents' &&
+              response.request().method() === 'DELETE',
+          )
+        : Promise.resolve(null);
+    const [prompt, deletionResponse] = await Promise.all([
+      dialogHandled,
+      response,
+      this.incidents
+        .getByRole('button', { name: `Delete ${title}`, exact: true })
+        .click(),
+    ]);
+    return { prompt, response: deletionResponse };
+  }
 }
