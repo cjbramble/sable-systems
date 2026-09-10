@@ -1,6 +1,7 @@
 import { describe, expect, vi } from 'vitest';
 
-import { POST } from '@/app/api/orders/route';
+import { GET, POST } from '@/app/api/orders/route';
+import type { OrderHistoryResponse, OrderStatus } from '@/lib/contracts';
 import {
   createCheckoutFixture,
   snapshotCheckoutState,
@@ -9,6 +10,101 @@ import { test } from '../fixtures/support-integration';
 import { loadActiveUserFixture } from '../fixtures/users';
 
 describe('orders API', () => {
+  test('scopes history, search results, and totals to the authenticated distributor', async ({
+    database,
+    supportApi,
+  }) => {
+    // Build the ownership oracle from raw rows, independently of the history
+    // query, its SQL predicates, and its aggregate-count implementation.
+    const { results: orders } = await database
+      .prepare(`SELECT order_id, customer_id, status FROM orders
+        ORDER BY created_on DESC, order_id DESC`)
+      .all<{
+        order_id: string;
+        customer_id: string;
+        status: OrderStatus;
+      }>();
+    const scenarios = [
+      { userId: 'USR-MCS-001', customerId: 'WHS-1098', count: 24 },
+      { userId: 'USR-CPD-001', customerId: 'WHS-0427', count: 648 },
+    ];
+
+    for (const scenario of scenarios) {
+      const user = await loadActiveUserFixture(database, scenario.userId);
+      expect(user.distributorId).toBe(scenario.customerId);
+      const session = await supportApi.session(user);
+      const history = async (query = '') => {
+        const url = new URL('http://localhost/api/orders');
+        if (query) url.searchParams.set('query', query);
+        const response = await GET(
+          new Request(url, { headers: session.request({}).headers }),
+        );
+        expect(response.status).toBe(200);
+        return (await response.json()) as OrderHistoryResponse;
+      };
+      const owned = orders.filter(
+        (order) => order.customer_id === scenario.customerId,
+      );
+      expect(owned).toHaveLength(scenario.count);
+      const account = {
+        customerId: scenario.customerId,
+        displayName: user.distributorDisplayName,
+        userDisplayName: user.userDisplayName,
+        accountTier: user.accountTier,
+        currency: user.currency,
+        region: user.region,
+      };
+      const summary = {
+        totalOrders: owned.length,
+        activeOrders: owned.filter((order) =>
+          [
+            'confirmed',
+            'allocating',
+            'backordered',
+            'partially_shipped',
+            'shipped',
+            'on_hold',
+          ].includes(order.status),
+        ).length,
+        scheduledOrders: owned.filter((order) => order.status === 'scheduled')
+          .length,
+        fulfilledOrders: owned.filter((order) => order.status === 'delivered')
+          .length,
+      };
+
+      const listed = await history();
+      expect(listed).toMatchObject({
+        account,
+        page: 1,
+        pageSize: 25,
+        total: owned.length,
+        totalPages: Math.ceil(owned.length / 25),
+        summary,
+      });
+      expect(listed.orders.map((order) => order.orderId)).toEqual(
+        owned.slice(0, 25).map((order) => order.order_id),
+      );
+
+      // Each foreign ID is visible in its owner's first page in this same test.
+      // A known exact ID must not bypass account scoping or leak its count.
+      const other = scenarios.find((entry) => entry !== scenario)!;
+      const foreignOrder = orders.find(
+        (order) => order.customer_id === other.customerId,
+      );
+      expect(foreignOrder).toBeDefined();
+      expect(await history(foreignOrder!.order_id)).toEqual({
+        account,
+        orders: [],
+        page: 1,
+        pageSize: 25,
+        total: 0,
+        totalPages: 1,
+        // Account-wide totals stay scoped, even when a search has no matches.
+        summary,
+      });
+    }
+  });
+
   test('creates a charge-account order for the authenticated distributor and reserves its inventory', async ({
     database,
     supportApi,

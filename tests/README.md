@@ -640,8 +640,22 @@ evidence.
 
 Further report-harness edge cases are deferred in favor of fixture cleanup and
 coverage of checkout, authentication, order history, and representative model
-sampling. The next test will verify that the order-history API returns only
-the authenticated distributor's orders.
+sampling. The next test will cover login, protected navigation, and logout as
+one browser journey, using page objects and the isolated application fixture.
+
+## Order-history integration
+
+`integration/orders-api.test.ts` checks distributor isolation with real Calder
+Pike and Meridian sessions. For each account, it compares the first page's order
+IDs, pagination totals, and account-wide status counts against raw database rows,
+without reusing the production history query. Searching for an exact order ID
+owned by the other account must return no orders and a zero matching count;
+account-wide summaries must still describe only the signed-in distributor.
+
+The case reuses the existing session fixture and seeded orders, adds no business
+records, and mocks neither authentication nor database queries. A temporary
+test-only removal of the ownership predicate made the test fail on the leaked
+720-order total instead of Meridian's 24; the fault was then removed.
 
 ## Checkout integration
 
