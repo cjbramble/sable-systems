@@ -81,10 +81,25 @@ response fields and answers, but does not re-run the factual checker or authenti
 the raw responses. Mixed transcripts remain isolated from the case-pack parser.
 
 The comparison question is shared through `tests/fixtures/semantic/comparison.json`
-to prevent producer/parser drift. This fixture currently contains identity and
-question metadata only, not semantic references or calibration examples. The new
-parser is not wired into the Sentence Transformers runner yet; automatic scoring
-remains case-pack-only.
+to prevent producer/parser drift. The fixture also contains two authored reference
+answers, six calibration examples, and six separate holdout examples. Each split
+has three correct and three incorrect answers. Negatives cover a wrong price,
+swapped availability, an off-topic answer, a wrong case pack, a wrong lead time,
+and the unrequested Blackchannel product. Numeric values were checked against the
+2026-09-02 seed inventory, not fitted to generated answers or similarity scores.
+
+`unit/semantic/comparison.test.ts` checks unique IDs and normalized text, split
+membership and labels, product/name associations, every labeled numeric fact in
+the references and correct examples, and each negative's intended defect. Its
+small parser handles only these authored, labeled product lines; it is not a
+general factuality judge. In-memory corruption controls prove that duplicate text,
+bad labels, incorrect prices/units/names, and accidentally repaired negatives fail.
+
+Holdout texts are distinct, but this remains a small authored set with overlapping
+vocabulary and answer formats, not an independent real-world benchmark. No
+comparison similarity scores or thresholds have been selected. The comparison
+parser/reference fixture is not wired into the Sentence Transformers runner yet;
+automatic scoring remains case-pack-only.
 
 When `npm run test:model` starts Vitest, it saves test output to a new, gitignored
 `reports/model-runs/<timestamp>-<unique-id>.log` file and prints its location.
@@ -143,7 +158,7 @@ no answer is explicitly listed as unscored, not given a synthetic passing score.
 
 ### What the scores mean
 
-The versioned fixture contains two authored reference answers, six labeled
+The case-pack fixture contains two authored reference answers, six labeled
 calibration examples, and four separate holdout examples. Examples include
 valid paraphrases, wrong quantities, negated permissions, and an unrelated
 answer. These are a small authored set, not a validated general benchmark.
@@ -439,9 +454,19 @@ still matched only the case-pack samples and the full transcript's source hash.
 Both evidence files were hash-checked unchanged. No new model generations or
 semantic scores were produced for this parser-only step.
 
-**Next task:** add authored comparison-specific reference answers, calibration
-examples, and separate holdout examples, with a deterministic fixture-integrity
-test, before wiring comparison transcripts into Sentence Transformers scoring.
+The comparison reference fixture now has two reference answers and twelve labeled
+examples, split evenly between calibration and holdout. One deterministic
+fixture-integrity test checks the authored facts and deliberate negative defects,
+plus corruption controls. No model generation or semantic scoring was needed for
+this step. Read-only checks confirmed the seed values and that the saved mixed
+transcript still parses with its original question. The existing transcript and
+case-pack semantic report hashes are unchanged. `npm run check` passes all **133
+deterministic tests across 19 files**, plus lint, type checking, seed validation,
+and the production build.
+
+**Next task:** make the Sentence Transformers evaluator and report validation
+scenario-aware, with a focused regression proving comparison answers use the
+comparison references while preserving the case-pack evaluation path.
 
 ## API response fixtures
 

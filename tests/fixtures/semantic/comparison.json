@@ -1,5 +1,95 @@
 {
   "schemaVersion": 1,
   "scenario": "coldstart-redline-comparison",
-  "question": "Compare Coldstart Rack Controller R2 versus Redline Power Cell R12. Use one line per product with these labeled fields: item number, price, case pack, lead time, available units."
+  "question": "Compare Coldstart Rack Controller R2 versus Redline Power Cell R12. Use one line per product with these labeled fields: item number, price, case pack, lead time, available units.",
+  "references": [
+    "Coldstart Rack Controller R2 — item number: SBL-CSR-R2; price: $2,250.00 per controller; case pack: 4 controllers; lead time: 90 days; available units: 0.\nRedline Power Cell R12 — item number: SBL-RPC-12; price: $680.00 per cell; case pack: 8 cells; lead time: 18 days; available units: 312.",
+    "Item number: SBL-CSR-R2 (Coldstart Rack Controller R2). Available units: 0; lead time: 90 days; case pack: 4; price: $2250 per unit.\nItem number: SBL-RPC-12 (Redline Power Cell R12). Available units: 312; lead time: 18 days; case pack: 8; price: $680 per unit."
+  ],
+  "examples": [
+    {
+      "id": "valid-price-first",
+      "split": "calibration",
+      "correct": true,
+      "kind": "paraphrase",
+      "text": "Coldstart Rack Controller R2: price: $2,250; item number: SBL-CSR-R2; case pack: 4 controllers; available units: 0; lead time: 90 days.\nRedline Power Cell R12: price: $680; item number: SBL-RPC-12; case pack: 8 cells; available units: 312; lead time: 18 days."
+    },
+    {
+      "id": "valid-availability-first",
+      "split": "calibration",
+      "correct": true,
+      "kind": "paraphrase",
+      "text": "Available units: 0 for Coldstart Rack Controller R2 (item number: SBL-CSR-R2); price: $2250.00; case pack: 4; lead time: 90 days.\nAvailable units: 312 for Redline Power Cell R12 (item number: SBL-RPC-12); price: $680.00; case pack: 8; lead time: 18 days."
+    },
+    {
+      "id": "valid-reversed-products",
+      "split": "calibration",
+      "correct": true,
+      "kind": "paraphrase",
+      "text": "Redline Power Cell R12 — item number: SBL-RPC-12 | lead time: 18 days | available units: 312 | price: $680 | case pack: 8 cells.\nColdstart Rack Controller R2 — item number: SBL-CSR-R2 | lead time: 90 days | available units: 0 | price: $2,250 | case pack: 4 controllers."
+    },
+    {
+      "id": "wrong-controller-price",
+      "split": "calibration",
+      "correct": false,
+      "kind": "wrong_price",
+      "text": "Coldstart Rack Controller R2 — item number: SBL-CSR-R2; price: $225.00 per controller; case pack: 4 controllers; lead time: 90 days; available units: 0.\nRedline Power Cell R12 — item number: SBL-RPC-12; price: $680.00 per cell; case pack: 8 cells; lead time: 18 days; available units: 312."
+    },
+    {
+      "id": "swapped-availability",
+      "split": "calibration",
+      "correct": false,
+      "kind": "swapped_availability",
+      "text": "Item number: SBL-CSR-R2 (Coldstart Rack Controller R2). Available units: 312; lead time: 90 days; case pack: 4; price: $2250 per unit.\nItem number: SBL-RPC-12 (Redline Power Cell R12). Available units: 0; lead time: 18 days; case pack: 8; price: $680 per unit."
+    },
+    {
+      "id": "unrelated-login-help",
+      "split": "calibration",
+      "correct": false,
+      "kind": "off_topic",
+      "text": "Open the sign-in page and enter your account credentials to access support."
+    },
+    {
+      "id": "valid-numbered-lines",
+      "split": "holdout",
+      "correct": true,
+      "kind": "paraphrase",
+      "text": "1. Coldstart Rack Controller R2 (item number: SBL-CSR-R2): case pack: 4; price: $2,250.00; available units: 0; lead time: 90 days.\n2. Redline Power Cell R12 (item number: SBL-RPC-12): case pack: 8; price: $680.00; available units: 312; lead time: 18 days."
+    },
+    {
+      "id": "valid-stock-distinction",
+      "split": "holdout",
+      "correct": true,
+      "kind": "paraphrase",
+      "text": "Coldstart Rack Controller R2 has no available stock: item number: SBL-CSR-R2; available units: 0; price: $2250; lead time: 90 days; case pack: 4 controllers.\nRedline Power Cell R12 has available stock: item number: SBL-RPC-12; available units: 312; price: $680; lead time: 18 days; case pack: 8 cells."
+    },
+    {
+      "id": "valid-lead-first",
+      "split": "holdout",
+      "correct": true,
+      "kind": "paraphrase",
+      "text": "Lead time: 18 days for Redline Power Cell R12; case pack: 8 cells; price: $680.00; available units: 312; item number: SBL-RPC-12.\nLead time: 90 days for Coldstart Rack Controller R2; case pack: 4 controllers; price: $2,250.00; available units: 0; item number: SBL-CSR-R2."
+    },
+    {
+      "id": "wrong-cell-pack",
+      "split": "holdout",
+      "correct": false,
+      "kind": "wrong_case_pack",
+      "text": "Coldstart Rack Controller R2 (item number: SBL-CSR-R2): case pack: 4 controllers; lead time: 90 days; price: $2250; available units: 0.\nRedline Power Cell R12 (item number: SBL-RPC-12): case pack: 4 cells; lead time: 18 days; price: $680; available units: 312."
+    },
+    {
+      "id": "wrong-controller-lead",
+      "split": "holdout",
+      "correct": false,
+      "kind": "wrong_lead_time",
+      "text": "Item number: SBL-RPC-12 identifies Redline Power Cell R12; price: $680 per cell; available units: 312; case pack: 8; lead time: 18 days.\nItem number: SBL-CSR-R2 identifies Coldstart Rack Controller R2; price: $2250 per controller; available units: 0; case pack: 4; lead time: 9 days."
+    },
+    {
+      "id": "unrequested-haptic-controller",
+      "split": "holdout",
+      "correct": false,
+      "kind": "unrequested_product",
+      "text": "- Coldstart Rack Controller R2: item number: SBL-CSR-R2; price: $2,250; lead time: 90 days; case pack: 4; available units: 0.\n- Redline Power Cell R12: item number: SBL-RPC-12; price: $680; lead time: 18 days; case pack: 8; available units: 312.\n- Blackchannel Haptic Controller: item number: SBL-BCH-V3; price: $1,460; lead time: 24 days; case pack: 4; available units: 134."
+    }
+  ]
 }
