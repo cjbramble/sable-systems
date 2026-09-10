@@ -324,17 +324,29 @@ The new database-backed regression checks Coldstart versus Blackchannel's
 It verifies both full-name and item-number questions, case normalization,
 correct stock/price/allocation facts, the summary-intent path, and a keyword-only
 lookup. The regression failed before the priority change and passed afterward.
-All 25 catalog/order-grounding tests pass, and `npm run check` passes all
-130 deterministic tests. No model generations or semantic scores were rerun;
+All 25 catalog/order-grounding tests passed, and `npm run check` passed all
+130 deterministic tests at that milestone. No model generations or semantic scores were rerun;
 retained model evidence and factual checks are unchanged.
 
-This step ranks candidates; it does not yet exclude loosely matched candidates
-from comparison results.
+That step ranked candidates without excluding loosely matched candidates from
+comparison results. The matcher now collects full-name/item-number matches
+first and removes their literal text from a separate keyword-search copy.
+Only the remaining text can identify additional products by alias. The original
+message is unchanged, and explicit matches still lead the result without
+duplicates. Aliases mentioned separately remain eligible; this is not a rule
+that discards all aliases whenever an explicit reference appears.
 
-**Next task:** add a comparison-specific regression so shared keywords inside
-explicit product references do not pull an unrelated third product into a
-two-product comparison. Preserve legitimate comparisons using a mix of full
-names, item numbers, and product aliases.
+The comparison regression has 15 independently authored prompt variants covering
+Coldstart/Redline and RelayMesh/Redline, full names, item numbers, aliases,
+repeated references, reversed order, and uppercase input. It also retains
+Blackchannel when its alias is separately requested, including a separate
+"controller" mention. Eight variants exposed unwanted third products before
+the fix; all variants now pass. All 27 catalog/order/quantity-parser tests and
+the full `npm run check` pass, with **131 deterministic tests** overall.
+Model generations, semantic scores, and retained model evidence are unchanged.
+
+**Next task:** add a live-model regression for the overlapping-name comparison,
+requiring only the two requested products and the correct facts for each one.
 
 ## API response fixtures
 

@@ -928,6 +928,73 @@ Ask which item the customer wants if a specific availability decision is require
 </authorized_records>`);
   });
 
+  it('excludes keyword matches inside explicit product references from comparisons', async () => {
+    const database = await getDatabase();
+    // Independently authored product sets, not derived from the matcher or seed.
+    const scenarios = [
+      {
+        prompts: [
+          'Compare Coldstart Rack Controller R2 versus Redline Power Cell R12.',
+          'Compare Coldstart Rack Controller R2 (SBL-CSR-R2) versus Redline Power Cell R12 (SBL-RPC-12).',
+          'Compare Coldstart Rack Controller R2 versus SBL-RPC-12.',
+          'Compare Coldstart Rack Controller R2 versus Redline.',
+          'Compare SBL-CSR-R2 versus Redline.',
+          'Compare Coldstart versus Redline Power Cell R12.',
+          'COMPARE REDLINE POWER CELL R12 VERSUS COLDSTART RACK CONTROLLER R2.',
+          'Compare Coldstart Rack Controller R2 versus Redline. Include the lead time for Coldstart Rack Controller R2.',
+          'Compare Coldstart versus Redline.',
+        ],
+        products: [
+          'Product: SBL-CSR-R2 — Coldstart Rack Controller R2; category Compute.',
+          'Product: SBL-RPC-12 — Redline Power Cell R12; category Power.',
+        ],
+      },
+      {
+        // A generic "license" match must not introduce Palisade here.
+        prompts: [
+          'Compare RelayMesh Node License, Annual versus Redline Power Cell R12.',
+          'Compare RelayMesh Node License, Annual versus Redline.',
+          'Compare SBL-RLY-1Y versus Redline.',
+        ],
+        products: [
+          'Product: SBL-RLY-1Y — RelayMesh Node License, Annual; category Software.',
+          'Product: SBL-RPC-12 — Redline Power Cell R12; category Power.',
+        ],
+      },
+      {
+        // A separate keyword mention remains eligible, even when the same word
+        // also occurs inside the explicit product name.
+        prompts: [
+          'Compare Coldstart Rack Controller R2 versus haptic.',
+          'Compare Coldstart Rack Controller R2 versus controller.',
+          'Compare Coldstart Rack Controller R2 versus Blackchannel Haptic Controller.',
+        ],
+        products: [
+          'Product: SBL-CSR-R2 — Coldstart Rack Controller R2; category Compute.',
+          'Product: SBL-BCH-V3 — Blackchannel Haptic Controller; category Interface.',
+        ],
+      },
+    ];
+    for (const { prompts, products } of scenarios) {
+      for (const content of prompts) {
+        const context = await buildAuthorizedContext(
+          database,
+          [{ role: 'user', content }],
+          calderPikeUser,
+        );
+        expect
+          .soft(
+            context
+              .split('\n')
+              .filter((line) => line.startsWith('Product:'))
+              .sort(),
+            content,
+          )
+          .toEqual([...products].sort());
+      }
+    }
+  });
+
   it('builds an exact comparison context for two products', async () => {
     const messages = [
       {

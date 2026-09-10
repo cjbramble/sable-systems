@@ -354,21 +354,29 @@ async function matchProducts(db: D1Database, message: string) {
     .prepare('SELECT * FROM products ORDER BY product_name')
     .all<ProductRow>();
   const explicitMatches: ProductRow[] = [];
-  const keywordMatches: ProductRow[] = [];
+  const keywordCandidates: ProductRow[] = [];
+  let keywordMessage = message;
   for (const product of rows.results) {
-    if (
-      message.includes(product.item_number.toLowerCase()) ||
-      message.includes(product.product_name.toLowerCase())
-    ) {
+    const itemNumber = product.item_number.toLowerCase();
+    const productName = product.product_name.toLowerCase();
+    if (message.includes(itemNumber) || message.includes(productName)) {
       explicitMatches.push(product);
-    } else if (
-      product.search_terms
-        .split(',')
-        .some((term) => term.length >= 4 && message.includes(term.trim()))
-    ) {
-      keywordMatches.push(product);
+      // Words inside a full name identify that product, not another product's
+      // alias. Remove every explicit mention only from the keyword-search copy.
+      keywordMessage = keywordMessage
+        .replaceAll(itemNumber, ' ')
+        .replaceAll(productName, ' ');
+    } else {
+      keywordCandidates.push(product);
     }
   }
+  // Check aliases after collecting all explicit references, regardless of row
+  // order. Separately mentioned aliases remain available for mixed comparisons.
+  const keywordMatches = keywordCandidates.filter((product) =>
+    product.search_terms
+      .split(',')
+      .some((term) => term.length >= 4 && keywordMessage.includes(term.trim())),
+  );
   // Full names and item numbers outrank generic terms such as "controller".
   // Preserve alphabetical order within each tier and include each product once.
   return [...explicitMatches, ...keywordMatches];
