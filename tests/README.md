@@ -270,13 +270,43 @@ The new ignored `.partial-fulfillment-replay.json` report records source/checker
 hashes and each diagnostic; the source transcript and semantic report hashes
 were verified unchanged. This is not a replay of every model assertion or a
 new model run. No responses or semantic scores were regenerated. The historical
-model run remains failed. `npm run check` passes 127 deterministic tests.
+model run remains failed. `npm run check` passed 127 deterministic tests at
+that milestone.
 
-**Next task:** address the genuine model stock-shortfall error by supplying
-an explicit calculated requested-quantity shortfall, separate from the
-case-pack adjustment distance, with a database-backed regression. Then run one
-fresh targeted model evaluation with all factual checks intact. The separate
-product-name routing collision remains queued.
+Physical-product context now supplies the explicit requested stock shortfall:
+`max(0, requested - available)`. It uses the original requested quantity, not
+the adjusted case-pack multiple, and explicitly separates shortfall from
+adjustment distance. The new database-backed regression covers below/equal/above
+stock, valid and invalid packs, a below-one-case request, and a second product
+with zero availability despite inbound/quarantined units. For 318 requested and
+312 available, the shortfall is 6—not the 2-unit adjustment distance or the
+adjusted 320-unit order's 8-unit shortage. No physical shortfall is added for
+digital licenses or a question with no recognized requested quantity.
+
+One fresh targeted run on 2026-09-10T18:29:56Z passed **3 model tests, with 26
+skipped**, including all five normal-generation samples. Both fixed-seed
+quantity cases passed, and all five samples reported zero stock shortfall,
+312 as nearest, and 304 as a valid alternative for the invalid 310-unit request.
+All factual checks and generation settings were unchanged; there were no
+retries or favorable resampling. This is bounded regression evidence, not a
+full-model-suite result or a guarantee about every future reply.
+
+The transcript and local Sentence Transformers report share the prefix
+`reports/model-runs/2026-09-10T18-29-56-942Z-356c2673-f9a1-4e6a-af98-5ced3cac2fb5`.
+The report's source hash was verified. Cosine scores were 0.5672, 0.5911,
+0.5694, 0.5551, and 0.5677; calibration still overlaps, so scores remain
+advisory. Earlier failed evidence is unchanged. `npm run check` passes
+128 deterministic tests.
+
+The new no-quantity boundary check also exposed an existing classifier bug:
+"How many SBL-RPC-12 units are available?" extracts 12 as the requested quantity
+from the item-number suffix. The shortfall regression uses the product-name
+wording to isolate calculation from this separate parser issue; the quantity
+parser was not changed in this step.
+
+**Next task:** add a quantity-parsing regression and prevent numeric item-number
+suffixes from becoming requested quantities, while preserving actual explicit
+quantities. The separate product-name routing collision remains queued.
 
 ## API response fixtures
 

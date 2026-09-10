@@ -413,9 +413,16 @@ ${quantityNote}This is a digitally allocated license and does not have a physica
     Number(inventory?.quarantined ?? 0);
   const invalidCasePack =
     quantity !== undefined && quantity % product.case_pack !== 0;
+  // Compare the original request to usable stock, not to an adjusted case-pack
+  // quantity. Surplus stock is not a negative shortage or an adjustment gap.
+  const requestedShortfall =
+    quantity === undefined ? undefined : Math.max(0, quantity - available);
   const quantityNote = quantity
-    ? `Requested quantity ${quantity}: ${invalidCasePack ? `not a multiple of case pack ${product.case_pack}` : 'valid case-pack multiple'}; ${available >= quantity ? 'currently within available-to-promise stock' : `exceeds current available-to-promise stock by ${quantity - available}`}.
+    ? `Requested quantity ${quantity}: ${invalidCasePack ? `not a multiple of case pack ${product.case_pack}` : 'valid case-pack multiple'}; ${available >= quantity ? 'currently within available-to-promise stock' : `exceeds current available-to-promise stock by ${requestedShortfall}`}.
 `
+    : '';
+  const shortfallNote = quantity
+    ? `Stock shortfall for requested quantity ${quantity}: ${requestedShortfall} units (${quantity} requested; ${available} available). Case-pack adjustment distance is not a stock shortfall.\n`
     : '';
   const orderingRestriction = invalidCasePack
     ? `Ordering restriction: quantity ${quantity} cannot be ordered or fulfilled as requested. It must be adjusted to a full case-pack multiple of ${product.case_pack}; sufficient stock does not waive this rule. Do not offer partial-unit or broken-case exceptions to this ordering restriction.\n`
@@ -438,7 +445,7 @@ ${quantityNote}This is a digitally allocated license and does not have a physica
   }
   return `Product: ${product.item_number} — ${product.product_name}; category ${product.category}.
 Wholesale price: ${formatCurrency(product.unit_price_cents)} per ${product.unit_label}; case pack ${product.case_pack}; standard lead time ${product.lead_time_days} days.
-${quantityNote}${orderingRestriction}${adjustmentNote}Available to promise as of ${AS_OF_DATE}: ${available}. Inbound: ${inventory?.inbound ?? 0}. Expected restock: ${inventory?.expected_restock_date ?? 'none scheduled'}.
+${quantityNote}${shortfallNote}${orderingRestriction}${adjustmentNote}Available to promise as of ${AS_OF_DATE}: ${available}. Inbound: ${inventory?.inbound ?? 0}. Expected restock: ${inventory?.expected_restock_date ?? 'none scheduled'}.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.${locationNote}`;
 }
 

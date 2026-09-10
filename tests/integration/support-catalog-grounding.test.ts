@@ -209,6 +209,7 @@ Quarantined units are excluded from availability. Do not reveal other distributo
 Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
 Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
 Requested quantity 320: valid case-pack multiple; exceeds current available-to-promise stock by 8.
+Stock shortfall for requested quantity 320: 8 units (320 requested; 312 available). Case-pack adjustment distance is not a stock shortfall.
 Available to promise as of 2026-09-02: 312. Inbound: 0. Expected restock: none scheduled.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
 </authorized_records>`);
@@ -261,6 +262,7 @@ Quarantined units are excluded from availability. Do not reveal other distributo
 Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
 Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
 Requested quantity 310: not a multiple of case pack 8; currently within available-to-promise stock.
+Stock shortfall for requested quantity 310: 0 units (310 requested; 312 available). Case-pack adjustment distance is not a stock shortfall.
 Ordering restriction: quantity 310 cannot be ordered or fulfilled as requested. It must be adjusted to a full case-pack multiple of 8; sufficient stock does not waive this rule. Do not offer partial-unit or broken-case exceptions to this ordering restriction.
 Lower valid quantity: 304 units (38 cases), 6 units below requested quantity 310; within current available-to-promise stock.
 Higher valid quantity: 312 units (39 cases), 2 units above requested quantity 310; within current available-to-promise stock.
@@ -426,6 +428,64 @@ Quarantined units are excluded from availability. Do not reveal other distributo
           .filter((line) => line.startsWith('Response labeling:')),
         `${item}, quantity ${requested}`,
       ).toEqual(label === null ? [] : [`Response labeling: ${label}`]);
+    }
+  });
+
+  it('calculates requested stock shortfall independently of case-pack adjustment distance', async () => {
+    const database = await getDatabase();
+    // Independently authored values: Redline has 312 available; Coldstart has
+    // zero. Reserved, quarantined, and inbound units cannot cover a shortfall.
+    const scenarios = [
+      { item: 'SBL-RPC-12', requested: 310, available: 312, shortfall: 0 },
+      { item: 'SBL-RPC-12', requested: 306, available: 312, shortfall: 0 },
+      { item: 'SBL-RPC-12', requested: 2, available: 312, shortfall: 0 },
+      { item: 'SBL-RPC-12', requested: 312, available: 312, shortfall: 0 },
+      { item: 'SBL-RPC-12', requested: 313, available: 312, shortfall: 1 },
+      // Requested shortage is 6, not the 2-unit adjustment or the adjusted
+      // 320-unit quantity's 8-unit shortage.
+      { item: 'SBL-RPC-12', requested: 318, available: 312, shortfall: 6 },
+      { item: 'SBL-RPC-12', requested: 320, available: 312, shortfall: 8 },
+      { item: 'SBL-CSR-R2', requested: 7, available: 0, shortfall: 7 },
+      { item: 'SBL-CSR-R2', requested: 4, available: 0, shortfall: 4 },
+    ];
+    for (const { item, requested, available, shortfall } of scenarios) {
+      const context = await buildAuthorizedContext(
+        database,
+        [
+          {
+            role: 'user',
+            content: `Are ${requested} units of ${item} available?`,
+          },
+        ],
+        calderPikeUser,
+      );
+      expect(
+        context
+          .split('\n')
+          .filter((line) =>
+            line.startsWith('Stock shortfall for requested quantity'),
+          ),
+        `${item}, quantity ${requested}`,
+      ).toEqual([
+        `Stock shortfall for requested quantity ${requested}: ${shortfall} units (${requested} requested; ${available} available). Case-pack adjustment distance is not a stock shortfall.`,
+      ]);
+    }
+    // Use the product name to isolate the no-quantity boundary: the separate
+    // SKU-suffix parser bug ("SBL-RPC-12 units" becomes quantity 12) is queued.
+    // Do not manufacture a requested quantity or physical license inventory.
+    for (const content of [
+      'How many Redline Power Cell R12 units are available?',
+      'Are 50 licenses of Palisade Endpoint License, Annual available?',
+      'Are 60 licenses of Palisade Endpoint License, Annual available?',
+    ]) {
+      const context = await buildAuthorizedContext(
+        database,
+        [{ role: 'user', content }],
+        calderPikeUser,
+      );
+      expect(context, content).not.toContain(
+        'Stock shortfall for requested quantity',
+      );
     }
   });
 
