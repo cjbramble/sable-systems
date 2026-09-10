@@ -345,8 +345,32 @@ the fix; all variants now pass. All 27 catalog/order/quantity-parser tests and
 the full `npm run check` pass, with **131 deterministic tests** overall.
 Model generations, semantic scores, and retained model evidence are unchanged.
 
-**Next task:** add a live-model regression for the overlapping-name comparison,
-requiring only the two requested products and the correct facts for each one.
+The live-model overlapping-name comparison now requests Coldstart Rack
+Controller R2 versus Redline Power Cell R12. Its independently authored
+expectations require exactly those two item numbers in the authorized context
+and response, and check each product's price, case pack, lead time, and available
+units in its own labeled section. It also rejects Blackchannel/Haptic Controller
+by name, even without an item number. The existing comparison assertions were
+extracted unchanged into a shared helper used by both model cases.
+
+One targeted run on 2026-09-10T20:43:07Z passed **2 model tests, with 28 skipped**
+(30 model tests total): the existing Nightvault/Redline case and the new
+Coldstart/Redline case. The new case uses seed 1613 and the existing fixed-seed
+settings (temperature 0, top-p 1, maximum 300 tokens). There were no retries or
+favorable resampling. This is bounded fixed-input evidence, not repeated
+normal-generation coverage or a full-model-suite result.
+
+The retained transcript is
+`reports/model-runs/2026-09-10T20-43-07-897Z-a15e672b-d45d-4e30-bcb6-2f82d97f9edf.log`.
+It includes the new question, seed, authorized context, answer, and verdict.
+No Sentence Transformers report was produced: semantic scoring currently
+applies to the separate case-pack sampling scenario, which was not selected.
+Earlier transcripts and semantic evidence are unchanged. `npm run check`
+continues to pass all **131 deterministic tests**.
+
+**Next task:** add a five-sample normal-generation version of the overlapping-name
+comparison, retaining every reply and applying the same factual checks without
+retries or majority-vote acceptance.
 
 ## API response fixtures
 

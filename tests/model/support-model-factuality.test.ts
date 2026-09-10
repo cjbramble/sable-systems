@@ -46,6 +46,52 @@ function expectClaimsToComeFromContext(answer: string, context: string) {
   }
 }
 
+type ComparisonProductFacts = {
+  item: string;
+  price: number;
+  pack: number;
+  lead: number;
+  available: number;
+};
+
+function expectProductComparisonResponse(
+  answer: string,
+  authorizedContext: string,
+  expectedProducts: ComparisonProductFacts[],
+) {
+  expect([...claimsMatching(answer, itemNumberPattern)].sort()).toEqual(
+    expectedProducts.map((product) => product.item).sort(),
+  );
+
+  const sections = answer
+    .replaceAll('**', '')
+    .split(/(?=\bitem number\s*:)/i);
+  for (const product of expectedProducts) {
+    const productSections = sections.filter((section) =>
+      section.includes(product.item),
+    );
+    expect(
+      productSections,
+      `Expected one section for ${product.item}: ${answer}`,
+    ).toHaveLength(1);
+    const section = productSections[0] ?? '';
+    const price = section.match(/\bprice\s*:\s*\$([\d,]+(?:\.\d{2})?)/i)?.[1];
+    expect(Number(price?.replaceAll(',', '')), section).toBe(product.price);
+    expect(section).toMatch(
+      new RegExp(`\\bcase pack\\s*:\\s*${product.pack}\\b`, 'i'),
+    );
+    expect(section).toMatch(
+      new RegExp(`\\blead time\\s*:\\s*${product.lead}\\s+days\\b`, 'i'),
+    );
+    expect(section).toMatch(
+      new RegExp(`\\bavailable units\\s*:\\s*${product.available}\\b`, 'i'),
+    );
+  }
+
+  expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
+  expectClaimsToComeFromContext(answer, authorizedContext);
+}
+
 async function askSupportModel(
   messages: ChatHistoryMessage[],
   seed: number,
@@ -1000,41 +1046,39 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
 
     console.info('Catalog comparison response:', answer);
 
-    const expectedProducts = [
+    expectProductComparisonResponse(answer, authorizedContext, [
       { item: 'SBL-NV-16T', price: 1940, pack: 4, lead: 35, available: 96 },
       { item: 'SBL-RPC-12', price: 680, pack: 8, lead: 18, available: 312 },
+    ]);
+  }, 120_000);
+
+  it('compares only the requested products when their names contain shared keywords', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'Compare Coldstart Rack Controller R2 versus Redline Power Cell R12. Use one line per product with these labeled fields: item number, price, case pack, lead time, available units.',
+      },
     ];
-    expect([...claimsMatching(answer, itemNumberPattern)].sort()).toEqual(
-      expectedProducts.map((product) => product.item).sort(),
+    const seed = 1613;
+    const { answer, authorizedContext } = await askSupportModel(messages, seed);
+
+    console.info(
+      'Overlapping-name comparison response:',
+      JSON.stringify({ messages, seed, authorizedContext, answer }),
     );
 
-    const sections = answer
-      .replaceAll('**', '')
-      .split(/(?=\bitem number\s*:)/i);
-    for (const product of expectedProducts) {
-      const productSections = sections.filter((section) =>
-        section.includes(product.item),
-      );
-      expect(
-        productSections,
-        `Expected one section for ${product.item}: ${answer}`,
-      ).toHaveLength(1);
-      const section = productSections[0] ?? '';
-      const price = section.match(/\bprice\s*:\s*\$([\d,]+(?:\.\d{2})?)/i)?.[1];
-      expect(Number(price?.replaceAll(',', '')), section).toBe(product.price);
-      expect(section).toMatch(
-        new RegExp(`\\bcase pack\\s*:\\s*${product.pack}\\b`, 'i'),
-      );
-      expect(section).toMatch(
-        new RegExp(`\\blead time\\s*:\\s*${product.lead}\\s+days\\b`, 'i'),
-      );
-      expect(section).toMatch(
-        new RegExp(`\\bavailable units\\s*:\\s*${product.available}\\b`, 'i'),
-      );
-    }
-
-    expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
-    expectClaimsToComeFromContext(answer, authorizedContext);
+    // Independent expectations: do not derive the allowed product set or facts
+    // from the context builder whose product selection is under evaluation.
+    expect(
+      [...claimsMatching(authorizedContext, itemNumberPattern)].sort(),
+    ).toEqual(['SBL-CSR-R2', 'SBL-RPC-12']);
+    expectProductComparisonResponse(answer, authorizedContext, [
+      { item: 'SBL-CSR-R2', price: 2250, pack: 4, lead: 90, available: 0 },
+      { item: 'SBL-RPC-12', price: 680, pack: 8, lead: 18, available: 312 },
+    ]);
+    // Also catch the former collision if it appears only by name, without a SKU.
+    expect(answer).not.toMatch(/Blackchannel|Haptic Controller/i);
   }, 120_000);
 
   it('reports only authorized facts for an exact shipment', async () => {
