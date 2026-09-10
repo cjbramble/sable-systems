@@ -4,10 +4,108 @@ import { DELETE, GET } from '@/app/api/incidents/route';
 import { getDatabase } from '@/db/database';
 import { saveSupportExchange } from '@/db/incidents';
 import type { SupportIncident } from '@/lib/support-incidents';
-import { createSupportApiFixture } from '../fixtures/support-api';
+import {
+  createSupportApiFixture,
+  type SupportApiSession,
+} from '../fixtures/support-api';
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support incident API', () => {
+  it('leaves another user’s incident untouched for same-distributor and cross-distributor deletion attempts', async () => {
+    const database = await getDatabase();
+    const fixture = createSupportApiFixture(database);
+    const incidentId = 'INC-DELETE-FOREIGN-TARGET';
+    const colleagueId = 'USR-DELETE-FOREIGN-COLLEAGUE';
+    let colleagueCreated = false;
+    const requestDeletion = (session: SupportApiSession) => {
+      const headers = new Headers(session.request({}).headers);
+      headers.set('Origin', 'http://localhost');
+      headers.set('Sec-Fetch-Site', 'same-origin');
+      return DELETE(
+        new Request('http://localhost/api/incidents', {
+          method: 'DELETE',
+          headers,
+          body: JSON.stringify({ incidentId }),
+        }),
+      );
+    };
+
+    try {
+      await database
+        .prepare(`INSERT INTO users (
+          user_id, distributor_id, display_name, email, role, status, created_on
+        ) VALUES (?, ?, 'Deletion test colleague', ?, 'account_admin', 'active', '2000-01-01')`)
+        .bind(
+          colleagueId,
+          calderPikeUser.distributorId,
+          'delete-foreign-colleague@example.test',
+        )
+        .run();
+      colleagueCreated = true;
+      const colleague = await loadActiveUserFixture(database, colleagueId);
+      const externalUser = await loadActiveUserFixture(database, 'USR-MCS-001');
+      expect(colleague.userId).not.toBe(calderPikeUser.userId);
+      expect(colleague.distributorId).toBe(calderPikeUser.distributorId);
+      expect(externalUser.distributorId).not.toBe(calderPikeUser.distributorId);
+
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      await saveSupportExchange(
+        database,
+        calderPikeUser,
+        incidentId,
+        'MSG-DELETE-FOREIGN-FIRST',
+        'Keep this private shipment discussion.',
+        'Which shipment should I trace?',
+      );
+      await saveSupportExchange(
+        database,
+        calderPikeUser,
+        incidentId,
+        'MSG-DELETE-FOREIGN-SECOND',
+        'I will send the details later.',
+        'This incident remains open.',
+      );
+      const beforeIncident = await fixture.findIncident(incidentId);
+      const beforeMessages = (await fixture.messages(incidentId)).results;
+      expect(beforeIncident).toMatchObject({
+        incident_id: incidentId,
+        user_id: calderPikeUser.userId,
+      });
+      expect(beforeMessages).toHaveLength(4);
+
+      for (const requester of [colleague, externalUser]) {
+        const session = await fixture.session(requester);
+        const response = await requestDeletion(session);
+        // An inaccessible ID is a non-disclosing no-op, not a deletion.
+        expect(response.status).toBe(204);
+        expect(await response.text()).toBe('');
+        expect(await fixture.findIncident(incidentId)).toEqual(beforeIncident);
+        expect((await fixture.messages(incidentId)).results).toEqual(
+          beforeMessages,
+        );
+      }
+
+      // Change only the session: the real owner can delete the same target.
+      const ownerSession = await fixture.session(calderPikeUser);
+      const ownerResponse = await requestDeletion(ownerSession);
+      expect(ownerResponse.status).toBe(204);
+      expect(await ownerResponse.text()).toBe('');
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+    } finally {
+      try {
+        await fixture.cleanup();
+      } finally {
+        if (colleagueCreated) {
+          await database
+            .prepare('DELETE FROM users WHERE user_id = ?')
+            .bind(colleagueId)
+            .run();
+        }
+      }
+    }
+  });
+
   it('deletes an owned incident and all its messages while preserving unrelated history', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);
