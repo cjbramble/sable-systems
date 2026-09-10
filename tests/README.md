@@ -640,7 +640,21 @@ evidence.
 
 Further report-harness edge cases are deferred in favor of fixture cleanup and
 coverage of checkout, authentication, order history, and representative model
-sampling. The next test will cover successful checkout and its database effects.
+sampling. The next test will verify that insufficient stock rejects checkout
+without leaving an order, charge, or inventory reservation behind.
+
+## Checkout integration
+
+`integration/orders-api.test.ts` exercises the real orders POST handler with a
+non-primary distributor's session and disposable D1 data. Its successful checkout
+case buys two products at different prices and quantities, then checks ownership,
+line snapshots, the independently calculated total, the account charge, the
+confirmation event, and exact stock reservations. No checkout or database logic
+is mocked. Only Date is frozen so order/ship dates remain stable over time.
+
+It reuses the shared session fixture. Test-local teardown removes only the new PO
+and restores the affected inventory rows, even after failure; it never touches
+the development database. Run it with `npm test -- tests/integration/orders-api.test.ts`.
 
 ## API response fixtures
 
