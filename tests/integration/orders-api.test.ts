@@ -1,7 +1,10 @@
 import { describe, expect, vi } from 'vitest';
 
 import { POST } from '@/app/api/orders/route';
-import { createCheckoutFixture } from '../fixtures/checkout';
+import {
+  createCheckoutFixture,
+  snapshotCheckoutState,
+} from '../fixtures/checkout';
 import { test } from '../fixtures/support-integration';
 import { loadActiveUserFixture } from '../fixtures/users';
 
@@ -185,21 +188,7 @@ describe('orders API', () => {
     ]);
     // Full, ordered rows catch partial inserts, altered metadata, and changes to
     // existing records, not just a missing order with this PO or unchanged counts.
-    const snapshot = async () => {
-      const tables = await database.batch([
-        database.prepare('SELECT * FROM orders ORDER BY order_id'),
-        database.prepare(
-          'SELECT * FROM order_items ORDER BY order_id, line_number',
-        ),
-        database.prepare('SELECT * FROM account_charges ORDER BY charge_id'),
-        database.prepare('SELECT * FROM order_events ORDER BY event_id'),
-        database.prepare(
-          'SELECT * FROM inventory_balances ORDER BY item_number, location_id',
-        ),
-      ]);
-      return tables.map((table) => table.results);
-    };
-    const before = await snapshot();
+    const before = await snapshotCheckoutState(database);
     const response = await POST(
       new Request('http://localhost/api/orders', {
         method: 'POST',
@@ -223,15 +212,223 @@ describe('orders API', () => {
       error: 'Signal-Weave Active Cable, 12 m has only 720 units available.',
     });
     // Check before fixture cleanup so cleanup cannot hide partial writes.
-    const after = await snapshot();
-    for (const [index, table] of [
+    const after = await snapshotCheckoutState(database);
+    for (const table of [
       'orders',
-      'order_items',
-      'account_charges',
-      'order_events',
-      'inventory_balances',
-    ].entries()) {
-      expect(after[index], `No changes to ${table}`).toEqual(before[index]);
+      'lines',
+      'charges',
+      'events',
+      'inventory',
+    ] as const) {
+      expect(after[table], `No changes to ${table}`).toEqual(before[table]);
+    }
+  });
+
+  test('allows only one concurrent checkout for the last stock and rolls back the losing order', async ({
+    database,
+    supportApi,
+    onTestFinished,
+  }) => {
+    const purchaseOrders = ['MCS-TEST-RACE-A', 'MCS-TEST-RACE-B'];
+    const first = await createCheckoutFixture(database, purchaseOrders[0], [
+      'SBL-RPC-12',
+      'SBL-SWC-12',
+    ]);
+    // Capture the same original inventory before either fixture changes it.
+    await createCheckoutFixture(database, purchaseOrders[1], [
+      'SBL-RPC-12',
+      'SBL-SWC-12',
+    ]);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    vi.setSystemTime(new Date('2026-09-10T09:00:00.000Z'));
+    const user = await loadActiveUserFixture(database, 'USR-MCS-001');
+    const session = await supportApi.session(user);
+    const headers = new Headers(session.request({}).headers);
+    headers.set('Origin', 'http://localhost');
+    headers.set('Sec-Fetch-Site', 'same-origin');
+
+    // Leave one eight-unit Redline case available at ATL-01, none elsewhere.
+    await database
+      .prepare(`UPDATE inventory_balances
+        SET reserved_quantity = on_hand_quantity - quarantined_quantity
+          - CASE WHEN location_id = 'ATL-01' THEN 8 ELSE 0 END
+        WHERE item_number = ?`)
+      .bind('SBL-RPC-12')
+      .run();
+    expect((await first.stockTotals()).results).toEqual([
+      { item_number: 'SBL-RPC-12', on_hand: 376, reserved: 368, available: 8 },
+      {
+        item_number: 'SBL-SWC-12',
+        on_hand: 864,
+        reserved: 144,
+        available: 720,
+      },
+    ]);
+    const before = await snapshotCheckoutState(database);
+    expect(
+      before.orders.some(
+        (row) =>
+          row.order_id === 'SBL-2026-899990' ||
+          row.order_id === 'SBL-2026-899991',
+      ),
+    ).toBe(false);
+
+    // Pin distinct order IDs so a random ID collision cannot masquerade as a
+    // stock conflict. Authentication has already obtained its real session.
+    let sequence = 99_990;
+    const random = vi
+      .spyOn(crypto, 'getRandomValues')
+      .mockImplementation((array) => {
+        if (!(array instanceof Uint32Array) || array.length !== 1)
+          throw new Error('Unexpected random request during checkout');
+        array[0] = sequence++;
+        return array;
+      });
+    const originalBatch = database.batch.bind(database);
+    let arrivals = 0;
+    let timedOut = false;
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const batch = vi
+      .spyOn(database, 'batch')
+      .mockImplementation(async <T>(statements: D1PreparedStatement[]) => {
+        arrivals += 1;
+        if (arrivals === 2) release();
+        await gate;
+        // Only synchronize arrival; keep the real transaction and constraints.
+        return originalBatch<T>(statements);
+      });
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      release();
+    }, 2_000);
+    const requests: Promise<Response>[] = [];
+    let responses: Response[];
+    try {
+      for (const customerPoNumber of purchaseOrders) {
+        requests.push(
+          POST(
+            new Request('http://localhost/api/orders', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                customerPoNumber,
+                requestedShipDate: '2026-10-15',
+                shippingRegion: 'Great Lakes District',
+                items: [
+                  // Its reservation precedes the scarce item in the real batch.
+                  { itemNumber: 'SBL-SWC-12', quantity: 12 },
+                  { itemNumber: 'SBL-RPC-12', quantity: 8 },
+                ],
+              }),
+            }),
+          ),
+        );
+      }
+      responses = await Promise.all(requests);
+      expect(timedOut, 'Both transactions must reach the write gate').toBe(
+        false,
+      );
+      expect(arrivals).toBe(2);
+      expect(random).toHaveBeenCalledTimes(2);
+    } finally {
+      release();
+      await Promise.allSettled(requests);
+      clearTimeout(timeout);
+      batch.mockRestore();
+      random.mockRestore();
+    }
+
+    expect(
+      responses
+        .map((response) => response.status)
+        .sort((left, right) => left - right),
+    ).toEqual([201, 409]);
+    const winner = responses.findIndex((response) => response.status === 201);
+    const receipt = (await responses[winner].json()) as Record<
+      string,
+      string | number
+    >;
+    expect(receipt).toMatchObject({
+      totalCents: 892_000,
+      requestedShipDate: '2026-10-15',
+    });
+    expect(await responses[1 - winner].json()).toEqual({
+      error: 'Inventory changed during checkout. Refresh and try again.',
+    });
+    const after = await snapshotCheckoutState(database);
+    const winningRows = <K extends 'orders' | 'lines' | 'charges' | 'events'>(
+      table: K,
+    ) => after[table].filter((row) => row.order_id === receipt.orderId);
+    expect(winningRows('orders')).toHaveLength(1);
+    expect(winningRows('orders')[0]).toMatchObject({
+      customer_po_number: purchaseOrders[winner],
+      customer_id: 'WHS-1098',
+      placed_by_user_id: 'USR-MCS-001',
+      status: 'confirmed',
+      order_total_cents: 892_000,
+    });
+    expect(
+      winningRows('lines').map((row) => ({
+        item: row.item_number,
+        ordered: row.ordered_quantity,
+        allocated: row.allocated_quantity,
+      })),
+    ).toEqual([
+      { item: 'SBL-SWC-12', ordered: 12, allocated: 12 },
+      { item: 'SBL-RPC-12', ordered: 8, allocated: 8 },
+    ]);
+    expect(winningRows('charges')).toHaveLength(1);
+    expect(winningRows('charges')[0]).toMatchObject({
+      charge_id: receipt.chargeId,
+      authorization_code: receipt.authorizationCode,
+      charge_method: 'charge_account',
+      status: 'authorized',
+      amount_cents: 892_000,
+      currency: 'USD',
+    });
+    expect(winningRows('events').map((row) => row.event_type)).toEqual([
+      'order_confirmed',
+    ]);
+    // The only new business rows belong to the winner; no partial loser remains.
+    for (const table of ['orders', 'lines', 'charges', 'events'] as const) {
+      expect(
+        after[table].filter((row) => row.order_id !== receipt.orderId),
+        table,
+      ).toEqual(before[table]);
+    }
+    expect((await first.stockTotals()).results).toEqual([
+      { item_number: 'SBL-RPC-12', on_hand: 376, reserved: 376, available: 0 },
+      {
+        item_number: 'SBL-SWC-12',
+        on_hand: 864,
+        reserved: 156,
+        available: 708,
+      },
+    ]);
+    expect(after.inventory).toEqual(
+      before.inventory.map((row) =>
+        ['SBL-RPC-12', 'SBL-SWC-12'].includes(String(row.item_number))
+          ? {
+              ...row,
+              reserved_quantity: expect.any(Number),
+              updated_at: expect.any(String),
+            }
+          : row,
+      ),
+    );
+    for (const row of after.inventory) {
+      expect(
+        Number(row.on_hand_quantity) -
+          Number(row.reserved_quantity) -
+          Number(row.quarantined_quantity),
+        `${row.item_number}/${row.location_id}`,
+      ).toBeGreaterThanOrEqual(0);
     }
   });
 });

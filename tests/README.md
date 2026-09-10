@@ -640,8 +640,8 @@ evidence.
 
 Further report-harness edge cases are deferred in favor of fixture cleanup and
 coverage of checkout, authentication, order history, and representative model
-sampling. The next test will verify that two simultaneous checkouts competing
-for the remaining stock cannot oversell or leave a partial losing order.
+sampling. The next test will verify that the order-history API returns only
+the authenticated distributor's orders.
 
 ## Checkout integration
 
@@ -649,8 +649,9 @@ for the remaining stock cannot oversell or leave a partial losing order.
 non-primary distributor's session and disposable D1 data. Its successful checkout
 case buys two products at different prices and quantities, then checks ownership,
 line snapshots, the independently calculated total, the account charge, the
-confirmation event, and exact stock reservations. No checkout or database logic
-is mocked. Only Date is frozen so order/ship dates remain stable over time.
+confirmation event, and exact stock reservations. Checkout decisions and database
+writes use real application logic. Date is frozen so order/ship dates remain
+stable over time.
 
 The insufficient-stock case puts a valid in-stock line before an over-stock line
 with a valid case-pack quantity. It requires a 409 response with the available
@@ -658,11 +659,22 @@ quantity and compares complete order, line, charge, event, and inventory rows
 before cleanup, ensuring rejection has no partial effects. A temporary negative
 control that left 16 units reserved was detected, then removed.
 
-Both cases reuse the session fixture and `fixtures/checkout.ts` for inventory
-reads and scoped cleanup. Teardown removes only the new PO and restores the
-affected inventory rows, even after failure; it never touches the development
-database. Request inputs and business assertions remain in the tests. Run them
-with `npm test -- tests/integration/orders-api.test.ts`.
+The concurrency case leaves one Redline case available and holds two checkouts
+at the database write boundary until both have read that stock. It then delegates
+both unchanged batches to real D1: exactly one must succeed and the other must
+report a stock conflict. The losing transaction must also roll back its earlier
+reservation of a well-stocked item. Assertions check the winner's rows, unchanged
+pre-existing records, no losing order/charge, and no negative stock at any location.
+Distinct order IDs are pinned to prevent unrelated random ID collisions; the
+two-second gate timeout fails the test rather than counting as concurrency proof.
+Requests are drained and spies restored before fixture cleanup. A temporary
+negative control leaving the loser's first reservation was detected, then removed.
+
+All cases reuse the session fixture and `fixtures/checkout.ts` for inventory
+reads, business-table snapshots, and scoped cleanup. Teardown removes only test
+POs and restores the affected inventory rows, even after failure; it never touches
+the development database. Request inputs and business assertions remain in the
+tests. Run them with `npm test -- tests/integration/orders-api.test.ts`.
 
 ## API response fixtures
 
