@@ -353,16 +353,25 @@ async function matchProducts(db: D1Database, message: string) {
   const rows = await db
     .prepare('SELECT * FROM products ORDER BY product_name')
     .all<ProductRow>();
-  return rows.results.filter((product) => {
-    const terms = [
-      product.item_number.toLowerCase(),
-      product.product_name.toLowerCase(),
-      ...product.search_terms.split(','),
-    ];
-    return terms.some(
-      (term) => term.length >= 4 && message.includes(term.trim()),
-    );
-  });
+  const explicitMatches: ProductRow[] = [];
+  const keywordMatches: ProductRow[] = [];
+  for (const product of rows.results) {
+    if (
+      message.includes(product.item_number.toLowerCase()) ||
+      message.includes(product.product_name.toLowerCase())
+    ) {
+      explicitMatches.push(product);
+    } else if (
+      product.search_terms
+        .split(',')
+        .some((term) => term.length >= 4 && message.includes(term.trim()))
+    ) {
+      keywordMatches.push(product);
+    }
+  }
+  // Full names and item numbers outrank generic terms such as "controller".
+  // Preserve alphabetical order within each tier and include each product once.
+  return [...explicitMatches, ...keywordMatches];
 }
 
 async function productComparisonContext(

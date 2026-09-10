@@ -6,6 +6,58 @@ import { classifySupportQuery } from '@/lib/support-query';
 import { calderPikeUser } from '../fixtures/users';
 
 describe('support catalog grounding', () => {
+  it('prioritizes full product names and item numbers over shared search terms', async () => {
+    const database = await getDatabase();
+    const scenarios = [
+      {
+        prompts: [
+          'Are 7 units of Coldstart Rack Controller R2 available?',
+          'Are 7 units of the SBL-CSR-R2 controller available?',
+          'ARE 7 UNITS OF COLDSTART RACK CONTROLLER R2 AVAILABLE?',
+        ],
+        product: 'SBL-CSR-R2 — Coldstart Rack Controller R2; category Compute.',
+        fact: 'Stock shortfall for requested quantity 7: 7 units (7 requested; 0 available).',
+      },
+      {
+        // The same matcher is used for product questions without catalog words.
+        prompts: ['Tell me about Coldstart Rack Controller R2.'],
+        product: 'SBL-CSR-R2 — Coldstart Rack Controller R2; category Compute.',
+        fact: 'Available to promise as of 2026-09-02: 0. Inbound: 48.',
+      },
+      {
+        // Palisade's generic "license" keyword must not override RelayMesh.
+        prompts: [
+          'Is RelayMesh Node License, Annual available?',
+          'Is the SBL-RLY-1Y node license available?',
+        ],
+        product: 'SBL-RLY-1Y — RelayMesh Node License, Annual; category Software.',
+        fact: 'Wholesale price: $620.00 per node; minimum block 10.',
+      },
+      {
+        // Keyword-only lookups must still work when no full name or SKU appears.
+        prompts: ['What is the haptic availability?'],
+        product: 'SBL-BCH-V3 — Blackchannel Haptic Controller; category Interface.',
+        fact: 'Available to promise as of 2026-09-02: 134.',
+      },
+    ];
+    for (const { prompts, product, fact } of scenarios) {
+      for (const content of prompts) {
+        const context = await buildAuthorizedContext(
+          database,
+          [{ role: 'user', content }],
+          calderPikeUser,
+        );
+        expect
+          .soft(
+            context.split('\n').filter((line) => line.startsWith('Product:')),
+            content,
+          )
+          .toEqual([`Product: ${product}`]);
+        expect.soft(context, content).toContain(fact);
+      }
+    }
+  });
+
   it('builds an exact product and inventory context', async () => {
     const messages = [
       {

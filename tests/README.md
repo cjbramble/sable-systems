@@ -312,14 +312,29 @@ and after an item number, including a later real quantity following a misleading
 SKU suffix, and keeps the normalized message intact for product matching.
 The database-backed no-quantity check now includes the original exact-SKU
 wording as well as the product name. Both regressions failed before the fix
-and passed afterward. `npm run check` passes 129 deterministic tests.
+and passed afterward. `npm run check` passed 129 deterministic tests at that
+milestone.
 No model generations or semantic scores were rerun for this deterministic
 parser-only change; retained model evidence and factual checks are unchanged.
 
-**Next task:** add a regression for the product-name routing collision and
-prioritize exact item-number/product-name matches over shared search terms.
-For example, a Coldstart Rack Controller R2 question must not select
-Blackchannel Haptic Controller solely because both match "controller".
+Full product-name and item-number matches now precede keyword-only matches,
+with alphabetical order retained within each tier and no duplicate products.
+The new database-backed regression checks Coldstart versus Blackchannel's
+"controller" keyword and RelayMesh versus Palisade's "license" keyword.
+It verifies both full-name and item-number questions, case normalization,
+correct stock/price/allocation facts, the summary-intent path, and a keyword-only
+lookup. The regression failed before the priority change and passed afterward.
+All 25 catalog/order-grounding tests pass, and `npm run check` passes all
+130 deterministic tests. No model generations or semantic scores were rerun;
+retained model evidence and factual checks are unchanged.
+
+This step ranks candidates; it does not yet exclude loosely matched candidates
+from comparison results.
+
+**Next task:** add a comparison-specific regression so shared keywords inside
+explicit product references do not pull an unrelated third product into a
+two-product comparison. Preserve legitimate comparisons using a mix of full
+names, item numbers, and product aliases.
 
 ## API response fixtures
 
