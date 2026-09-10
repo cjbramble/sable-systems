@@ -190,6 +190,13 @@ overwritten. Replaying a transcript with any failed factual sample still exits
 with failure, even when its similarity score is high. An inference failure with
 no answer is explicitly listed as unscored, not given a synthetic passing score.
 
+`unit/support-semantic.test.ts` checks partially and entirely unanswered batches
+for both scenarios. Only available answers reach the mocked embedding subprocess;
+their original sample IDs are preserved, including gaps. All five factual verdicts
+and each unanswered sample's failure details remain in the saved report. An
+entirely unanswered batch has empty score/pairwise arrays and still fails; it is
+not confused with calibration-only evaluation or an absent scenario.
+
 ### What the scores mean
 
 The case-pack fixture contains two authored reference answers, six labeled
@@ -550,9 +557,19 @@ fixture and evaluator hashes, and report isolation. The earlier mixed transcript
 and original semantic report were hash-checked unchanged; all new evidence files
 remain gitignored.
 
-**Next task:** add a focused scorer regression for inference failures with no
-answer, verifying they remain explicitly unscored and cannot produce a passing
-sampling result while the available answers are still evaluated.
+One new deterministic scorer regression now covers inference failures without
+answers for both scenarios, using mixed and entirely unanswered batches. It
+verifies exact subprocess inputs, non-renumbered answer IDs, explicit unscored
+entries, original failure details and verdicts, failing batch outcomes despite
+high scores on available answers, and persisted evidence. The test caught a
+temporary mutation that judged only answered samples; the mutation was restored
+before validation. No application/scorer behavior, references, or thresholds
+changed, and no Qwen generations or real semantic reports were produced.
+`npm run check` passes **136 deterministic tests across 21 files**, plus lint,
+type checking, seed validation, and the production build.
+
+**Next task:** add one focused scorer regression proving subprocess failures and
+malformed evaluator output raise errors without writing a semantic report.
 
 ## API response fixtures
 
