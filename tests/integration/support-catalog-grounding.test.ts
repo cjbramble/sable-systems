@@ -470,10 +470,9 @@ Quarantined units are excluded from availability. Do not reveal other distributo
         `Stock shortfall for requested quantity ${requested}: ${shortfall} units (${requested} requested; ${available} available). Case-pack adjustment distance is not a stock shortfall.`,
       ]);
     }
-    // Use the product name to isolate the no-quantity boundary: the separate
-    // SKU-suffix parser bug ("SBL-RPC-12 units" becomes quantity 12) is queued.
     // Do not manufacture a requested quantity or physical license inventory.
     for (const content of [
+      'How many SBL-RPC-12 units are available?',
       'How many Redline Power Cell R12 units are available?',
       'Are 50 licenses of Palisade Endpoint License, Annual available?',
       'Are 60 licenses of Palisade Endpoint License, Annual available?',

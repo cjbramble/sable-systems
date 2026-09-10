@@ -295,18 +295,31 @@ The transcript and local Sentence Transformers report share the prefix
 `reports/model-runs/2026-09-10T18-29-56-942Z-356c2673-f9a1-4e6a-af98-5ced3cac2fb5`.
 The report's source hash was verified. Cosine scores were 0.5672, 0.5911,
 0.5694, 0.5551, and 0.5677; calibration still overlaps, so scores remain
-advisory. Earlier failed evidence is unchanged. `npm run check` passes
-128 deterministic tests.
+advisory. Earlier failed evidence is unchanged. `npm run check` passed
+128 deterministic tests at that milestone.
 
 The new no-quantity boundary check also exposed an existing classifier bug:
-"How many SBL-RPC-12 units are available?" extracts 12 as the requested quantity
-from the item-number suffix. The shortfall regression uses the product-name
+"How many SBL-RPC-12 units are available?" extracted 12 as the requested quantity
+from the item-number suffix. The initial shortfall regression used product-name
 wording to isolate calculation from this separate parser issue; the quantity
-parser was not changed in this step.
+parser was not changed in that step.
 
-**Next task:** add a quantity-parsing regression and prevent numeric item-number
-suffixes from becoming requested quantities, while preserving actual explicit
-quantities. The separate product-name routing collision remains queued.
+The quantity parser now requires a quantity to start outside a word or
+hyphenated item number. The new unit regression covers numeric SKU suffixes,
+including leading zeros, mixed-case input, and an unknown item number, plus
+product-name/storage-capacity controls. It preserves explicit quantities before
+and after an item number, including a later real quantity following a misleading
+SKU suffix, and keeps the normalized message intact for product matching.
+The database-backed no-quantity check now includes the original exact-SKU
+wording as well as the product name. Both regressions failed before the fix
+and passed afterward. `npm run check` passes 129 deterministic tests.
+No model generations or semantic scores were rerun for this deterministic
+parser-only change; retained model evidence and factual checks are unchanged.
+
+**Next task:** add a regression for the product-name routing collision and
+prioritize exact item-number/product-name matches over shared search terms.
+For example, a Coldstart Rack Controller R2 question must not select
+Blackchannel Haptic Controller solely because both match "controller".
 
 ## API response fixtures
 

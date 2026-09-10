@@ -130,8 +130,10 @@ export function classifySupportQuery(
     return { kind: 'incidents' };
 
   const category = requestedCategory(normalized);
+  // A quantity must start outside a word or hyphenated item number. A word
+  // boundary alone also matches the "12" in "SBL-RPC-12 units".
   const quantityMatch = normalized.match(
-    /\b(\d{1,6})(?!\s*(?:tb|gb|mb|kb|m)\b)(?:\s+[a-z-]+){0,2}\s+(?:units?|licenses?|controllers?|arrays?|modules?|hubs?|nodes?|packs?)\b/,
+    /(?<![\w-])(\d{1,6})(?!\s*(?:tb|gb|mb|kb|m)\b)(?:\s+[a-z-]+){0,2}\s+(?:units?|licenses?|controllers?|arrays?|modules?|hubs?|nodes?|packs?)\b/,
   );
   if (
     category ||
