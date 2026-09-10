@@ -27,6 +27,8 @@ export function findPositiveStockShortfallClaims(
       // rule", 310 is the subject (the request), not a reported shortage.
       // Keep this exception narrow: colon label, exact requested quantity,
       // explicit ordering predicate/reason, and no simultaneous stock deficit.
+      // "Is not a multiple" directly states the ordering restriction; an
+      // additional claim that the request exceeds stock must not be excused.
       if (
         Number(match[1]) === requestedQuantity &&
         /(?:shortfall|shortage)\s*:/i.test(match[0])
@@ -36,13 +38,13 @@ export function findPositiveStockShortfallClaims(
           .match(/^[ \t]+(?:units?|cells?)[ \t]+([^.!?\r\n;]*)/i)?.[1];
         if (
           predicate &&
-          /^(?:(?:cannot|can't|can not)\s+(?:be\s+)?(?:ordered|fulfilled|accepted|processed)|(?:is|are)\s+(?:not\s+(?:a\s+)?valid|invalid))\b/i.test(
+          /^(?:(?:cannot|can't|can not)\s+(?:be\s+)?(?:ordered|fulfilled|accepted|processed)|(?:is|are)\s+(?:not\s+(?:a\s+)?(?:valid|multiple)|invalid))\b/i.test(
             predicate,
           ) &&
           /\b(?:ordering restriction|case[- ]pack|not\s+(?:a\s+)?(?:valid\s+)?multiple|not divisible)\b/i.test(
             predicate,
           ) &&
-          !/\b(?:insufficient|shortage|shortfall|unavailable|missing|lack|lacks|out of stock)\b/i.test(
+          !/\b(?:insufficient|shortage|shortfall|unavailable|missing|lack|lacks|exceeds?|out of stock)\b/i.test(
             predicate,
           )
         )

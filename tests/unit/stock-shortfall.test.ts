@@ -54,3 +54,37 @@ it('distinguishes a requested-quantity explanation from a stock shortage without
     [],
   );
 });
+
+it('recognizes a direct not-a-multiple explanation without excusing a stock deficit', () => {
+  const explanations = [
+    'Stock shortfall: 310 units is not a multiple of 8. The nearest valid quantity is 312 units (2 units above request), which is within available stock.',
+    'Stock shortfall: 310 units are not a multiple of 8.',
+    'Stock shortfall: 310 units is not a valid multiple of 8.',
+    '**Stock shortfall:** **310 units** is not a multiple of 8.',
+  ];
+  for (const answer of explanations)
+    expect(findPositiveStockShortfallClaims(answer, 310), answer).toEqual([]);
+
+  const shortageClaims = [
+    // This genuine error from the retained model run must keep failing.
+    'Stock shortfall: 310 units requested exceeds available-to-promise stock by 2 units (312 available).',
+    'Stock shortfall: 310 units is not a multiple of 8 and exceeds available stock by 2 units.',
+    'Stock shortfall: 310 units is not a multiple of 8 and stock is insufficient.',
+    'Stock shortfall: 310 units is not a multiple of 8; there is a shortage of 2 units.',
+    'Stock shortfall: 310 units is not a multiple of 8. The product is out of stock.',
+    'Stock shortfall: 310 units is not a multiple of 8. We are 2 units short.',
+    // Only a colon label and the actual request qualify for the exception.
+    'Stock shortfall of 310 units is not a multiple of 8.',
+    'Stock shortfall: 8 units is not a multiple of 8.',
+  ];
+  for (const answer of shortageClaims)
+    expect(findPositiveStockShortfallClaims(answer, 310), answer).not.toEqual(
+      [],
+    );
+
+  const differentRequest = 'Stock shortfall: 318 units is not a multiple of 8.';
+  expect(findPositiveStockShortfallClaims(differentRequest, 318)).toEqual([]);
+  expect(findPositiveStockShortfallClaims(differentRequest, 310)).not.toEqual(
+    [],
+  );
+});
