@@ -5,9 +5,11 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { LoginPage } from '../pages/login-page';
+import { HomePage } from '../pages/home-page';
+import { OrdersPage } from '../pages/orders-page';
 import { SupportPage } from '../pages/support-page';
 
-type SupportApp = {
+type App = {
   url: string;
   database: Awaited<ReturnType<Miniflare['getD1Database']>>;
   modelRequests: unknown[];
@@ -16,8 +18,10 @@ type SupportApp = {
 type Fixtures = {
   modelReply: string;
   modelResponses: { status: number; body: unknown }[] | null;
-  supportApp: SupportApp;
+  app: App;
   loginPage: LoginPage;
+  homePage: HomePage;
+  ordersPage: OrdersPage;
   supportPage: SupportPage;
 };
 
@@ -27,7 +31,7 @@ const projectPath = (path: string) =>
 export const test = base.extend<Fixtures>({
   modelReply: ['', { option: true }],
   modelResponses: [null, { option: true }],
-  supportApp: async ({ modelReply, modelResponses }, provide) => {
+  app: async ({ modelReply, modelResponses }, provide) => {
     if (!modelReply && modelResponses === null)
       throw new Error(
         'Set a controlled modelReply or modelResponses for this test.',
@@ -109,11 +113,17 @@ export const test = base.extend<Fixtures>({
       );
     }
   },
-  baseURL: async ({ supportApp }, provide) => {
-    await provide(supportApp.url);
+  baseURL: async ({ app }, provide) => {
+    await provide(app.url);
   },
   loginPage: async ({ page }, provide) => {
     await provide(new LoginPage(page));
+  },
+  homePage: async ({ page }, provide) => {
+    await provide(new HomePage(page));
+  },
+  ordersPage: async ({ page }, provide) => {
+    await provide(new OrdersPage(page));
   },
   supportPage: async ({ page }, provide) => {
     await provide(new SupportPage(page));

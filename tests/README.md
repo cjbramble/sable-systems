@@ -640,8 +640,10 @@ evidence.
 
 Further report-harness edge cases are deferred in favor of fixture cleanup and
 coverage of checkout, authentication, order history, and representative model
-sampling. The next test will cover login, protected navigation, and logout as
-one browser journey, using page objects and the isolated application fixture.
+sampling. The current authentication browser test has exposed a production
+navigation failure described below. Resolve that before the next planned test:
+a browser checkout journey that adds and removes cart items, places a
+charge-account order, and finds it in order history using page objects.
 
 ## Order-history integration
 
@@ -725,8 +727,9 @@ are forwarded, for example:
 npm run test:e2e -- --grep 'sends and reopens'
 ```
 
-Each test gets a fresh Miniflare worker, disposable D1 database, and browser
-context. The worker binds to loopback on an OS-assigned temporary port; it never
+The shared `e2e/fixtures/app.ts` fixture gives each test a fresh Miniflare worker,
+disposable D1 database, and browser context. The worker binds to loopback on an
+OS-assigned temporary port; it never
 uses the development server, its `.wrangler` database, or reserved ports
 8016/8017. The app seeds the test database through its normal initialization and
 the test signs in through the real login form using a seeded local-only account.
@@ -734,7 +737,8 @@ The fixture disposes the worker and database even after failure.
 
 Only outbound model/status requests are replaced with controlled replies;
 unexpected worker outbound requests are blocked and fail the test. Browser
-requests to login, support, and database-backed APIs are not mocked. These tests
+requests to login, logout, order history, support, and database-backed APIs are
+not mocked. These tests
 check application behavior, not Qwen's response quality. `npm test` and
 `npm run check` continue to run the deterministic unit/integration suite;
 `npm run test:model` remains the separate real-model evaluation command.
@@ -746,8 +750,11 @@ need the long-form wrapper: `test.use({ modelResponses: [responses, { scope: 'te
 The fixture copies that list for each test;
 model-status polling does not consume it. Extra completion requests beyond the
 configured sequence are blocked and fail the test, never sent to the real model.
+For workflows that must not generate replies, use an empty sequence:
+`test.use({ modelResponses: [[], { scope: 'test' }] })`.
 
-`LoginPage` and `SupportPage` encapsulate selectors and interactions, following
+`LoginPage`, `HomePage`, `OrdersPage`, and `SupportPage` encapsulate selectors and
+interactions, following
 the [Playwright page-object pattern](https://playwright.dev/docs/pom). Keep
 scenario-specific inputs, expected responses, and database assertions in the
 spec. `SupportMessage` is a message-scoped page component for inspecting formatted
@@ -758,3 +765,22 @@ security audit. Prefer locator assertions and observed responses over fixed
 sleeps. The suite uses Chromium with one worker and no retries; traces and screenshots are
 retained on failure in ignored `test-results/`, with an HTML report in ignored
 `playwright-report/` (`npx playwright show-report` opens it).
+
+`auth-session.spec.ts` covers one complete authentication journey: a signed-out
+visit to order history redirects to login with the intended destination intact;
+real credentials open that destination and show the correct account; the landing
+page's Orders link then navigates directly without visiting login. Signing out
+must clear the browser cookie and revoke it server-side: replaying the original
+cookie against the orders API must return 401. A fresh protected-page visit must
+require login again. This case forbids model completions and does not modify
+business records.
+
+Current status: this new test fails when clicking the SABLE home link after
+login. The production bundle throws `TypeError: e is not a function` from the
+Vinext Link handler, and the browser stays on `/orders`. Its dynamic navigation
+import points at the client entry chunk, which does not export the requested
+`navigateClientSide` or `getPrefetchInterceptionContext` names. The trace also
+contains prefetch setup errors. Login and initial authorized order rendering
+pass; the later navigation/logout assertions have not yet been reached. Keep
+the test enabled and unchanged while diagnosing the build/runtime problem;
+do not bypass the link with direct navigation or weaken its assertions.

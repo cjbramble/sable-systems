@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures/support-app';
+import { expect, test } from './fixtures/app';
 
 const customerMessage = 'Trace my browser test shipment.';
 const assistantMessage = 'Which shipment should I trace?';
@@ -14,7 +14,7 @@ test.beforeEach(async ({ loginPage, supportPage }) => {
 
 test('sends and reopens a persisted support exchange without duplicates', async ({
   supportPage,
-  supportApp,
+  app,
 }) => {
   await supportPage.startIncident();
   const response = await supportPage.sendMessage(customerMessage);
@@ -31,7 +31,7 @@ test('sends and reopens a persisted support exchange without duplicates', async 
   );
 
   const readExchange = async () => {
-    const result = await supportApp.database
+    const result = await app.database
       .prepare(`SELECT i.incident_id, i.user_id, i.title,
         m.message_id, m.sequence_number, m.role, m.content
         FROM support_incidents i
@@ -64,7 +64,7 @@ test('sends and reopens a persisted support exchange without duplicates', async 
       content: assistantMessage,
     },
   ]);
-  expect(supportApp.modelRequests).toHaveLength(1);
+  expect(app.modelRequests).toHaveLength(1);
 
   await supportPage.reload();
   await supportPage.openIncident('Priority shipment trace');
@@ -79,12 +79,12 @@ test('sends and reopens a persisted support exchange without duplicates', async 
     assistantMessage,
   ]);
   expect(await readExchange()).toEqual(savedExchange);
-  expect(supportApp.modelRequests).toHaveLength(1);
+  expect(app.modelRequests).toHaveLength(1);
 });
 
 test('searches incident titles case-insensitively, selects a match, and restores the list when cleared', async ({
   supportPage,
-  supportApp,
+  app,
 }) => {
   const titles = [
     'Priority shipment trace',
@@ -98,7 +98,7 @@ test('searches incident titles case-insensitively, selects a match, and restores
   );
 
   const readConversation = async () => {
-    const result = await supportApp.database
+    const result = await app.database
       .prepare(`SELECT message_id, sequence_number, role, content
         FROM support_messages WHERE incident_id = ?
         ORDER BY sequence_number`)
@@ -136,12 +136,12 @@ test('searches incident titles case-insensitively, selects a match, and restores
   );
   await expect(supportPage.messages).toHaveText(expectedMessages);
   expect(await readConversation()).toEqual(savedConversation);
-  expect(supportApp.modelRequests).toHaveLength(0);
+  expect(app.modelRequests).toHaveLength(0);
 });
 
 test('cancels and confirms incident deletion with the remaining conversation preserved after reload', async ({
   supportPage,
-  supportApp,
+  app,
 }) => {
   const deletedId = 'INC-USR-CPD-001-01';
   const deletedTitle = 'Priority shipment trace';
@@ -155,10 +155,10 @@ test('cancels and confirms incident deletion with the remaining conversation pre
 
   const readHistory = async () => {
     const [incidents, messages] = await Promise.all([
-      supportApp.database
+      app.database
         .prepare('SELECT * FROM support_incidents ORDER BY incident_id')
         .all<{ incident_id: string }>(),
-      supportApp.database
+      app.database
         .prepare(`SELECT * FROM support_messages
           ORDER BY incident_id, sequence_number`)
         .all<{ incident_id: string; content: string }>(),
@@ -233,7 +233,7 @@ test('cancels and confirms incident deletion with the remaining conversation pre
   );
   await expect(supportPage.messages).toHaveText(remainingMessages);
   expect(await readHistory()).toEqual(afterDeletion);
-  expect(supportApp.modelRequests).toHaveLength(0);
+  expect(app.modelRequests).toHaveLength(0);
 });
 
 test.describe('model failure recovery', () => {
@@ -259,7 +259,7 @@ test.describe('model failure recovery', () => {
 
   test('recovers from a model error without adding error text to the conversation or subsequent model history', async ({
     supportPage,
-    supportApp,
+    app,
   }) => {
     await supportPage.startIncident();
     const failedResponse = await supportPage.sendMessage(firstMessage);
@@ -281,7 +281,7 @@ test.describe('model failure recovery', () => {
 
     const { incidentId } = failedResponse.request().postDataJSON();
     const readExchange = async () => {
-      const result = await supportApp.database
+      const result = await app.database
         .prepare(`SELECT message_id, sequence_number, role, content
           FROM support_messages WHERE incident_id = ? ORDER BY sequence_number`)
         .bind(incidentId)
@@ -289,8 +289,8 @@ test.describe('model failure recovery', () => {
       return result.results;
     };
     expect(await readExchange()).toEqual([]);
-    expect(supportApp.modelRequests).toHaveLength(1);
-    expect(supportApp.modelRequests[0]).toMatchObject({
+    expect(app.modelRequests).toHaveLength(1);
+    expect(app.modelRequests[0]).toMatchObject({
       messages: [
         expect.objectContaining({ role: 'system' }),
         { role: 'user', content: firstMessage },
@@ -323,19 +323,15 @@ test.describe('model failure recovery', () => {
     const recoveryRequest = recoveredResponse.request().postDataJSON();
     expect(recoveryRequest.incidentId).toBe(incidentId);
     expect(recoveryRequest.messages).toEqual(expectedHistory);
-    expect(supportApp.modelRequests).toHaveLength(2);
-    expect(supportApp.modelRequests[1]).toMatchObject({
+    expect(app.modelRequests).toHaveLength(2);
+    expect(app.modelRequests[1]).toMatchObject({
       messages: [
         expect.objectContaining({ role: 'system' }),
         ...expectedHistory,
       ],
     });
-    expect(JSON.stringify(supportApp.modelRequests)).not.toContain(
-      errorMessage,
-    );
-    expect(JSON.stringify(supportApp.modelRequests)).not.toContain(
-      upstreamError,
-    );
+    expect(JSON.stringify(app.modelRequests)).not.toContain(errorMessage);
+    expect(JSON.stringify(app.modelRequests)).not.toContain(upstreamError);
     expect(await readExchange()).toEqual([
       {
         message_id: recoveryRequest.messageId,
@@ -386,7 +382,7 @@ test.describe('Markdown rendering', () => {
 
   test('renders formatted replies while blocking executable HTML and unsafe links, including after reload', async ({
     supportPage,
-    supportApp,
+    app,
   }) => {
     const initialTitle = await supportPage.title();
     const prompt = 'Show a formatted support checklist.';
@@ -428,7 +424,7 @@ test.describe('Markdown rendering', () => {
 
     const { incidentId } = response.request().postDataJSON();
     const readReply = async () => {
-      const result = await supportApp.database
+      const result = await app.database
         .prepare(`SELECT content FROM support_messages
           WHERE incident_id = ? AND role = 'assistant' ORDER BY sequence_number`)
         .bind(incidentId)
@@ -437,12 +433,12 @@ test.describe('Markdown rendering', () => {
     };
     // The stored reply stays untrusted text; rendering must remain safe on reload.
     expect(await readReply()).toEqual([{ content: markdownReply }]);
-    expect(supportApp.modelRequests).toHaveLength(1);
+    expect(app.modelRequests).toHaveLength(1);
 
     await supportPage.reload();
     await supportPage.openIncident(prompt);
     await expectSafeRendering();
     expect(await readReply()).toEqual([{ content: markdownReply }]);
-    expect(supportApp.modelRequests).toHaveLength(1);
+    expect(app.modelRequests).toHaveLength(1);
   });
 });
