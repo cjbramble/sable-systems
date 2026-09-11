@@ -1,41 +1,72 @@
 # SABLE Systems Distribution Portal
 
-SABLE Systems is a wholesale supplier and manufacturer serving authorized distributors. Its portal combines
-a public-facing brand gateway, an inventory-aware procurement catalog, charge-account checkout, and the
-private COV-E customer-support console. COV-E uses the local Qwen3 4B model through `llama-server`
-and grounds account-specific answers in a project-local D1/SQLite database.
+A local web application for the fictional SABLE Systems wholesale business.
+The portal provides inventory-aware ordering, charge-account checkout, order
+history, and COV-E customer support powered by a local Qwen3 4B model.
 
-Primary routes:
+Built with React, Vinext, and Tailwind CSS, with a Cloudflare Workers backend
+and a D1/SQLite database.
 
-- `/` — SABLE marketing and brand identity
-- `/shop` — live wholesale inventory, case-pack cart, and charge-account checkout
-- `/orders` — authenticated, distributor-scoped order history with search and status filters
-- `/support` — private COV-E support with durable per-user incident history
+## Setup
 
-Checkout creates durable orders, order lines, customer-safe events, and account-ledger records.
-Physical inventory is reserved atomically and can be exhausted; the server rejects over-allocation,
-non-case-pack quantities, duplicate PO references, and requested ship dates in the past.
+Requirements:
 
-The seed is deterministic and contains:
+- Node.js 22.13 or later and npm.
+- `llama-server` available on `PATH`, or configured with `LLAMA_SERVER`.
+- The Qwen model file listed below.
 
-- 720 orders from 2021 through 2031
-- 648 Calder Pike orders and 72 isolation records split across three other distributors
-- one active purchasing user for each distributor, with every order tied to its placing user
-- 18 catalog records, including one retired product and one fully quarantined product
-- inventory balances, order lines, events, shipments, and returns
-- three starter support incidents per user, with later conversations stored in D1
+Install dependencies from the repository root:
 
-COV-E uses a typed, read-only query router for tenant-scoped order searches,
-shipments, returns, charge-account records, support incidents, and catalog or
-inventory questions. Other-distributor records are never included in its
-authorized context, and the model never receives a database handle or raw SQL
-capability.
+```sh
+npm ci
+```
 
-## Local access
+Place the model at:
 
-The procurement catalog, ordering API, and COV-E console require a distributor
-session. Seed credentials are stored as PBKDF2 hashes; the local access phrases
-for the four fictional users are:
+```text
+models/customer-support/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf
+```
+
+The [model reference](models/customer-support/README.md) includes its expected
+checksum. Model weights are Git-ignored.
+
+Start the application:
+
+```sh
+npm run dev
+```
+
+Open [http://127.0.0.1:8016](http://127.0.0.1:8016). The launcher starts
+`llama-server` on port 8017, waits for readiness, then starts the web app.
+Press Control-C to stop both processes.
+
+## Configuration
+
+The application and model listen on `127.0.0.1`, using ports 8016 and 8017 respectively.
+
+| Variable                      | Purpose                              | Default                 |
+| ----------------------------- | ------------------------------------ | ----------------------- |
+| `CUSTOMER_SUPPORT_MODEL_PATH` | Path to the GGUF model               | Model path shown above  |
+| `LLAMA_SERVER`                | Path or command for the model server | `llama-server`          |
+| `SITE_URL`                    | Base URL for site metadata           | `http://127.0.0.1:8016` |
+
+Pass overrides to the launcher:
+
+```sh
+CUSTOMER_SUPPORT_MODEL_PATH=/absolute/path/to/model.gguf LLAMA_SERVER=/absolute/path/to/llama-server npm run dev
+```
+
+## Usage
+
+| Route      | Function                                              |
+| ---------- | ----------------------------------------------------- |
+| `/`        | Brand landing page                                    |
+| `/login`   | Distributor sign-in                                   |
+| `/shop`    | Catalog, case-pack cart, and charge-account checkout  |
+| `/orders`  | Distributor order history, search, and status filters |
+| `/support` | COV-E chat and per-user incident history              |
+
+Sign in with a seeded local account:
 
 | Distributor                       | Email                              | Access phrase     |
 | --------------------------------- | ---------------------------------- | ----------------- |
@@ -44,73 +75,73 @@ for the four fictional users are:
 | Northline Prosthetics Cooperative | `rowan.sato@northline.example`     | `Sable-WHS-2714!` |
 | Halcyon Industrial Exchange       | `lena.orr@halcyonexchange.example` | `Sable-WHS-5830!` |
 
-Sessions use random opaque credentials in an HttpOnly, SameSite cookie and
-expire after twelve hours. Signing out revokes the server-side session.
-
-## Run it
-
-```bash
-npm run dev
-```
-
-Open [http://127.0.0.1:8016](http://127.0.0.1:8016). The command starts the model on port 8017,
-waits until it is ready, and then starts the web app. Press Control-C once to stop both processes.
-
-The default model is stored locally in this repository working tree at:
-
-```text
-models/customer-support/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf
-```
-
-GGUF model weights are intentionally ignored by Git because of their size. See
-`models/customer-support/README.md` for the expected local asset. The launcher
-still accepts an explicit model path when needed.
-
-To use a different GGUF or `llama-server` binary:
-
-```bash
-CUSTOMER_SUPPORT_MODEL_PATH=/absolute/path/to/model.gguf LLAMA_SERVER=/absolute/path/to/llama-server npm run dev
-```
+Checkout reserves available inventory and validates case-pack quantities,
+purchase-order references, and requested ship dates. COV-E provides read-only
+assistance with authorized orders, shipments, returns, account charges, support
+incidents, and inventory.
 
 ## Local data
 
-Validate the deterministic data contract with:
+The database initializes automatically with four distributors, catalog inventory,
+orders dated 2021–2031, shipments, returns, account records, and support incidents.
 
-```bash
-npm run validate:data
-```
+- Database state and runtime files: `.wrangler/`
+- Model server logs: `reports/server-logs/`
+- Schema and seed definitions: [db/schema.ts](db/schema.ts) and [db/seed.ts](db/seed.ts)
 
-Schema upgrades and fixture changes have separate version markers. Increment
-`SCHEMA_VERSION` for migration-backed structure changes; increment
-`SEED_VERSION` only when an intentional deterministic fixture rebuild is
-required. This keeps orders placed through the application intact during
-ordinary schema upgrades.
-
-Model logs are written to `reports/server-logs/llama-server.log`. Local D1 state and generated
-runtime files remain under the ignored `.wrangler` directory.
+These runtime directories are Git-ignored. For data changes, increment
+`SCHEMA_VERSION` for schema migrations and `SEED_VERSION` for a seed rebuild.
+A seed rebuild replaces application records with the seed dataset.
 
 ## Testing
 
-Run commands from the repository root after `npm ci`.
+### Tools
 
-| Command                 | What it runs                                                     |
-| ----------------------- | ---------------------------------------------------------------- |
-| `npm test`              | Deterministic unit and integration tests (Vitest)                |
-| `npm run check`         | Those tests, lint, types, seed validation, and production build  |
-| `npm run test:e2e`      | Production build and browser workflows (Playwright)              |
-| `npm run test:model`    | Real local Qwen evaluations, including repeated sampling         |
-| `npm run test:semantic` | Sentence Transformers calibration, or scoring a saved transcript |
+| Tool                     | Role                                                                  |
+| ------------------------ | --------------------------------------------------------------------- |
+| Vitest                   | Unit, integration, and live-model tests; assertions, mocks, and spies |
+| Cloudflare Vitest plugin | Runs Vitest tests in the Workers runtime                              |
+| Miniflare                | Local Workers runtime setup and disposable D1 databases               |
+| Playwright               | Chromium browser workflows using page objects                         |
+| Sentence Transformers    | Advisory response-similarity scoring with `all-MiniLM-L6-v2`          |
 
-**Browser and real-model tests are separate from `npm test` and `npm run check`.**
-Database tests use disposable local databases, not development data.
+Oxlint provides lint checks, TypeScript checks types, and a custom validator checks
+the seed dataset.
 
-### First-time setup
+### Test setup
 
-- Browser tests: `npx playwright install chromium`.
-- Model tests: install `llama-server` and provide the [local Qwen model](models/customer-support/README.md). The runner starts it on port 8017 if needed.
-- Semantic scoring: install `uv`, then run `npm run setup:semantic`. This downloads the pinned embedding model; subsequent scoring runs offline on the CPU.
+Install Chromium for browser tests:
 
-### Run a smaller selection
+```sh
+npx playwright install chromium
+```
+
+For semantic scoring and the full live-model suite, install `uv` and run:
+
+```sh
+npm run setup:semantic
+```
+
+Semantic setup provisions the Python 3.12 environment and downloads the pinned
+embedding model. Scoring runs locally on the CPU. Live-model tests use the
+configured Qwen model; the runner starts `llama-server` on port 8017 when needed.
+
+### Commands
+
+| Command                 | Runs                                                                          |
+| ----------------------- | ----------------------------------------------------------------------------- |
+| `npm test`              | Deterministic unit and integration tests                                      |
+| `npm run test:e2e`      | Production build and browser tests                                            |
+| `npm run test:model`    | Live Qwen evaluations, including repeated sampling and semantic scoring       |
+| `npm run test:semantic` | Semantic calibration or scoring of a saved transcript                         |
+| `npm run validate:data` | Seed-data validation                                                          |
+| `npm run check`         | Lint, type checks, deterministic tests, seed validation, and production build |
+
+Browser and live-model suites run separately from `npm test` and `npm run check`.
+Database tests use disposable local databases. Browser tests use controlled
+model responses.
+
+Run individual files or select model tests by name:
 
 ```sh
 npm test -- tests/integration/orders-api.test.ts
@@ -118,55 +149,24 @@ npm run test:e2e -- tests/e2e/checkout.spec.ts
 npm run test:model -- -t 'across five samples'
 ```
 
-To score existing responses without generating new ones:
+Score a saved transcript using the `case-pack` or `comparison` scenario:
 
 ```sh
 npm run test:semantic -- --scenario case-pack --transcript reports/model-runs/<run>.log
 ```
 
-Use `--scenario comparison` for the other sampling scenario. Without a transcript,
-`test:semantic` runs calibration only.
+### Organization and results
 
-### Organization
+Tests are grouped under `tests/unit/`, `tests/integration/`, `tests/model/`,
+and `tests/e2e/`. Shared data and setup live in `tests/fixtures/`; reusable
+response checks live in `tests/assertions/`. Browser tests use
+`tests/e2e/pages/` for page objects and `tests/e2e/fixtures/` for setup.
 
-All paths below are relative to `tests/`.
+Model tests check factual accuracy and authorization. Repeated-sampling tests
+evaluate five responses per scenario at normal generation settings. Semantic
+scores are advisory; factual assertions determine response correctness.
 
-| Location        | Purpose                                                          |
-| --------------- | ---------------------------------------------------------------- |
-| `unit/`         | Isolated logic; no database, HTTP, browser, or language model    |
-| `integration/`  | API, database, concurrency, and filesystem behavior              |
-| `model/`        | Real-model factuality and authorization checks                   |
-| `e2e/`          | Browser journeys: authentication, support, checkout, and history |
-| `e2e/pages/`    | Page objects: selectors and user actions                         |
-| `e2e/fixtures/` | Disposable app runtime and page-object setup                     |
-| `fixtures/`     | Shared data, identities, setup, and cleanup                      |
-| `assertions/`   | Reusable response checks, independent of the app and database    |
-
-Vitest uses a local Worker runtime for app tests and Node for filesystem tests.
-No Cloudflare deployment is needed. Browser tests use a fresh local app and
-database; only model calls are replaced with controlled responses.
-
-### Adding tests
-
-- Choose the smallest layer that proves the behavior. Add browser journeys for important user flows, not every edge case.
-- Keep selectors and interactions in page objects; keep inputs and business assertions in the spec.
-- Reuse [API fixtures](tests/fixtures/support-integration.ts), [checkout helpers](tests/fixtures/checkout.ts), and the [browser fixture](tests/e2e/fixtures/app.ts). Clean up test-owned records, sessions, and spies even on failure.
-- In browser tests, set `modelReply` or an ordered `modelResponses` sequence. For no model calls, use `test.use({ modelResponses: [[], { scope: 'test' }] })`.
-- Prefer locator assertions and observed responses over sleeps. Do not weaken checks or retry failures to obtain a pass.
-
-Keep testing documentation as a usage guide—not a task log, test-by-test inventory, or running list of test counts.
-
-### Model results and evidence
-
-The two repeated-sampling scenarios cover case-pack rules and product comparison.
-Each makes five independent requests at normal app settings, without a fixed seed;
-every response must pass the factual checks. Five passes are regression evidence,
-not a reliability guarantee.
-
-Sentence Transformers automatically scores those samples against authored references.
-**Similarity is advisory, not a correctness gate:** correct and incorrect examples
-still overlap. Exact factual failures always fail the run, regardless of similarity.
-
-Model transcripts and semantic reports are saved in gitignored `reports/model-runs/`
-without overwriting earlier evidence. Browser failures retain traces and screenshots
-in `test-results/`; open the browser report with `npx playwright show-report`.
+Model transcripts and semantic reports are saved in `reports/model-runs/`.
+Browser reports are saved in `playwright-report/`, with failure screenshots
+and traces in `test-results/`. These outputs are Git-ignored. View the browser
+report with `npx playwright show-report`.
