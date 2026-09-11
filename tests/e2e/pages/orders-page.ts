@@ -18,6 +18,36 @@ export class OrdersPage {
     return this.page.getByRole('table');
   }
 
+  get orderRows() {
+    return this.table.locator('tbody').getByRole('row');
+  }
+
+  orderCells(orderId: string) {
+    return this.orderRows
+      .filter({ has: this.page.getByText(orderId, { exact: true }) })
+      .getByRole('cell');
+  }
+
+  async search(query: string) {
+    await this.page.getByPlaceholder('Order ID, PO, or buyer').fill(query);
+    const [response] = await Promise.all([
+      this.page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return (
+          url.pathname === '/api/orders' &&
+          response.request().method() === 'GET' &&
+          url.searchParams.get('query') === query
+        );
+      }),
+      this.page.getByRole('button', { name: 'Search', exact: true }).click(),
+    ]);
+    return response;
+  }
+
+  async reload() {
+    await this.page.reload();
+  }
+
   async goto() {
     return this.page.goto('/orders');
   }

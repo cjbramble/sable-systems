@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { LoginPage } from '../pages/login-page';
 import { HomePage } from '../pages/home-page';
 import { OrdersPage } from '../pages/orders-page';
+import { ShopPage } from '../pages/shop-page';
 import { SupportPage } from '../pages/support-page';
 
 type App = {
@@ -22,6 +23,7 @@ type Fixtures = {
   loginPage: LoginPage;
   homePage: HomePage;
   ordersPage: OrdersPage;
+  shopPage: ShopPage;
   supportPage: SupportPage;
 };
 
@@ -124,6 +126,9 @@ export const test = base.extend<Fixtures>({
   },
   ordersPage: async ({ page }, provide) => {
     await provide(new OrdersPage(page));
+  },
+  shopPage: async ({ page }, provide) => {
+    await provide(new ShopPage(page));
   },
   supportPage: async ({ page }, provide) => {
     await provide(new SupportPage(page));

@@ -641,9 +641,11 @@ evidence.
 Further report-harness edge cases are deferred in favor of fixture cleanup and
 coverage of checkout, authentication, order history, and representative model
 sampling. The authentication browser test exposed a production navigation
-failure, now resolved as described below. The next planned test is a browser
-checkout journey that adds and removes cart items, places a charge-account order,
-and finds it in order history using page objects.
+failure, now resolved as described below. The browser checkout journey now covers
+cart removal, charge-account ordering, and persisted history using page objects.
+The next bounded step is to run the two existing five-sample model scenarios once
+and review their factuality and Sentence Transformers evidence, without adding
+more report-harness tests or retrying failed samples into a pass.
 
 ## Order-history integration
 
@@ -753,7 +755,7 @@ configured sequence are blocked and fail the test, never sent to the real model.
 For workflows that must not generate replies, use an empty sequence:
 `test.use({ modelResponses: [[], { scope: 'test' }] })`.
 
-`LoginPage`, `HomePage`, `OrdersPage`, and `SupportPage` encapsulate selectors and
+`LoginPage`, `HomePage`, `ShopPage`, `OrdersPage`, and `SupportPage` encapsulate selectors and
 interactions, following
 the [Playwright page-object pattern](https://playwright.dev/docs/pom). Keep
 scenario-specific inputs, expected responses, and database assertions in the
@@ -775,6 +777,27 @@ cookie against the orders API must return 401. A fresh protected-page visit must
 require login again. This case forbids model completions and does not modify
 business records.
 
+`checkout.spec.ts` covers one browser checkout journey with Meridian's real
+seeded login. It adds one case each of power cells and cables, verifies quantities
+and the $8,920 total, removes the cables, and requires the total to become $5,440.
+The charge-account consent must enable checkout. The test submits a PO,
+destination, and ship date 30 days ahead of the real clock, then checks the actual
+request, confirmation, saved account charge, distributor/user ownership, and
+stock reservation. The removed item must not be sent or reserve any inventory.
+It follows the confirmation's history link, searches by PO, and checks one matching
+order with the correct buyer, volume, and total, including after a browser reload.
+
+The case reuses the disposable app fixture with no commerce mocks or model
+completions; SQL reads stay in the spec and page objects own all UI selectors and
+actions. No new data-cleanup fixture is needed because the entire test database
+is discarded. A temporary mutation making cart removal a no-op was caught at the
+missing-cart-line assertion, then restored before final validation.
+
+Checkout milestone validation: `npm run check` passes 143 deterministic tests
+across 23 files, lint, type checking, seed validation, and the production build.
+`npm run test:e2e` passes all seven browser tests. Production code and development
+data are unchanged; no real-model evaluations were run in this step.
+
 ### Production navigation build regression
 
 The first run failed on the SABLE home link after login. Vite 8.0.13's Rolldown
@@ -795,7 +818,8 @@ old-token rejection, and protected-page denial), without waiting on the body or
 altering production logout. Three consecutive authentication journeys passed;
 their traces contained no uncaught page errors or navigation-prefetch errors.
 
-After a clean `npm ci`, `npm run check` passes all 143 deterministic tests across
-23 files, lint, type checking, seed validation, and the production build.
-`npm run test:e2e` passes all six browser tests. No real-model evaluations were
-run and the development database was not used.
+Build-fix validation, before the checkout case was added: after a clean `npm ci`,
+`npm run check` passed all 143 deterministic tests across 23 files, lint, type
+checking, seed validation, and the production build. `npm run test:e2e` passed
+all six browser tests. No real-model evaluations were run and the development
+database was not used.
