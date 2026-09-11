@@ -37,12 +37,12 @@ The procurement catalog, ordering API, and COV-E console require a distributor
 session. Seed credentials are stored as PBKDF2 hashes; the local access phrases
 for the four fictional users are:
 
-| Distributor | Email | Access phrase |
-| --- | --- | --- |
-| Calder Pike Distribution | `mara.venn@calderpike.example` | `Sable-WHS-0427!` |
-| Meridian Civic Supply | `imani.kade@meridiancivic.example` | `Sable-WHS-1098!` |
-| Northline Prosthetics Cooperative | `rowan.sato@northline.example` | `Sable-WHS-2714!` |
-| Halcyon Industrial Exchange | `lena.orr@halcyonexchange.example` | `Sable-WHS-5830!` |
+| Distributor                       | Email                              | Access phrase     |
+| --------------------------------- | ---------------------------------- | ----------------- |
+| Calder Pike Distribution          | `mara.venn@calderpike.example`     | `Sable-WHS-0427!` |
+| Meridian Civic Supply             | `imani.kade@meridiancivic.example` | `Sable-WHS-1098!` |
+| Northline Prosthetics Cooperative | `rowan.sato@northline.example`     | `Sable-WHS-2714!` |
+| Halcyon Industrial Exchange       | `lena.orr@halcyonexchange.example` | `Sable-WHS-5830!` |
 
 Sessions use random opaque credentials in an HttpOnly, SameSite cookie and
 expire after twelve hours. Signing out revokes the server-side session.
@@ -72,21 +72,13 @@ To use a different GGUF or `llama-server` binary:
 CUSTOMER_SUPPORT_MODEL_PATH=/absolute/path/to/model.gguf LLAMA_SERVER=/absolute/path/to/llama-server npm run dev
 ```
 
+## Local data
+
 Validate the deterministic data contract with:
 
 ```bash
 npm run validate:data
 ```
-
-Run the deterministic local quality gate with:
-
-```bash
-npm run check
-```
-
-Browser workflows run separately with `npm run test:e2e`; real Qwen evaluations
-use `npm run test:model`. See [test organization and setup](tests/README.md) for
-the browser installation step, page objects, and isolated test database.
 
 Schema upgrades and fixture changes have separate version markers. Increment
 `SCHEMA_VERSION` for migration-backed structure changes; increment
@@ -96,3 +88,85 @@ ordinary schema upgrades.
 
 Model logs are written to `reports/server-logs/llama-server.log`. Local D1 state and generated
 runtime files remain under the ignored `.wrangler` directory.
+
+## Testing
+
+Run commands from the repository root after `npm ci`.
+
+| Command                 | What it runs                                                     |
+| ----------------------- | ---------------------------------------------------------------- |
+| `npm test`              | Deterministic unit and integration tests (Vitest)                |
+| `npm run check`         | Those tests, lint, types, seed validation, and production build  |
+| `npm run test:e2e`      | Production build and browser workflows (Playwright)              |
+| `npm run test:model`    | Real local Qwen evaluations, including repeated sampling         |
+| `npm run test:semantic` | Sentence Transformers calibration, or scoring a saved transcript |
+
+**Browser and real-model tests are separate from `npm test` and `npm run check`.**
+Database tests use disposable local databases, not development data.
+
+### First-time setup
+
+- Browser tests: `npx playwright install chromium`.
+- Model tests: install `llama-server` and provide the [local Qwen model](models/customer-support/README.md). The runner starts it on port 8017 if needed.
+- Semantic scoring: install `uv`, then run `npm run setup:semantic`. This downloads the pinned embedding model; subsequent scoring runs offline on the CPU.
+
+### Run a smaller selection
+
+```sh
+npm test -- tests/integration/orders-api.test.ts
+npm run test:e2e -- tests/e2e/checkout.spec.ts
+npm run test:model -- -t 'across five samples'
+```
+
+To score existing responses without generating new ones:
+
+```sh
+npm run test:semantic -- --scenario case-pack --transcript reports/model-runs/<run>.log
+```
+
+Use `--scenario comparison` for the other sampling scenario. Without a transcript,
+`test:semantic` runs calibration only.
+
+### Organization
+
+All paths below are relative to `tests/`.
+
+| Location        | Purpose                                                          |
+| --------------- | ---------------------------------------------------------------- |
+| `unit/`         | Isolated logic; no database, HTTP, browser, or language model    |
+| `integration/`  | API, database, concurrency, and filesystem behavior              |
+| `model/`        | Real-model factuality and authorization checks                   |
+| `e2e/`          | Browser journeys: authentication, support, checkout, and history |
+| `e2e/pages/`    | Page objects: selectors and user actions                         |
+| `e2e/fixtures/` | Disposable app runtime and page-object setup                     |
+| `fixtures/`     | Shared data, identities, setup, and cleanup                      |
+| `assertions/`   | Reusable response checks, independent of the app and database    |
+
+Vitest uses a local Worker runtime for app tests and Node for filesystem tests.
+No Cloudflare deployment is needed. Browser tests use a fresh local app and
+database; only model calls are replaced with controlled responses.
+
+### Adding tests
+
+- Choose the smallest layer that proves the behavior. Add browser journeys for important user flows, not every edge case.
+- Keep selectors and interactions in page objects; keep inputs and business assertions in the spec.
+- Reuse [API fixtures](tests/fixtures/support-integration.ts), [checkout helpers](tests/fixtures/checkout.ts), and the [browser fixture](tests/e2e/fixtures/app.ts). Clean up test-owned records, sessions, and spies even on failure.
+- In browser tests, set `modelReply` or an ordered `modelResponses` sequence. For no model calls, use `test.use({ modelResponses: [[], { scope: 'test' }] })`.
+- Prefer locator assertions and observed responses over sleeps. Do not weaken checks or retry failures to obtain a pass.
+
+Keep testing documentation as a usage guide—not a task log, test-by-test inventory, or running list of test counts.
+
+### Model results and evidence
+
+The two repeated-sampling scenarios cover case-pack rules and product comparison.
+Each makes five independent requests at normal app settings, without a fixed seed;
+every response must pass the factual checks. Five passes are regression evidence,
+not a reliability guarantee.
+
+Sentence Transformers automatically scores those samples against authored references.
+**Similarity is advisory, not a correctness gate:** correct and incorrect examples
+still overlap. Exact factual failures always fail the run, regardless of similarity.
+
+Model transcripts and semantic reports are saved in gitignored `reports/model-runs/`
+without overwriting earlier evidence. Browser failures retain traces and screenshots
+in `test-results/`; open the browser report with `npx playwright show-report`.
