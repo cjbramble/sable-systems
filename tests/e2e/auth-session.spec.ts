@@ -63,7 +63,8 @@ test('returns to the requested page, navigates without a login detour, and revok
 
   const logout = await ordersPage.signOut();
   expect(logout.status()).toBe(200);
-  expect(await logout.json()).toEqual({ authenticated: false });
+  // Logout redirects after the response headers arrive, so the browser may
+  // discard its unread body. Verify cookie removal and server revocation below.
   await expect(loginPage.heading).toBeVisible();
   expect(
     (await context.cookies(app.url)).map((cookie) => cookie.name),

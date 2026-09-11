@@ -640,10 +640,10 @@ evidence.
 
 Further report-harness edge cases are deferred in favor of fixture cleanup and
 coverage of checkout, authentication, order history, and representative model
-sampling. The current authentication browser test has exposed a production
-navigation failure described below. Resolve that before the next planned test:
-a browser checkout journey that adds and removes cart items, places a
-charge-account order, and finds it in order history using page objects.
+sampling. The authentication browser test exposed a production navigation
+failure, now resolved as described below. The next planned test is a browser
+checkout journey that adds and removes cart items, places a charge-account order,
+and finds it in order history using page objects.
 
 ## Order-history integration
 
@@ -775,12 +775,27 @@ cookie against the orders API must return 401. A fresh protected-page visit must
 require login again. This case forbids model completions and does not modify
 business records.
 
-Current status: this new test fails when clicking the SABLE home link after
-login. The production bundle throws `TypeError: e is not a function` from the
-Vinext Link handler, and the browser stays on `/orders`. Its dynamic navigation
-import points at the client entry chunk, which does not export the requested
-`navigateClientSide` or `getPrefetchInterceptionContext` names. The trace also
-contains prefetch setup errors. Login and initial authorized order rendering
-pass; the later navigation/logout assertions have not yet been reached. Keep
-the test enabled and unchanged while diagnosing the build/runtime problem;
-do not bypass the link with direct navigation or weaken its assertions.
+### Production navigation build regression
+
+The first run failed on the SABLE home link after login. Vite 8.0.13's Rolldown
+1.0.1 build dropped the navigation namespace exports needed by Vinext's dynamic
+import, causing click and prefetch `TypeError` failures. An independent in-memory
+bundle reproduced the missing exports when the same module was both statically
+and dynamically imported; Rolldown 1.2.8 preserved them. Updating Vite to 8.3.0
+(with Rolldown 1.2.8 in the lockfile) fixes the production bundle without changing
+application navigation or adding bundler overrides. Use `npm ci` to reproduce
+the verified dependency tree. The Vite config also declares its JSON import type
+explicitly for native config-loader compatibility.
+
+The real-link navigation assertions remain unchanged. Once navigation worked,
+the test reached an unrelated synchronization mistake: it tried to read the
+logout response body after the app's redirect, which can discard that unread
+body. It now checks the HTTP status and actual logout effects (cookie removal,
+old-token rejection, and protected-page denial), without waiting on the body or
+altering production logout. Three consecutive authentication journeys passed;
+their traces contained no uncaught page errors or navigation-prefetch errors.
+
+After a clean `npm ci`, `npm run check` passes all 143 deterministic tests across
+23 files, lint, type checking, seed validation, and the production build.
+`npm run test:e2e` passes all six browser tests. No real-model evaluations were
+run and the development database was not used.
