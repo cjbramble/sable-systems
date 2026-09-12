@@ -1,6 +1,6 @@
 export function findPartialFulfillmentPromises(answer: string): string[] {
   const text = answer.replace(/[*`]/g, '').replace(/[’‘]/g, "'");
-  const unit = String.raw`(?:partial|individual|loose|single|broken)\s+(?:units?|packs?|cases?)`;
+  const unit = String.raw`(?:partial|individual|loose|single|broken)(?:\s+|-)(?:units?|packs?|cases?)(?:\s+exceptions)?`;
   const separator = String.raw`(?:[ \t]+(?:or|and)[ \t]+|[ \t]*,[ \t]*(?:(?:or|and)[ \t]+)?)`;
   // Share "no" only across an uninterrupted list of the recognized unit
   // phrases. A completed predicate, contrast ("but"), or sentence boundary
@@ -9,7 +9,7 @@ export function findPartialFulfillmentPromises(answer: string): string[] {
   const patterns = [
     {
       pattern: new RegExp(
-        String.raw`\b(?:can|may|will)\s+(?:still\s+)?(?:be\s+)?(?:handled|fulfilled|shipped|processed|supplied|sold|ordered)\b[^.!?\n]{0,60}\b${unit}\b`,
+        String.raw`\b(?:can|may|will)\s+(?:still\s+)?(?:be\s+)?(?:handle[ds]?|fulfill(?:ed)?|ship(?:ped)?|process(?:ed)?|suppl(?:y|ied)|sell|sold|order(?:ed)?)\b[^.!?\n]{0,60}\b${unit}\b`,
         'gi',
       ),
       // "No partial units can be shipped as loose units" is a refusal too.

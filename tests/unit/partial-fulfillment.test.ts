@@ -16,6 +16,9 @@ it('keeps no attached to a coordinated unit list without hiding fulfillment prom
     'Partial units cannot be fulfilled.',
     '310 units cannot be fulfilled as partial units.',
     'Partial units are not permitted.',
+    'We cannot fulfill this order as individual units.',
+    'Partial-unit exceptions are not allowed.',
+    'No partial-unit exceptions are allowed.',
   ];
   for (const answer of refusals)
     expect(findPartialFulfillmentPromises(answer), answer).toEqual([]);
@@ -24,6 +27,8 @@ it('keeps no attached to a coordinated unit list without hiding fulfillment prom
     'Partial units or broken cases are permitted.',
     'Partial units and broken cases can still be shipped.',
     'Individual units are accepted.',
+    'We can fulfill this order as individual units.',
+    'Partial-unit exceptions are allowed.',
     'Loose packs may be supplied.',
     'Single units will be sold.',
     'The order can still be fulfilled as partial units.',

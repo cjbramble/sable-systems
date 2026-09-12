@@ -1,5 +1,24 @@
 import type { AuthenticatedUser } from '@/db/auth';
 
+export const distributorIdentities = {
+  'WHS-0427': {
+    displayName: 'Calder Pike Distribution',
+    legalName: 'Calder Pike Distribution Cooperative',
+  },
+  'WHS-1098': {
+    displayName: 'Meridian Civic Supply',
+    legalName: 'Meridian Civic Supply Limited',
+  },
+  'WHS-2714': {
+    displayName: 'Northline Prosthetics Cooperative',
+    legalName: 'Northline Prosthetics Cooperative',
+  },
+  'WHS-5830': {
+    displayName: 'Halcyon Industrial Exchange',
+    legalName: 'Halcyon Industrial Exchange Incorporated',
+  },
+} as const;
+
 export async function loadActiveUserFixture(
   database: D1Database,
   userId: string,
@@ -23,7 +42,7 @@ export const calderPikeUser: AuthenticatedUser = {
   userDisplayName: 'Mara Venn',
   email: 'mara.venn@calderpike.example',
   role: 'account_admin',
-  distributorDisplayName: 'Calder Pike Distribution',
+  distributorDisplayName: distributorIdentities['WHS-0427'].displayName,
   accountTier: 'Obsidian Preferred',
   paymentTerms: 'Net 45',
   currency: 'USD',

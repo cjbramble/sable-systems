@@ -11,87 +11,18 @@ import {
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 import casePackFixture from '../fixtures/semantic/case-pack.json';
 import comparisonFixture from '../fixtures/semantic/comparison.json';
-import { findIncorrectNearestCasePackClaims } from '../assertions/nearest-case-pack';
-import { findPositiveStockShortfallClaims } from '../assertions/stock-shortfall';
-import { findPartialFulfillmentPromises } from '../assertions/partial-fulfillment';
-
-function claimsMatching(value: string, pattern: RegExp) {
-  return new Set(value.match(pattern) ?? []);
-}
-
-const orderIdPattern = /\bSBL-\d{4}-\d{6}\b/g;
-const itemNumberPattern = /\bSBL-(?!\d{4}-\d{6}\b)[A-Z0-9]+(?:-[A-Z0-9]+)+\b/g;
-const shipmentIdPattern = /\bSHP-\d{4}-\d{6}\b/g;
-const returnIdPattern = /\bRTN-\d{4}-\d{6}\b/g;
-const incidentIdPattern = /\bINC-[A-Za-z0-9-]{6,100}\b/g;
-const trackingReferencePattern = /\bAST-\d{10}\b/g;
-const factualClaimPatterns = [
+import { expectCasePackResponse } from '../assertions/case-pack-response';
+import {
+  expectProductComparisonResponse,
+  expectOverlappingComparisonResponse,
+} from '../assertions/product-comparison';
+import {
+  claimsMatching,
   orderIdPattern,
   itemNumberPattern,
-  shipmentIdPattern,
-  returnIdPattern,
   incidentIdPattern,
-  trackingReferencePattern,
-  /\b[A-Z]{3}-(?:PO|REL)-\d{6}\b/g,
-  /\$\d[\d,]*(?:\.\d{2})?/g,
-  /\b20\d{2}-\d{2}-\d{2}\b/g,
-];
-
-function expectClaimsToComeFromContext(answer: string, context: string) {
-  for (const pattern of factualClaimPatterns) {
-    const authorizedClaims = claimsMatching(context, pattern);
-    for (const claim of claimsMatching(answer, pattern))
-      expect(authorizedClaims.has(claim), `Unsupported claim: ${claim}`).toBe(
-        true,
-      );
-  }
-}
-
-type ComparisonProductFacts = {
-  item: string;
-  price: number;
-  pack: number;
-  lead: number;
-  available: number;
-};
-
-function expectProductComparisonResponse(
-  answer: string,
-  authorizedContext: string,
-  expectedProducts: ComparisonProductFacts[],
-) {
-  expect([...claimsMatching(answer, itemNumberPattern)].sort()).toEqual(
-    expectedProducts.map((product) => product.item).sort(),
-  );
-
-  const sections = answer
-    .replaceAll('**', '')
-    .split(/(?=\bitem number\s*:)/i);
-  for (const product of expectedProducts) {
-    const productSections = sections.filter((section) =>
-      section.includes(product.item),
-    );
-    expect(
-      productSections,
-      `Expected one section for ${product.item}: ${answer}`,
-    ).toHaveLength(1);
-    const section = productSections[0] ?? '';
-    const price = section.match(/\bprice\s*:\s*\$([\d,]+(?:\.\d{2})?)/i)?.[1];
-    expect(Number(price?.replaceAll(',', '')), section).toBe(product.price);
-    expect(section).toMatch(
-      new RegExp(`\\bcase pack\\s*:\\s*${product.pack}\\b`, 'i'),
-    );
-    expect(section).toMatch(
-      new RegExp(`\\blead time\\s*:\\s*${product.lead}\\s+days\\b`, 'i'),
-    );
-    expect(section).toMatch(
-      new RegExp(`\\bavailable units\\s*:\\s*${product.available}\\b`, 'i'),
-    );
-  }
-
-  expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
-  expectClaimsToComeFromContext(answer, authorizedContext);
-}
+  expectClaimsToComeFromContext,
+} from '../assertions/context-claims';
 
 async function askSupportModel(
   messages: ChatHistoryMessage[],
@@ -134,18 +65,6 @@ function expectOverlappingComparisonContext(authorizedContext: string) {
   expect(
     [...claimsMatching(authorizedContext, itemNumberPattern)].sort(),
   ).toEqual(['SBL-CSR-R2', 'SBL-RPC-12']);
-}
-
-function expectOverlappingComparisonResponse(
-  answer: string,
-  authorizedContext: string,
-) {
-  expectProductComparisonResponse(answer, authorizedContext, [
-    { item: 'SBL-CSR-R2', price: 2250, pack: 4, lead: 90, available: 0 },
-    { item: 'SBL-RPC-12', price: 680, pack: 8, lead: 18, available: 312 },
-  ]);
-  // Also catch the former collision if it appears only by name, without a SKU.
-  expect(answer).not.toMatch(/Blackchannel|Haptic Controller/i);
 }
 
 async function expectFiveNormalGenerationSamples({
@@ -240,40 +159,6 @@ async function expectFiveNormalGenerationSamples({
   ).toEqual([]);
 }
 
-function expectCasePackResponse(answer: string, authorizedContext: string) {
-  expect(
-    findIncorrectNearestCasePackClaims(answer, 310, 8),
-    'A nearest-quantity claim must use the closest valid case-pack multiple',
-  ).toEqual([]);
-  const normalizedAnswer = answer.replace(/[*`]/g, '').replace(/’/g, "'");
-  expect(normalizedAnswer).toMatch(/\b310\b/);
-  expect(normalizedAnswer).toMatch(
-    /\b(?:available(?:[- ]to[- ]promise)?|availability|stock)\b[^.!?\n]{0,50}\b312\b|\b312\b[^.!?\n]{0,50}\b(?:available|availability|stock)\b/i,
-  );
-  expect(normalizedAnswer).toMatch(
-    /\b(?:case[- ]pack|multiples?|packs?)\b[^.!?\n]{0,25}\b8\b/i,
-  );
-  expect(normalizedAnswer).toMatch(
-    /\b(?:invalid|not (?:a )?(?:valid )?multiple|not (?:a )?valid|not divisible)\b/i,
-  );
-  expect(
-    findPositiveStockShortfallClaims(answer, 310),
-    'An invalid case-pack quantity must not be described as a stock shortage',
-  ).toEqual([]);
-  expect(
-    findPartialFulfillmentPromises(answer),
-    `Unsupported partial-unit fulfillment promise: ${answer}`,
-  ).toEqual([]);
-  expect(
-    normalizedAnswer,
-    `Expected an ordering restriction or required quantity adjustment: ${answer}`,
-  ).toMatch(
-    /\b(?:must|needs? to|has to)\b[^.!?\n]{0,80}\b(?:adjust(?:ed|ment)?|chang(?:e|ed)|round(?:ed)?|multiples?|full[- ]case|whole[- ]case)\b|\b(?:adjust|change|round)\b[^.!?\n]{0,60}\b(?:quantity|order|multiple|full[- ]case|whole[- ]case)\b|\b(?:cannot|can't|can not)\b[^.!?\n]{0,60}\b(?:ordered|fulfilled|shipped|processed|accepted)\b/i,
-  );
-  expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
-  expectClaimsToComeFromContext(answer, authorizedContext);
-}
-
 describe('support model factuality', () => {
   it('uses only authorized identifiers, amounts, and dates for an exact order', async () => {
     const messages = [
@@ -286,7 +171,6 @@ describe('support model factuality', () => {
 
     expect(answer).toContain('SBL-2026-000417');
     expect(answer).toMatch(/partially[_ -]shipped/i);
-    expect(answer).not.toMatch(/WHS-1098|Meridian Civic Supply/i);
 
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
@@ -316,7 +200,6 @@ describe('support model factuality', () => {
     expect(answer).toContain('CPD-PO-260417');
     expect(answer).toMatch(/partially[_ -]shipped/i);
     expect(answer).toContain('$78,320.00');
-    expect(answer).not.toMatch(/WHS-1098|Meridian Civic Supply/i);
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
@@ -355,7 +238,6 @@ describe('support model factuality', () => {
         total: '$78,320.00',
         otherOrderId: externalOrderId,
         otherTotal: meridianTotal,
-        otherUser: meridianUser,
         seed: 4271098,
       },
       {
@@ -364,7 +246,6 @@ describe('support model factuality', () => {
         total: meridianTotal,
         otherOrderId: 'SBL-2026-000417',
         otherTotal: '$78,320.00',
-        otherUser: calderPikeUser,
         seed: 1098427,
       },
     ];
@@ -409,9 +290,11 @@ describe('support model factuality', () => {
         expect(answer).toContain(sharedPO);
         expect(answer).toContain(scenario.total);
         expect(answer).not.toContain(scenario.otherTotal);
-        expect(answer).not.toContain(scenario.otherUser.distributorId);
-        expect(answer).not.toContain(scenario.otherUser.distributorDisplayName);
-        expectClaimsToComeFromContext(answer, authorizedContext);
+        expectClaimsToComeFromContext(
+          answer,
+          authorizedContext,
+          scenario.user.distributorId,
+        );
       }
     } finally {
       await database
@@ -466,7 +349,7 @@ No order matching MCS-PO-500000 is available within Calder Pike Distribution's a
       /\$\s*\d|\b\d[\d,.]*\s*(?:USD|dollars?)\b/i,
     );
     expect(normalizedAnswer).not.toMatch(
-      /SBL-2021-500000|WHS-1098|Meridian Civic Supply|\b(?:does not|doesn't|doesn’t)\s+belong\b|\bbelongs?\s+to\s+(?:another|a different)\b/i,
+      /SBL-2021-500000|\b(?:does not|doesn't|doesn’t)\s+belong\b|\bbelongs?\s+to\s+(?:another|a different)\b/i,
     );
     expect(normalizedAnswer).not.toMatch(
       /(?:status(?:\s+is|:)|marked as|currently|order\s+(?:is|was))\s+(?:scheduled|confirmed|allocating|backordered|partially[_ -]shipped|shipped|delivered|on[_ -]hold|cancelled)\b/i,
@@ -567,7 +450,7 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
       /\$\s*\d|\b\d[\d,.]*\s*(?:USD|dollars?)\b/i,
     );
     expect(normalizedAnswer).not.toMatch(
-      /WHS-1098|Meridian Civic Supply|MCS-PO-500000|\b(?:does not|doesn't|doesn’t)\s+belong\b|\bbelongs?\s+to\s+(?:another|a different)\b/i,
+      /MCS-PO-500000|\b(?:does not|doesn't|doesn’t)\s+belong\b|\bbelongs?\s+to\s+(?:another|a different)\b/i,
     );
     expect(normalizedAnswer).not.toMatch(
       /(?:status(?:\s+is|:)|marked as|currently|order\s+(?:is|was))\s+(?:scheduled|confirmed|allocating|backordered|partially[_ -]shipped|shipped|delivered|on[_ -]hold|cancelled)\b/i,
@@ -620,9 +503,6 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expect(answer).not.toMatch(
       /\b(?:does not|doesn't|doesn’t)\s+belong\b|\bbelongs?\s+to\s+(?:another|a different)\b/i,
     );
-    expect(answer).not.toMatch(
-      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
-    );
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
@@ -642,9 +522,6 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expect(authorizedOrderIds).toHaveLength(6);
     expect(answerOrderIds).toEqual(authorizedOrderIds);
     expect(answer).toMatch(/partially[_ -]shipped/i);
-    expect(answer).not.toMatch(
-      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
-    );
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
@@ -670,9 +547,6 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expect(answer).not.toMatch(
       /\bcreated(?:\s+(?:in|during|for)|:)?\s+2030\b|\b2030\b[\s\S]{0,20}\bcreat(?:ed|ion)\b/i,
     );
-    expect(answer).not.toMatch(
-      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
-    );
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
@@ -696,9 +570,6 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
       `Expected every authorized product-filtered order ID, received: ${answer}`,
     ).toEqual(authorizedOrderIds);
     expect(answer).toMatch(/SBL-RPC-12|Redline Power Cell R12/i);
-    expect(answer).not.toMatch(
-      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
-    );
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
@@ -716,9 +587,6 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expect(answer).toMatch(/\b312\b/);
     expect(answer).toMatch(/available(?: to promise)?|availability/i);
     expect(answer).not.toMatch(/\b376\b|\b64\b/);
-    expect(answer).not.toMatch(
-      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
-    );
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
@@ -1086,8 +954,24 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     console.info('Catalog comparison response:', answer);
 
     expectProductComparisonResponse(answer, authorizedContext, [
-      { item: 'SBL-NV-16T', price: 1940, pack: 4, lead: 35, available: 96 },
-      { item: 'SBL-RPC-12', price: 680, pack: 8, lead: 18, available: 312 },
+      {
+        item: 'SBL-NV-16T',
+        name: 'Nightvault 16 TB Solid-State Array',
+        unit: 'array',
+        priceCents: 194000,
+        pack: 4,
+        lead: 35,
+        available: 96,
+      },
+      {
+        item: 'SBL-RPC-12',
+        name: 'Redline Power Cell R12',
+        unit: 'cell',
+        priceCents: 68000,
+        pack: 8,
+        lead: 18,
+        available: 312,
+      },
     ]);
   }, 120_000);
 
@@ -1150,9 +1034,6 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expect(answer).toMatch(/2026-08-31|Aug(?:ust)? 31,? 2026/i);
     expect(answer).not.toMatch(
       /(?:status(?:\s+is|:)|marked as|currently|shipment\s+(?:is|was)|has been)\s+delivered\b/i,
-    );
-    expect(answer).not.toMatch(
-      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
     );
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
@@ -1234,9 +1115,6 @@ No shipment matching ${externalShipment.shipment_id} is available within Calder 
     expect(answer).toMatch(/\b12\b/);
     expect(answer).toMatch(/\brestock\b/i);
     expect(answer).toMatch(/2022-07-21|Jul(?:y)? 21,? 2022/i);
-    expect(answer).not.toMatch(
-      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
-    );
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
@@ -1285,9 +1163,6 @@ No return matching ${unknownReturnId} is available within Calder Pike Distributi
     expect(answer).not.toMatch(
       /\b(?:does not|doesn't|doesn’t)\s+belong\b|\bbelongs?\s+to\s+(?:another|a different)\b/i,
     );
-    expect(answer).not.toMatch(
-      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
-    );
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
@@ -1312,9 +1187,6 @@ No return matching ${unknownReturnId} is available within Calder Pike Distributi
     );
     expect(answer).toMatch(
       /(?:recent )?charge[ -]account authorizations?\s*:\s*(?:none|no(?:ne)? (?:are )?)recorded/i,
-    );
-    expect(answer).not.toMatch(
-      /WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
     );
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
@@ -1445,9 +1317,7 @@ No return matching ${unknownReturnId} is available within Calder Pike Distributi
     expect(answer.match(/(?:2\s+messages|messages?\s*:\s*2)/gi)).toHaveLength(
       3,
     );
-    expect(answer).not.toMatch(
-      /INC-USR-(?:MCS|NPC|HIX)|WHS-1098|Meridian Civic Supply|WHS-2214|Northline Relay Cooperative|WHS-7812|Halcyon Vector Exchange/i,
-    );
+    expect(answer).not.toMatch(/INC-USR-(?:MCS|NPC|HIX)/i);
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 });
