@@ -66,6 +66,15 @@ export async function getCatalog(db: D1Database): Promise<CatalogProduct[]> {
   }));
 }
 
+function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  // Date parsing can normalize impossible days into the following month.
+  return (
+    Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
+  );
+}
+
 export function parseCheckoutInput(value: unknown): CheckoutInput | null {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Record<string, unknown>;
@@ -83,7 +92,7 @@ export function parseCheckoutInput(value: unknown): CheckoutInput | null {
       : '';
   if (
     !/^[A-Z0-9][A-Z0-9-]{3,39}$/.test(customerPoNumber) ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(requestedShipDate) ||
+    !isCalendarDate(requestedShipDate) ||
     shippingRegion.length < 3 ||
     shippingRegion.length > 80 ||
     !Array.isArray(candidate.items) ||
@@ -119,7 +128,11 @@ export async function placeChargeAccountOrder(
   input: CheckoutInput,
   user: AuthenticatedUser,
 ) {
-  const today = new Date().toISOString().slice(0, 10);
+  const createdAt = new Date().toISOString();
+  const today = createdAt.slice(0, 10);
+  if (!isCalendarDate(input.requestedShipDate)) {
+    throw new CheckoutError('Enter a valid requested ship date.', 422);
+  }
   if (input.requestedShipDate < today) {
     throw new CheckoutError('Requested ship date cannot be in the past.', 422);
   }
@@ -164,12 +177,7 @@ export async function placeChargeAccountOrder(
           .prepare(`UPDATE inventory_balances
           SET reserved_quantity = reserved_quantity + ?, updated_at = ?
           WHERE item_number = ? AND location_id = ?`)
-          .bind(
-            allocation,
-            `${today}T12:00:00Z`,
-            product.itemNumber,
-            balance.location_id,
-          ),
+          .bind(allocation, createdAt, product.itemNumber, balance.location_id),
       );
       remaining -= allocation;
     }
@@ -186,7 +194,6 @@ export async function placeChargeAccountOrder(
   const orderId = `SBL-${year}-${800000 + (randomValue % 200000)}`;
   const chargeId = `CHG-${crypto.randomUUID().slice(0, 12).toUpperCase()}`;
   const authorizationCode = `ACC-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-  const createdAt = `${today}T12:00:00Z`;
   const statements: D1PreparedStatement[] = [
     ...inventoryUpdates,
     db

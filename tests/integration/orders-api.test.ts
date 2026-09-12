@@ -1,6 +1,7 @@
 import { describe, expect, vi } from 'vitest';
 
 import { GET, POST } from '@/app/api/orders/route';
+import { placeChargeAccountOrder } from '@/db/shop';
 import type { OrderHistoryResponse, OrderStatus } from '@/lib/contracts';
 import {
   createCheckoutFixture,
@@ -112,8 +113,9 @@ describe('orders API', () => {
   }) => {
     const customerPoNumber = 'MCS-TEST-CHECKOUT-SUCCESS';
     const requestedShipDate = '2026-10-15';
+    const checkoutAt = '2026-09-10T09:17:23.456Z';
     const shippingRegion = 'Great Lakes District';
-    const { stockTotals, ordersForPO, beforeInventory } =
+    const { stockTotals, ordersForPO, beforeInventory, inventory } =
       await createCheckoutFixture(database, customerPoNumber, [
         'SBL-RPC-12',
         'SBL-SWC-12',
@@ -125,7 +127,7 @@ describe('orders API', () => {
     onTestFinished(() => {
       vi.useRealTimers();
     });
-    vi.setSystemTime(new Date('2026-09-10T09:00:00.000Z'));
+    vi.setSystemTime(new Date(checkoutAt));
     const user = await loadActiveUserFixture(database, 'USR-MCS-001');
     const session = await supportApi.session(user);
     const headers = new Headers(session.request({}).headers);
@@ -219,7 +221,7 @@ describe('orders API', () => {
     ]);
     const charges = await database
       .prepare(`SELECT charge_id, order_id, charge_method, status,
-        amount_cents, currency, authorization_code
+        amount_cents, currency, authorization_code, authorized_at
         FROM account_charges WHERE order_id = ?`)
       .bind(receipt.orderId)
       .all();
@@ -232,13 +234,27 @@ describe('orders API', () => {
         amount_cents: 2_132_000,
         currency: 'USD',
         authorization_code: receipt.authorizationCode,
+        authorized_at: checkoutAt,
       },
     ]);
     const events = await database
-      .prepare('SELECT event_type FROM order_events WHERE order_id = ?')
+      .prepare(
+        'SELECT event_type, occurred_at FROM order_events WHERE order_id = ?',
+      )
       .bind(receipt.orderId)
       .all();
-    expect(events.results).toEqual([{ event_type: 'order_confirmed' }]);
+    expect(events.results).toEqual([
+      { event_type: 'order_confirmed', occurred_at: checkoutAt },
+    ]);
+    const changedInventory = (await inventory()).results.filter(
+      (row, index) =>
+        row.reserved_quantity !== beforeInventory[index].reserved_quantity,
+    );
+    expect(changedInventory).toHaveLength(2);
+    expect(changedInventory.map((row) => row.updated_at)).toEqual([
+      checkoutAt,
+      checkoutAt,
+    ]);
     // Checkout reserves stock; it does not ship it or reduce on-hand quantities.
     expect((await stockTotals()).results).toEqual([
       { item_number: 'SBL-RPC-12', on_hand: 376, reserved: 80, available: 296 },
@@ -249,6 +265,131 @@ describe('orders API', () => {
         available: 684,
       },
     ]);
+  });
+
+  test('rejects impossible and past ship dates without business writes', async ({
+    database,
+    supportApi,
+    onTestFinished,
+  }) => {
+    const customerPoNumber = 'MCS-TEST-CHECKOUT-DATE';
+    await createCheckoutFixture(database, customerPoNumber, ['SBL-RPC-12']);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    vi.setSystemTime(new Date('2026-09-10T09:17:23.456Z'));
+    const user = await loadActiveUserFixture(database, 'USR-MCS-001');
+    const session = await supportApi.session(user);
+    const before = await snapshotCheckoutState(database);
+
+    for (const requestedShipDate of [
+      '2031-13-01',
+      '2031-00-01',
+      '2031-04-31',
+      '2031-02-29',
+      '2100-02-29',
+      '2026-09-09',
+    ]) {
+      const input = {
+        customerPoNumber,
+        requestedShipDate,
+        shippingRegion: 'Great Lakes District',
+        items: [{ itemNumber: 'SBL-RPC-12', quantity: 8 }],
+      };
+      const response = await POST(
+        new Request('http://localhost/api/orders', {
+          method: 'POST',
+          headers: session.request({}).headers,
+          body: JSON.stringify(input),
+        }),
+      );
+      const pastDate = requestedShipDate === '2026-09-09';
+      expect(response.status, requestedShipDate).toBe(pastDate ? 422 : 400);
+      expect(await snapshotCheckoutState(database), requestedShipDate).toEqual(
+        before,
+      );
+
+      // The business operation must also reject invalid dates without its HTTP parser.
+      await expect(
+        placeChargeAccountOrder(database, input, user),
+      ).rejects.toMatchObject({
+        status: 422,
+        message: pastDate
+          ? 'Requested ship date cannot be in the past.'
+          : 'Enter a valid requested ship date.',
+      });
+      expect(await snapshotCheckoutState(database), requestedShipDate).toEqual(
+        before,
+      );
+    }
+  });
+
+  test('keeps one checkout instant when a same-day leap-day order crosses UTC midnight', async ({
+    database,
+    onTestFinished,
+  }) => {
+    const customerPoNumber = 'MCS-TEST-CHECKOUT-MIDNIGHT';
+    const { ordersForPO, inventory, beforeInventory } =
+      await createCheckoutFixture(database, customerPoNumber, ['SBL-RPC-12']);
+    const checkoutAt = '2028-02-29T23:59:59.999Z';
+    vi.useFakeTimers({ toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    vi.setSystemTime(new Date('2028-03-01T00:59:59.999+01:00'));
+    const user = await loadActiveUserFixture(database, 'USR-MCS-001');
+    const originalPrepare = database.prepare.bind(database);
+    // Advance during the first business read, before reservations/charge/event
+    // statements are built. All writes must retain the instant captured on entry.
+    const prepare = vi
+      .spyOn(database, 'prepare')
+      .mockImplementationOnce((sql) => {
+        vi.setSystemTime(new Date('2028-03-01T00:00:00.123Z'));
+        return originalPrepare(sql);
+      });
+    let receipt: Awaited<ReturnType<typeof placeChargeAccountOrder>>;
+    try {
+      receipt = await placeChargeAccountOrder(
+        database,
+        {
+          customerPoNumber,
+          requestedShipDate: '2028-02-29',
+          shippingRegion: 'Great Lakes District',
+          items: [{ itemNumber: 'SBL-RPC-12', quantity: 8 }],
+        },
+        user,
+      );
+      expect(prepare).toHaveBeenCalled();
+    } finally {
+      prepare.mockRestore();
+    }
+    expect(new Date().toISOString()).toBe('2028-03-01T00:00:00.123Z');
+    expect(receipt.orderId).toMatch(/^SBL-2028-\d{6}$/);
+    expect((await ordersForPO()).results).toEqual([
+      expect.objectContaining({
+        created_on: '2028-02-29',
+        requested_ship_date: '2028-02-29',
+      }),
+    ]);
+    expect(
+      await database
+        .prepare('SELECT authorized_at FROM account_charges WHERE order_id = ?')
+        .bind(receipt.orderId)
+        .first(),
+    ).toEqual({ authorized_at: checkoutAt });
+    expect(
+      await database
+        .prepare('SELECT occurred_at FROM order_events WHERE order_id = ?')
+        .bind(receipt.orderId)
+        .first(),
+    ).toEqual({ occurred_at: checkoutAt });
+    const changedInventory = (await inventory()).results.filter(
+      (row, index) =>
+        row.reserved_quantity !== beforeInventory[index].reserved_quantity,
+    );
+    expect(changedInventory).toHaveLength(1);
+    expect(changedInventory[0].updated_at).toBe(checkoutAt);
   });
 
   test('rejects insufficient stock on a later line without changing orders, charges, or inventory', async ({
