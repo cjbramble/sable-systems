@@ -111,6 +111,7 @@ different dataset.
 | Cloudflare Vitest plugin | Runs Vitest tests in the Workers runtime                              |
 | Miniflare                | Local Workers runtime setup and disposable D1 databases               |
 | Playwright               | Chromium browser workflows using page objects                         |
+| pytest                   | Python evaluator integration tests using the local embedding model    |
 | Sentence Transformers    | Advisory response-similarity scoring with `all-MiniLM-L6-v2`          |
 
 Oxlint provides lint checks, TypeScript checks types, and a custom validator checks
@@ -124,7 +125,8 @@ Install Chromium for browser tests:
 npx playwright install chromium
 ```
 
-For semantic scoring and the full live-model suite, install `uv` and run:
+For Python evaluator tests, semantic scoring, and the full live-model suite,
+install `uv` and run:
 
 ```sh
 npm run setup:semantic
@@ -144,17 +146,19 @@ partial transcript.
 | `npm run test:e2e`      | Production build and browser tests                                            |
 | `npm run test:model`    | Live Qwen evaluations, including repeated sampling and semantic scoring       |
 | `npm run test:semantic` | Semantic calibration or scoring of a saved transcript                         |
+| `npm run test:python`   | Python evaluator integration tests                                           |
 | `npm run validate:data` | Seed-data validation                                                          |
 | `npm run check`         | Lint, type checks, deterministic tests, seed validation, and production build |
 
-Browser and live-model suites run separately from `npm test` and `npm run check`.
+Browser, Python evaluator, and live-model suites run separately from `npm test`
+and `npm run check`.
 Database tests use disposable local databases. Browser tests use controlled
 model responses.
 
 Run all test suites in sequence (stops if a suite fails):
 
 ```sh
-npm test && npm run test:e2e && npm run test:model
+npm test && npm run test:python && npm run test:e2e && npm run test:model
 ```
 
 Run individual files or select model tests by name:
@@ -177,6 +181,7 @@ Tests are grouped under `tests/unit/`, `tests/integration/`, `tests/model/`,
 and `tests/e2e/`. Shared data and setup live in `tests/fixtures/`; reusable
 response checks live in `tests/assertions/`. Browser tests use
 `tests/e2e/pages/` for page objects and `tests/e2e/fixtures/` for setup.
+Python evaluator tests live in `tests/integration/semantic/`.
 
 Model tests check factual accuracy and authorization. Repeated-sampling tests
 evaluate five responses per scenario at normal generation settings. Semantic

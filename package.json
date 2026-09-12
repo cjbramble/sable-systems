@@ -14,6 +14,7 @@
     "test:model": "node scripts/test-support-model.mjs",
     "setup:semantic": "uv sync --project scripts/semantic --locked && uv run --project scripts/semantic --no-sync python scripts/semantic/evaluate.py --download",
     "test:semantic": "node scripts/test-support-semantic.mjs",
+    "test:python": "uv run --project scripts/semantic --locked --offline python -m pytest -c scripts/semantic/pyproject.toml tests/integration/semantic",
     "test:e2e": "npm run build && playwright test",
     "typecheck": "tsc --noEmit",
     "check": "npm run lint && npm run typecheck && npm test && npm run validate:data && npm run build",

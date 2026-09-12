@@ -12,6 +12,7 @@ __pycache__/
 !.yarn/versions
 
 # testing
+.pytest_cache/
 /coverage
 /playwright-report/
 /test-results/
