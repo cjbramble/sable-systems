@@ -2,6 +2,14 @@ import { expect, test } from './fixtures/app';
 
 test.use({ modelResponses: [[], { scope: 'test' }] });
 
+const orderDetails = (customerPoNumber: string) => ({
+  customerPoNumber,
+  requestedShipDate: new Date(Date.now() + 30 * 86_400_000)
+    .toISOString()
+    .slice(0, 10),
+  shippingRegion: 'Great Lakes District',
+});
+
 test('removes a cart item, places a charge-account order, and finds it in persisted history', async ({
   app,
   loginPage,
@@ -161,6 +169,257 @@ test('removes a cart item, places a charge-account order, and finds it in persis
     'Imani Kade',
     '8 units',
     '$5,440',
+  ]);
+  expect(app.modelRequests).toEqual([]);
+});
+
+test('reduces a stale oversized cart one case at a time without rewriting the requested quantity', async ({
+  page,
+  request,
+  app,
+  loginPage,
+  shopPage,
+}) => {
+  const itemNumber = 'SBL-RPC-12';
+  const details = orderDetails('MCS-STALE-CART');
+  await loginPage.goto('/shop');
+  await loginPage.signIn(
+    'imani.kade@meridiancivic.example',
+    'Sable-WHS-1098!',
+    '/shop',
+  );
+  await shopPage.addCase(itemNumber);
+  const catalogQuantity = shopPage.quantity(itemNumber, 'catalog');
+  await catalogQuantity.increase.click();
+  await catalogQuantity.increase.click();
+  await expect(catalogQuantity.value).toHaveText('24');
+
+  // A separate customer's real order exhausts most of the disposable inventory.
+  expect(
+    (
+      await request.post('/api/auth/login', {
+        headers: { Origin: app.url },
+        data: {
+          email: 'mara.venn@calderpike.example',
+          password: 'Sable-WHS-0427!',
+        },
+      })
+    ).status(),
+  ).toBe(200);
+  expect(
+    (
+      await request.post('/api/orders', {
+        headers: { Origin: app.url },
+        data: {
+          ...orderDetails('CPD-COMPETING-CART'),
+          items: [{ itemNumber, quantity: 304 }],
+        },
+      })
+    ).status(),
+  ).toBe(201);
+
+  await shopPage.openCart();
+  await shopPage.fillOrder(details);
+  await shopPage.chargeConsent.check();
+  const refreshed = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === '/api/catalog',
+  );
+  const conflict = await shopPage.placeOrder();
+  expect(conflict.status()).toBe(409);
+  expect(await conflict.json()).toEqual({
+    error: 'Redline Power Cell R12 has only 8 units available.',
+  });
+  await refreshed;
+  await expect(shopPage.cartQuantity(itemNumber)).toHaveText('24');
+  await shopPage.closeCart();
+  await expect(shopPage.productCard(itemNumber)).toContainText('8 available');
+  await expect(catalogQuantity.increase).toBeDisabled();
+  await catalogQuantity.decrease.focus();
+  await catalogQuantity.decrease.press('Enter');
+  await expect(catalogQuantity.value).toHaveText('16');
+
+  await shopPage.openCart();
+  const cartQuantity = shopPage.quantity(itemNumber);
+  await expect(cartQuantity.increase).toBeDisabled();
+  await expect(cartQuantity.decrease).toHaveAccessibleName(
+    'Remove 8 Redline Power Cell R12',
+  );
+  await cartQuantity.decrease.focus();
+  await cartQuantity.decrease.press('Space');
+  await expect(cartQuantity.value).toHaveText('8');
+  await expect(cartQuantity.increase).toBeDisabled();
+  // Decrement-to-zero still removes a line; adding one valid case restores it.
+  await cartQuantity.decrease.click();
+  await expect(shopPage.cartLine(itemNumber)).toHaveCount(0);
+  await shopPage.closeCart();
+  await shopPage.addCase(itemNumber);
+  await shopPage.openCart();
+  const response = await shopPage.placeOrder();
+  expect(response.status()).toBe(201);
+  expect(response.request().postDataJSON()).toEqual({
+    ...details,
+    items: [{ itemNumber, quantity: 8 }],
+  });
+  const saved = await app.database
+    .prepare(`SELECT o.customer_id, o.order_total_cents, i.item_number, i.ordered_quantity
+    FROM orders o JOIN order_items i ON i.order_id = o.order_id WHERE o.customer_po_number = ?`)
+    .bind(details.customerPoNumber)
+    .all();
+  expect(saved.results).toEqual([
+    {
+      customer_id: 'WHS-1098',
+      order_total_cents: 544000,
+      item_number: itemNumber,
+      ordered_quantity: 8,
+    },
+  ]);
+  expect(app.modelRequests).toEqual([]);
+});
+
+test('locks cart and form edits across closing and reopening pending checkout, then unlocks after rejection', async ({
+  page,
+  app,
+  loginPage,
+  shopPage,
+}) => {
+  const details = orderDetails('MCS-PENDING-CART');
+  const products = [
+    { itemNumber: 'SBL-RPC-12', name: 'Redline Power Cell R12', quantity: 8 },
+    {
+      itemNumber: 'SBL-SWC-12',
+      name: 'Signal-Weave Active Cable, 12 m',
+      quantity: 12,
+    },
+  ];
+  await loginPage.goto('/shop');
+  await loginPage.signIn(
+    'imani.kade@meridiancivic.example',
+    'Sable-WHS-1098!',
+    '/shop',
+  );
+  for (const product of products) {
+    await shopPage.addCase(product.itemNumber);
+    await expect(
+      shopPage.quantity(product.itemNumber, 'catalog').decrease,
+    ).toHaveAccessibleName(`Remove ${product.quantity} ${product.name}`);
+    await expect(
+      shopPage.quantity(product.itemNumber, 'catalog').increase,
+    ).toHaveAccessibleName(`Add ${product.quantity} ${product.name}`);
+  }
+  await shopPage.openCart();
+  await shopPage.fillOrder(details);
+  await shopPage.chargeConsent.check();
+
+  for (const outcome of ['rejected', 'accepted']) {
+    const held = Promise.withResolvers<void>();
+    const received = Promise.withResolvers<void>();
+    let submitted: unknown;
+    await page.route('**/api/orders', async (route) => {
+      submitted = route.request().postDataJSON();
+      // Hold an actual accepted response after storage commits, or a rejection.
+      const response = outcome === 'accepted' ? await route.fetch() : null;
+      received.resolve();
+      await held.promise;
+      if (response) await route.fulfill({ response });
+      else
+        await route.fulfill({
+          status: 409,
+          json: { error: 'Checkout temporarily unavailable.' },
+        });
+    });
+    try {
+      await shopPage.submitOrder();
+      await received.promise;
+      const pendingProducts =
+        outcome === 'accepted' ? products.slice(0, 1) : products;
+      for (const product of pendingProducts) {
+        const controls = shopPage.quantity(product.itemNumber);
+        await expect(controls.decrease).toHaveAccessibleName(
+          `Remove ${product.quantity} ${product.name}`,
+        );
+        await expect(controls.increase).toHaveAccessibleName(
+          `Add ${product.quantity} ${product.name}`,
+        );
+        await expect(controls.decrease).toBeDisabled();
+        await expect(controls.increase).toBeDisabled();
+        await expect(
+          shopPage.removeItemButton(product.itemNumber),
+        ).toBeDisabled();
+      }
+      await expect(shopPage.orderFields).toHaveCount(3);
+      for (const field of await shopPage.orderFields.all())
+        await expect(field).toBeDisabled();
+      await expect(shopPage.chargeConsent).toBeDisabled();
+      await expect(shopPage.placeOrderButton).toBeDisabled();
+      await shopPage.closeCart();
+      for (const product of pendingProducts) {
+        await expect(
+          shopPage.quantity(product.itemNumber, 'catalog').decrease,
+        ).toBeDisabled();
+        await expect(
+          shopPage.quantity(product.itemNumber, 'catalog').increase,
+        ).toBeDisabled();
+      }
+      await expect(shopPage.addCaseButton('SBL-EID-R8')).toBeDisabled();
+      await shopPage.openCart();
+      for (const product of pendingProducts)
+        await expect(shopPage.cartQuantity(product.itemNumber)).toHaveText(
+          String(product.quantity),
+        );
+      expect(submitted).toEqual({
+        ...details,
+        items: expect.arrayContaining(
+          pendingProducts.map(({ itemNumber, quantity }) => ({
+            itemNumber,
+            quantity,
+          })),
+        ),
+      });
+      expect((submitted as { items: unknown[] }).items).toHaveLength(
+        pendingProducts.length,
+      );
+      for (const [index, value] of [
+        details.customerPoNumber,
+        details.requestedShipDate,
+        details.shippingRegion,
+      ].entries()) {
+        await expect(shopPage.orderFields.nth(index)).toHaveValue(value);
+      }
+      const completed = page.waitForResponse(
+        (response) => new URL(response.url()).pathname === '/api/orders',
+      );
+      held.resolve();
+      expect((await completed).status()).toBe(
+        outcome === 'accepted' ? 201 : 409,
+      );
+      if (outcome === 'rejected') {
+        await expect(shopPage.checkoutError).toHaveText(
+          'Checkout temporarily unavailable.',
+        );
+        await expect(
+          shopPage.quantity(products[0].itemNumber).decrease,
+        ).toBeEnabled();
+        for (const field of await shopPage.orderFields.all())
+          await expect(field).toBeEnabled();
+        await expect(shopPage.chargeConsent).toBeEnabled();
+        // An intentional edit after rejection must be reflected in the retry.
+        await shopPage.removeItem(products[1].itemNumber);
+      } else {
+        await expect(shopPage.confirmationHeading).toBeVisible();
+        await expect(shopPage.cartLines).toHaveCount(0);
+      }
+    } finally {
+      held.resolve();
+      await page.unrouteAll({ behavior: 'wait' });
+    }
+  }
+  const saved = await app.database
+    .prepare(`SELECT i.item_number, i.ordered_quantity FROM order_items i
+    JOIN orders o ON o.order_id = i.order_id WHERE o.customer_po_number = ?`)
+    .bind(details.customerPoNumber)
+    .all();
+  expect(saved.results).toEqual([
+    { item_number: 'SBL-RPC-12', ordered_quantity: 8 },
   ]);
   expect(app.modelRequests).toEqual([]);
 });

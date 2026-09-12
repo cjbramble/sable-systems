@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import { SessionControls } from './session-controls';
+import { QuantityControl } from './quantity-control';
 
 export class ShopPage {
   readonly session: SessionControls;
@@ -59,6 +60,41 @@ export class ShopPage {
     return this.cart.locator('.checkout-line');
   }
 
+  productCard(itemNumber: string) {
+    return this.page
+      .getByRole('article')
+      .filter({ has: this.page.getByText(itemNumber, { exact: true }) });
+  }
+
+  addCaseButton(itemNumber: string) {
+    return this.productCard(itemNumber).getByRole('button', {
+      name: 'Add case',
+      exact: true,
+    });
+  }
+
+  quantity(itemNumber: string, surface: 'catalog' | 'cart' = 'cart') {
+    const container =
+      surface === 'catalog'
+        ? this.productCard(itemNumber)
+        : this.cartLine(itemNumber);
+    return new QuantityControl(container.locator('.quantity-control'));
+  }
+
+  removeItemButton(itemNumber: string) {
+    return this.cartLine(itemNumber).getByRole('button', {
+      name: /^Remove .+ from cart$/,
+    });
+  }
+
+  get orderFields() {
+    return this.cart.locator('.checkout-form-grid input');
+  }
+
+  get checkoutError() {
+    return this.cart.getByRole('alert');
+  }
+
   cartLine(itemNumber: string) {
     return this.cartLines.filter({
       has: this.page.getByText(itemNumber, { exact: true }),
@@ -79,8 +115,7 @@ export class ShopPage {
 
   get placeOrderButton() {
     return this.cart.getByRole('button', {
-      name: 'Place charge account order',
-      exact: true,
+      name: /^(Place charge account order|Reserving inventory…)/,
     });
   }
 
@@ -107,21 +142,23 @@ export class ShopPage {
   }
 
   async addCase(itemNumber: string) {
-    await this.page
-      .getByRole('article')
-      .filter({ has: this.page.getByText(itemNumber, { exact: true }) })
-      .getByRole('button', { name: 'Add case', exact: true })
-      .click();
+    await this.addCaseButton(itemNumber).click();
   }
 
   async openCart() {
     await this.cartTrigger.click();
   }
 
+  async closeCart() {
+    await this.cart.getByRole('button', { name: 'Close', exact: true }).click();
+  }
+
+  async submitOrder() {
+    await this.placeOrderButton.click();
+  }
+
   async removeItem(itemNumber: string) {
-    await this.cartLine(itemNumber)
-      .getByRole('button', { name: /^Remove .+ from cart$/ })
-      .click();
+    await this.removeItemButton(itemNumber).click();
   }
 
   async fillOrder(details: {
@@ -147,7 +184,7 @@ export class ShopPage {
           new URL(response.url()).pathname === '/api/orders' &&
           response.request().method() === 'POST',
       ),
-      this.placeOrderButton.click(),
+      this.submitOrder(),
     ]);
     return response;
   }

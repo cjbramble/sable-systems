@@ -14,9 +14,7 @@ import {
   ArrowRight,
   ChevronRight,
   LogOut,
-  Minus,
   PackageCheck,
-  Plus,
   Search,
   ShieldCheck,
   ShoppingBag,
@@ -25,6 +23,7 @@ import {
 
 import { BrandWordmark } from '@/components/brand-wordmark';
 import { CategoryOrbitGlyph } from '@/components/category-orbit-glyph';
+import { QuantityControl } from '@/components/quantity-control';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -93,6 +92,7 @@ export default function ShopPage() {
   const { signOut, signingOut, signOutError } = useSignOut();
   const pageRequest = useRef<AbortController | null>(null);
   const catalogRequest = useRef(0);
+  const checkoutPending = useRef(false);
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [accountStatus, setAccountStatus] = useState<
@@ -237,12 +237,14 @@ export default function ShopPage() {
   );
 
   function changeQuantity(product: CatalogProduct, delta: number) {
+    if (checkoutPending.current) return;
     setCart((current) => {
       const nextQuantity = Math.max(
         0,
         (current[product.itemNumber] || 0) + delta,
       );
       if (
+        delta > 0 &&
         product.availableQuantity !== null &&
         nextQuantity > product.availableQuantity
       )
@@ -257,6 +259,7 @@ export default function ShopPage() {
   }
 
   function removeFromCart(itemNumber: string) {
+    if (checkoutPending.current) return;
     setCart((current) => {
       const next = { ...current };
       delete next[itemNumber];
@@ -280,7 +283,13 @@ export default function ShopPage() {
     const signal = pageRequest.current?.signal;
     if (!signal || signal.aborted || accountStatus !== 'ready' || !account)
       return;
-    if (!cartProducts.length || !chargeAccountAuthorized || submitting) return;
+    if (
+      !cartProducts.length ||
+      !chargeAccountAuthorized ||
+      checkoutPending.current
+    )
+      return;
+    checkoutPending.current = true;
     setSubmitting(true);
     setCheckoutError('');
     try {
@@ -321,6 +330,7 @@ export default function ShopPage() {
       );
       await loadCatalog();
     } finally {
+      checkoutPending.current = false;
       if (!signal.aborted) setSubmitting(false);
     }
   }
@@ -517,36 +527,19 @@ export default function ShopPage() {
                       <span>/ {product.unitLabel}</span>
                     </div>
                     {inCart ? (
-                      <div className="quantity-control">
-                        <Button
-                          variant="outline"
-                          size="icon-sm"
-                          aria-label={`Remove ${product.casePack} ${product.name}`}
-                          onClick={() =>
-                            changeQuantity(product, -product.casePack)
-                          }
-                        >
-                          <Minus />
-                        </Button>
-                        <strong>{inCart}</strong>
-                        <Button
-                          size="icon-sm"
-                          aria-label={`Add ${product.casePack} ${product.name}`}
-                          disabled={
-                            product.availableQuantity !== null &&
-                            inCart + product.casePack >
-                              product.availableQuantity
-                          }
-                          onClick={() =>
-                            changeQuantity(product, product.casePack)
-                          }
-                        >
-                          <Plus />
-                        </Button>
-                      </div>
+                      <QuantityControl
+                        product={product}
+                        quantity={inCart}
+                        disabled={submitting}
+                        onChange={(delta) => changeQuantity(product, delta)}
+                      />
                     ) : (
                       <Button
-                        disabled={unavailable}
+                        disabled={
+                          submitting ||
+                          (product.availableQuantity !== null &&
+                            product.availableQuantity < product.casePack)
+                        }
                         onClick={() =>
                           changeQuantity(product, product.casePack)
                         }
@@ -622,7 +615,12 @@ export default function ShopPage() {
               <Link className="order-history-link" href="/orders">
                 View order history <ArrowRight />
               </Link>
-              <Button onClick={() => setConfirmation(null)}>
+              <Button
+                disabled={submitting}
+                onClick={() => {
+                  if (!checkoutPending.current) setConfirmation(null);
+                }}
+              >
                 Build another order <ArrowRight />
               </Button>
             </div>
@@ -638,33 +636,12 @@ export default function ShopPage() {
                         {money(product.unitPriceCents)} / {product.unitLabel}
                       </small>
                     </div>
-                    <div className="quantity-control">
-                      <Button
-                        variant="outline"
-                        size="icon-sm"
-                        type="button"
-                        onClick={() =>
-                          changeQuantity(product, -product.casePack)
-                        }
-                      >
-                        <Minus />
-                      </Button>
-                      <strong>{cart[product.itemNumber]}</strong>
-                      <Button
-                        size="icon-sm"
-                        type="button"
-                        disabled={
-                          product.availableQuantity !== null &&
-                          cart[product.itemNumber] + product.casePack >
-                            product.availableQuantity
-                        }
-                        onClick={() =>
-                          changeQuantity(product, product.casePack)
-                        }
-                      >
-                        <Plus />
-                      </Button>
-                    </div>
+                    <QuantityControl
+                      product={product}
+                      quantity={cart[product.itemNumber]}
+                      disabled={submitting}
+                      onChange={(delta) => changeQuantity(product, delta)}
+                    />
                     <strong>
                       {money(product.unitPriceCents * cart[product.itemNumber])}
                     </strong>
@@ -674,6 +651,7 @@ export default function ShopPage() {
                       size="icon-sm"
                       type="button"
                       aria-label={`Remove ${product.name} from cart`}
+                      disabled={submitting}
                       onClick={() => removeFromCart(product.itemNumber)}
                     >
                       <Trash2 />
@@ -695,7 +673,11 @@ export default function ShopPage() {
                     maxLength={40}
                     pattern="[A-Za-z0-9][A-Za-z0-9-]{3,39}"
                     value={poNumber}
-                    onChange={(event) => setPoNumber(event.target.value)}
+                    disabled={submitting}
+                    onChange={(event) => {
+                      if (!checkoutPending.current)
+                        setPoNumber(event.target.value);
+                    }}
                     placeholder="ACCOUNT-PO-260901"
                   />
                 </label>
@@ -707,7 +689,11 @@ export default function ShopPage() {
                     type="date"
                     min={dateOffset(0)}
                     value={shipDate}
-                    onChange={(event) => setShipDate(event.target.value)}
+                    disabled={submitting}
+                    onChange={(event) => {
+                      if (!checkoutPending.current)
+                        setShipDate(event.target.value);
+                    }}
                   />
                 </label>
                 <label className="wide" htmlFor="ship-region">
@@ -718,7 +704,11 @@ export default function ShopPage() {
                     minLength={3}
                     maxLength={80}
                     value={region}
-                    onChange={(event) => setRegion(event.target.value)}
+                    disabled={submitting}
+                    onChange={(event) => {
+                      if (!checkoutPending.current)
+                        setRegion(event.target.value);
+                    }}
                   />
                 </label>
               </div>
@@ -726,7 +716,9 @@ export default function ShopPage() {
                 <input
                   type="checkbox"
                   checked={chargeAccountAuthorized}
+                  disabled={submitting}
                   onChange={(event) =>
+                    !checkoutPending.current &&
                     setChargeAccountAuthorized(event.target.checked)
                   }
                 />
@@ -742,7 +734,9 @@ export default function ShopPage() {
                 <ShieldCheck />
               </label>
               {checkoutError ? (
-                <p className="checkout-error">{checkoutError}</p>
+                <p className="checkout-error" role="alert">
+                  {checkoutError}
+                </p>
               ) : null}
               <Button
                 className="place-order"
