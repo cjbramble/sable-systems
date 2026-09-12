@@ -10,70 +10,147 @@ import {
   type SupportApiSession,
 } from '../fixtures/support-api';
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
+import { test } from '../fixtures/support-integration';
 
+// Ordinary cases use test-scoped failure teardown. Explicit cleanup calls below
+// retain their post-cleanup assertions; races and ordered resource restoration
+// keep their own finally blocks.
 describe('support response safety', () => {
-  it.each([
-    { invalid: '13 chat messages', caseId: 'MESSAGE-COUNT-BOUNDARY' },
+  test.for<{
+    invalid: string;
+    caseId: string;
+    validCount?: number;
+    validCustomerContent?: string;
+    reject: (
+      history: Array<{ role: string; content: string }>,
+      oversized: Array<{ role: string; content: string }>,
+    ) => unknown;
+  }>([
+    {
+      invalid: '13 chat messages',
+      caseId: 'MESSAGE-COUNT-BOUNDARY',
+      reject: (_history, oversized) => oversized,
+    },
     {
       invalid: 'an assistant-final history',
       caseId: 'ASSISTANT-FINAL-HISTORY',
+      reject: (history) =>
+        history.map((message, index) =>
+          index === history.length - 1
+            ? { ...message, role: 'assistant' }
+            : message,
+        ),
     },
     {
       invalid: 'a 4,001-character message',
       caseId: 'MESSAGE-LENGTH-BOUNDARY',
+      validCustomerContent: 'x'.repeat(4_000),
+      reject: (history) => {
+        const rejected = history.map((message, index) =>
+          index === history.length - 1
+            ? { ...message, content: `${message.content}x` }
+            : message,
+        );
+        expect(history.at(-1)?.content).toHaveLength(4_000);
+        expect(rejected.at(-1)?.content).toHaveLength(4_001);
+        return rejected;
+      },
     },
     {
       invalid: 'a whitespace-only customer message',
       caseId: 'WHITESPACE-MESSAGE',
+      reject: (history) => {
+        const whitespace = ' \t\r\n ';
+        expect(whitespace.length).toBeGreaterThan(0);
+        expect(whitespace.trim()).toBe('');
+        return history.map((message, index) =>
+          index === history.length - 1
+            ? { ...message, content: whitespace }
+            : message,
+        );
+      },
     },
     {
       invalid: 'a client-supplied system message',
       caseId: 'SYSTEM-ROLE-MESSAGE',
+      reject: (history) => {
+        // An earlier role is invalid; the final-user check must not mask it.
+        const rejected = history.map((message, index) =>
+          index === 0 ? { ...message, role: 'system' } : message,
+        );
+        expect(rejected).toHaveLength(12);
+        expect(rejected.at(-1)?.role).toBe('user');
+        return rejected;
+      },
     },
     {
       invalid: 'an empty chat history',
       caseId: 'MINIMUM-HISTORY-BOUNDARY',
       validCount: 1,
+      reject: (history) => {
+        expect(history).toEqual([
+          { role: 'user', content: 'Help with a shipment.' },
+        ]);
+        return [];
+      },
     },
     {
       invalid: 'numeric customer message content',
       caseId: 'NUMERIC-MESSAGE-CONTENT',
       validCustomerContent: '123',
+      reject: (history) =>
+        history.map((message, index) =>
+          index === history.length - 1 ? { ...message, content: 123 } : message,
+        ),
     },
     {
       invalid: 'a null message-history entry',
       caseId: 'NULL-HISTORY-ENTRY',
+      reject: (history) => {
+        const rejected = history.map((message, index) =>
+          index === 0 ? null : message,
+        );
+        expect(rejected).toHaveLength(12);
+        expect(rejected[0]).toBeNull();
+        expect(rejected.at(-1)?.role).toBe('user');
+        return rejected;
+      },
     },
     {
       invalid: 'a messages object instead of an array',
       caseId: 'NON-ARRAY-HISTORY',
       validCount: 1,
+      reject: (history) => {
+        const rejected = { role: 'user', content: 'Help with a shipment.' };
+        expect(history).toEqual([rejected]);
+        return rejected;
+      },
     },
     {
       invalid: 'a missing messages field',
       caseId: 'MISSING-HISTORY',
       validCount: 1,
+      reject: () => undefined,
     },
     {
       invalid: 'an explicit null messages field',
       caseId: 'NULL-HISTORY',
       validCount: 1,
+      reject: () => null,
     },
   ])(
     'rejects $invalid without side effects and accepts its valid-history control',
-    async ({
-      caseId,
-      validCount = 12,
-      validCustomerContent = 'Help with a shipment.',
-    }) => {
-      const database = await getDatabase();
-      const fixture = createSupportApiFixture(database);
+    async (
+      {
+        caseId,
+        validCount = 12,
+        validCustomerContent: customerMessage = 'Help with a shipment.',
+        reject,
+      },
+      { database, supportApi: fixture },
+    ) => {
       const incidentId = `INC-${caseId}`;
       const messageId = `MSG-${caseId}`;
-      const customerMessage =
-        caseId === 'MESSAGE-LENGTH-BOUNDARY'
-          ? 'x'.repeat(4_000)
-          : validCustomerContent;
       const assistantMessage = 'Which shipment do you need help with?';
       // The count case differs from the control only by the oldest entry.
       const oversizedHistory = Array.from({ length: 13 }, (_, index) => ({
@@ -86,159 +163,83 @@ describe('support response safety', () => {
       const allowedHistory = oversizedHistory.slice(-validCount);
       expect(oversizedHistory).toHaveLength(13);
       expect(allowedHistory).toHaveLength(validCount);
-      let rejectedHistory:
-        | Array<{ role: string; content: unknown } | null>
-        | { role: string; content: unknown }
-        | null
-        | undefined = oversizedHistory;
-      if (caseId === 'ASSISTANT-FINAL-HISTORY') {
-        // Keep all 12 entries and their content, changing only the final role.
-        rejectedHistory = allowedHistory.map((message, index) =>
-          index === allowedHistory.length - 1
-            ? { ...message, role: 'assistant' }
-            : message,
-        );
-      } else if (caseId === 'MESSAGE-LENGTH-BOUNDARY') {
-        // Add one non-whitespace character; roles and message count stay valid.
-        rejectedHistory = allowedHistory.map((message, index) =>
-          index === allowedHistory.length - 1
-            ? { ...message, content: `${message.content}x` }
-            : message,
-        );
-        expect(allowedHistory.at(-1)?.content).toHaveLength(4_000);
-        expect(rejectedHistory.at(-1)?.content).toHaveLength(4_001);
-      } else if (caseId === 'WHITESPACE-MESSAGE') {
-        // A nonempty string of spaces, tabs, and line breaks is still blank content.
-        const whitespace = ' \t\r\n ';
-        expect(whitespace.length).toBeGreaterThan(0);
-        expect(whitespace.trim()).toBe('');
-        rejectedHistory = allowedHistory.map((message, index) =>
-          index === allowedHistory.length - 1
-            ? { ...message, content: whitespace }
-            : message,
-        );
-      } else if (caseId === 'SYSTEM-ROLE-MESSAGE') {
-        // Change an earlier role so the final-user check cannot mask this rejection.
-        rejectedHistory = allowedHistory.map((message, index) =>
-          index === 0 ? { ...message, role: 'system' } : message,
-        );
-        expect(rejectedHistory).toHaveLength(12);
-        expect(rejectedHistory.at(-1)?.role).toBe('user');
-      } else if (caseId === 'MINIMUM-HISTORY-BOUNDARY') {
-        rejectedHistory = [];
-        expect(allowedHistory).toEqual([
-          { role: 'user', content: customerMessage },
-        ]);
-      } else if (caseId === 'NUMERIC-MESSAGE-CONTENT') {
-        // The control uses '123'; the rejected payload changes only its JSON type.
-        rejectedHistory = allowedHistory.map((message, index) =>
-          index === allowedHistory.length - 1
-            ? { ...message, content: 123 }
-            : message,
-        );
-      } else if (caseId === 'NULL-HISTORY-ENTRY') {
-        // Keep the count and final customer message valid; an earlier entry is null.
-        rejectedHistory = allowedHistory.map((message, index) =>
-          index === 0 ? null : message,
-        );
-        expect(rejectedHistory).toHaveLength(12);
-        expect(rejectedHistory[0]).toBeNull();
-        expect(rejectedHistory.at(-1)?.role).toBe('user');
-      } else if (caseId === 'NON-ARRAY-HISTORY') {
-        // Only the array wrapper is missing; the message itself is valid.
-        rejectedHistory = { role: 'user', content: customerMessage };
-        expect(allowedHistory).toEqual([rejectedHistory]);
-      } else if (caseId === 'MISSING-HISTORY') {
-        // JSON serialization omits this field rather than sending null or [].
-        rejectedHistory = undefined;
-      } else if (caseId === 'NULL-HISTORY') {
-        rejectedHistory = null;
+      const rejectedHistory = reject(allowedHistory, oversizedHistory);
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const fetchMock = fixture.mockModel(assistantMessage);
+      const makeRequest = (messages: typeof rejectedHistory) => {
+        const request = session.request({ incidentId, messageId, messages });
+        request.headers.set('Origin', new URL(request.url).origin);
+        request.headers.set('Sec-Fetch-Site', 'same-origin');
+        return request;
+      };
+      const rejectedRequest = makeRequest(rejectedHistory);
+      // Undefined is omitted; null and all other invalid shapes survive JSON.
+      expect(await rejectedRequest.clone().json()).toEqual({
+        incidentId,
+        messageId,
+        ...(rejectedHistory === undefined ? {} : { messages: rejectedHistory }),
+      });
+      const prepareSpy = vi.spyOn(database, 'prepare');
+      try {
+        const rejected = await POST(rejectedRequest);
+        expect(rejected.status).toBe(400);
+        expect(await rejected.json()).toEqual({
+          error:
+            'Send 1–12 valid messages, with the latest message from the customer.',
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(prepareSpy).not.toHaveBeenCalled();
+      } finally {
+        prepareSpy.mockRestore();
       }
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
 
-      try {
-        await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-        const session = await fixture.session(calderPikeUser);
-        const fetchMock = fixture.mockModel(assistantMessage);
-        const makeRequest = (messages: typeof rejectedHistory) => {
-          const request = session.request({ incidentId, messageId, messages });
-          request.headers.set('Origin', new URL(request.url).origin);
-          request.headers.set('Sec-Fetch-Site', 'same-origin');
-          return request;
-        };
-        const rejectedRequest = makeRequest(rejectedHistory);
-        if (caseId === 'MISSING-HISTORY') {
-          expect(await rejectedRequest.clone().json()).toEqual({
-            incidentId,
-            messageId,
-          });
-        } else if (caseId === 'NULL-HISTORY') {
-          // Verify null survives serialization; it is not an omitted field.
-          expect(await rejectedRequest.clone().json()).toEqual({
-            incidentId,
-            messageId,
-            messages: null,
-          });
-        }
-        const prepareSpy = vi.spyOn(database, 'prepare');
-        try {
-          const rejected = await POST(rejectedRequest);
-          expect(rejected.status).toBe(400);
-          expect(await rejected.json()).toEqual({
-            error:
-              'Send 1–12 valid messages, with the latest message from the customer.',
-          });
-          expect(fetchMock).not.toHaveBeenCalled();
-          expect(prepareSpy).not.toHaveBeenCalled();
-        } finally {
-          prepareSpy.mockRestore();
-        }
-        expect(await fixture.findIncident(incidentId)).toBeNull();
-        expect((await fixture.messages(incidentId)).results).toEqual([]);
+      const accepted = await POST(makeRequest(allowedHistory));
+      expect(accepted.status).toBe(200);
+      expect(await accepted.json()).toMatchObject({
+        message: assistantMessage,
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const modelBody = fetchMock.mock.calls[0][1]?.body;
+      if (typeof modelBody !== 'string')
+        throw new Error('Expected a JSON model request body');
+      const modelRequest = JSON.parse(modelBody);
+      // The server adds one system message and preserves every submitted entry.
+      expect(modelRequest.messages).toHaveLength(validCount + 1);
+      expect(modelRequest.messages[0]).toMatchObject({ role: 'system' });
+      expect(modelRequest.messages.slice(1)).toEqual(allowedHistory);
+      expect(await fixture.findIncident(incidentId)).toMatchObject({
+        user_id: calderPikeUser.userId,
+      });
+      const savedMessages = await fixture.messages(incidentId);
+      expect(savedMessages.results).toHaveLength(2);
+      expect(savedMessages.results).toMatchObject([
+        {
+          message_id: messageId,
+          role: 'user',
+          content: customerMessage,
+          sequence_number: 1,
+        },
+        {
+          message_id: `AST-${messageId}`,
+          role: 'assistant',
+          content: assistantMessage,
+          sequence_number: 2,
+        },
+      ]);
 
-        const accepted = await POST(makeRequest(allowedHistory));
-        expect(accepted.status).toBe(200);
-        expect(await accepted.json()).toMatchObject({
-          message: assistantMessage,
-        });
-        expect(fetchMock).toHaveBeenCalledOnce();
-        const modelBody = fetchMock.mock.calls[0][1]?.body;
-        if (typeof modelBody !== 'string')
-          throw new Error('Expected a JSON model request body');
-        const modelRequest = JSON.parse(modelBody);
-        // The server adds one system message and preserves every submitted entry.
-        expect(modelRequest.messages).toHaveLength(validCount + 1);
-        expect(modelRequest.messages[0]).toMatchObject({ role: 'system' });
-        expect(modelRequest.messages.slice(1)).toEqual(allowedHistory);
-        expect(await fixture.findIncident(incidentId)).toMatchObject({
-          user_id: calderPikeUser.userId,
-        });
-        const savedMessages = await fixture.messages(incidentId);
-        expect(savedMessages.results).toHaveLength(2);
-        expect(savedMessages.results).toMatchObject([
-          {
-            message_id: messageId,
-            role: 'user',
-            content: customerMessage,
-            sequence_number: 1,
-          },
-          {
-            message_id: `AST-${messageId}`,
-            role: 'assistant',
-            content: assistantMessage,
-            sequence_number: 2,
-          },
-        ]);
-      } finally {
-        await fixture.cleanup();
-      }
+      await fixture.cleanup();
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
     },
   );
 
-  it.each([
+  test.for([
     { invalid: 'a missing message ID', caseId: 'MISSING-MESSAGE-ID' },
     { invalid: 'a missing incident ID', caseId: 'MISSING-INCIDENT-ID' },
     { invalid: 'a malformed incident ID', caseId: 'MALFORMED-INCIDENT-ID' },
@@ -261,9 +262,7 @@ describe('support response safety', () => {
     },
   ])(
     'rejects $invalid in a paired-ID request before model or database activity and allows a corrected retry',
-    async ({ caseId }) => {
-      const database = await getDatabase();
-      const fixture = createSupportApiFixture(database);
+    async ({ caseId }, { database, supportApi: fixture }) => {
       const isIncidentMinimum = caseId === 'INCIDENT-ID-MIN-LENGTH';
       const isIncidentLengthBoundary =
         caseId === 'INCIDENT-ID-MAX-LENGTH' || isIncidentMinimum;
@@ -319,72 +318,35 @@ describe('support response safety', () => {
         [],
       );
 
-      try {
-        for (const id of checkedIncidentIds)
-          await fixture.trackTemporaryIncident(id, calderPikeUser);
-        const session = await fixture.session(calderPikeUser);
-        const fetchMock = fixture.mockModel(assistantMessage);
-        const makeRequest = (corrected: boolean) => {
-          const request = session.request({
-            messages,
-            ...(corrected ? { incidentId, messageId } : rejectedIds),
-          });
-          request.headers.set('Origin', new URL(request.url).origin);
-          request.headers.set('Sec-Fetch-Site', 'same-origin');
-          return request;
-        };
-        const rejectedRequest = makeRequest(false);
-        expect(await rejectedRequest.clone().json()).toEqual({
-          ...rejectedIds,
+      for (const id of checkedIncidentIds)
+        await fixture.trackTemporaryIncident(id, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const fetchMock = fixture.mockModel(assistantMessage);
+      const makeRequest = (corrected: boolean) => {
+        const request = session.request({
           messages,
+          ...(corrected ? { incidentId, messageId } : rejectedIds),
         });
-        const prepareSpy = vi.spyOn(database, 'prepare');
-        try {
-          const rejected = await POST(rejectedRequest);
-          expect(rejected.status).toBe(400);
-          expect(await rejected.json()).toEqual({
-            error: 'Enter a valid incident and message ID.',
-          });
-          expect(fetchMock).not.toHaveBeenCalled();
-          expect(prepareSpy).not.toHaveBeenCalled();
-        } finally {
-          prepareSpy.mockRestore();
-        }
-        expect(
-          (await fixture.incidents(...checkedIncidentIds)).results,
-        ).toEqual([]);
-        expect((await fixture.messages(...checkedIncidentIds)).results).toEqual(
-          [],
-        );
-
-        // Correct only the invalid ID field; the message now saves as one exchange.
-        const retried = await POST(makeRequest(true));
-        expect(retried.status).toBe(200);
-        expect(await retried.json()).toMatchObject({
-          message: assistantMessage,
+        request.headers.set('Origin', new URL(request.url).origin);
+        request.headers.set('Sec-Fetch-Site', 'same-origin');
+        return request;
+      };
+      const rejectedRequest = makeRequest(false);
+      expect(await rejectedRequest.clone().json()).toEqual({
+        ...rejectedIds,
+        messages,
+      });
+      const prepareSpy = vi.spyOn(database, 'prepare');
+      try {
+        const rejected = await POST(rejectedRequest);
+        expect(rejected.status).toBe(400);
+        expect(await rejected.json()).toEqual({
+          error: 'Enter a valid incident and message ID.',
         });
-        expect(fetchMock).toHaveBeenCalledOnce();
-        expect(await fixture.findIncident(incidentId)).toMatchObject({
-          user_id: calderPikeUser.userId,
-        });
-        const savedMessages = await fixture.messages(incidentId);
-        expect(savedMessages.results).toHaveLength(2);
-        expect(savedMessages.results).toMatchObject([
-          {
-            message_id: messageId,
-            role: 'user',
-            content: customerMessage,
-            sequence_number: 1,
-          },
-          {
-            message_id: `AST-${messageId}`,
-            role: 'assistant',
-            content: assistantMessage,
-            sequence_number: 2,
-          },
-        ]);
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(prepareSpy).not.toHaveBeenCalled();
       } finally {
-        await fixture.cleanup();
+        prepareSpy.mockRestore();
       }
       expect((await fixture.incidents(...checkedIncidentIds)).results).toEqual(
         [],
@@ -392,60 +354,13 @@ describe('support response safety', () => {
       expect((await fixture.messages(...checkedIncidentIds)).results).toEqual(
         [],
       );
-    },
-  );
 
-  it('rejects malformed request JSON without model calls or saved messages and allows a corrected retry', async () => {
-    const database = await getDatabase();
-    const fixture = createSupportApiFixture(database);
-    const incidentId = 'INC-MALFORMED-REQUEST-JSON';
-    const messageId = 'MSG-MALFORMED-REQUEST-JSON';
-    const customerMessage = 'Help with a shipment.';
-    const assistantMessage = 'Which shipment do you need help with?';
-    const payload = {
-      incidentId,
-      messageId,
-      messages: [{ role: 'user', content: customerMessage }],
-    };
-    expect(await fixture.findIncident(incidentId)).toBeNull();
-    expect((await fixture.messages(incidentId)).results).toEqual([]);
-
-    try {
-      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-      const session = await fixture.session(calderPikeUser);
-      const fetchMock = fixture.mockModel(assistantMessage);
-      const makeRequest = (malformed: boolean) => {
-        const request = session.request(payload);
-        request.headers.set('Origin', new URL(request.url).origin);
-        request.headers.set('Sec-Fetch-Site', 'same-origin');
-        // Preserve the valid session and payload fields; remove only the closing brace.
-        return malformed
-          ? new Request(request, {
-              method: 'POST',
-              body: JSON.stringify(payload).slice(0, -1),
-            })
-          : request;
-      };
-
-      const prepareSpy = vi.spyOn(database, 'prepare');
-      try {
-        const rejected = await POST(makeRequest(true));
-        expect(rejected.status).toBe(400);
-        expect(await rejected.json()).toEqual({
-          error: 'The request was not valid JSON.',
-        });
-        expect(fetchMock).not.toHaveBeenCalled();
-        expect(prepareSpy).not.toHaveBeenCalled();
-      } finally {
-        prepareSpy.mockRestore();
-      }
-      expect(await fixture.findIncident(incidentId)).toBeNull();
-      expect((await fixture.messages(incidentId)).results).toEqual([]);
-
-      // Correcting only the JSON syntax must allow one complete exchange to save.
-      const retried = await POST(makeRequest(false));
+      // Correct only the invalid ID field; the message now saves as one exchange.
+      const retried = await POST(makeRequest(true));
       expect(retried.status).toBe(200);
-      expect(await retried.json()).toMatchObject({ message: assistantMessage });
+      expect(await retried.json()).toMatchObject({
+        message: assistantMessage,
+      });
       expect(fetchMock).toHaveBeenCalledOnce();
       expect(await fixture.findIncident(incidentId)).toMatchObject({
         user_id: calderPikeUser.userId,
@@ -466,18 +381,97 @@ describe('support response safety', () => {
           sequence_number: 2,
         },
       ]);
-    } finally {
+
       await fixture.cleanup();
+      expect((await fixture.incidents(...checkedIncidentIds)).results).toEqual(
+        [],
+      );
+      expect((await fixture.messages(...checkedIncidentIds)).results).toEqual(
+        [],
+      );
+    },
+  );
+
+  test('rejects malformed request JSON without model calls or saved messages and allows a corrected retry', async ({
+    database,
+    supportApi: fixture,
+  }) => {
+    const incidentId = 'INC-MALFORMED-REQUEST-JSON';
+    const messageId = 'MSG-MALFORMED-REQUEST-JSON';
+    const customerMessage = 'Help with a shipment.';
+    const assistantMessage = 'Which shipment do you need help with?';
+    const payload = {
+      incidentId,
+      messageId,
+      messages: [{ role: 'user', content: customerMessage }],
+    };
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+    await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+    const session = await fixture.session(calderPikeUser);
+    const fetchMock = fixture.mockModel(assistantMessage);
+    const makeRequest = (malformed: boolean) => {
+      const request = session.request(payload);
+      request.headers.set('Origin', new URL(request.url).origin);
+      request.headers.set('Sec-Fetch-Site', 'same-origin');
+      // Preserve the valid session and payload fields; remove only the closing brace.
+      return malformed
+        ? new Request(request, {
+            method: 'POST',
+            body: JSON.stringify(payload).slice(0, -1),
+          })
+        : request;
+    };
+
+    const prepareSpy = vi.spyOn(database, 'prepare');
+    try {
+      const rejected = await POST(makeRequest(true));
+      expect(rejected.status).toBe(400);
+      expect(await rejected.json()).toEqual({
+        error: 'The request was not valid JSON.',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(prepareSpy).not.toHaveBeenCalled();
+    } finally {
+      prepareSpy.mockRestore();
     }
+    expect(await fixture.findIncident(incidentId)).toBeNull();
+    expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+    // Correcting only the JSON syntax must allow one complete exchange to save.
+    const retried = await POST(makeRequest(false));
+    expect(retried.status).toBe(200);
+    expect(await retried.json()).toMatchObject({ message: assistantMessage });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(await fixture.findIncident(incidentId)).toMatchObject({
+      user_id: calderPikeUser.userId,
+    });
+    const savedMessages = await fixture.messages(incidentId);
+    expect(savedMessages.results).toHaveLength(2);
+    expect(savedMessages.results).toMatchObject([
+      {
+        message_id: messageId,
+        role: 'user',
+        content: customerMessage,
+        sequence_number: 1,
+      },
+      {
+        message_id: `AST-${messageId}`,
+        role: 'assistant',
+        content: assistantMessage,
+        sequence_number: 2,
+      },
+    ]);
+
+    await fixture.cleanup();
     expect(await fixture.findIncident(incidentId)).toBeNull();
     expect((await fixture.messages(incidentId)).results).toEqual([]);
   });
 
-  it.each(['missing', 'unknown'])(
+  test.for(['missing', 'unknown'])(
     'rejects chat requests when the session token is %s before generating, saving, or replaying replies',
-    async (tokenState) => {
-      const database = await getDatabase();
-      const fixture = createSupportApiFixture(database);
+    async (tokenState, { database, supportApi: fixture }) => {
       const incidentId = `INC-${tokenState.toUpperCase()}-SESSION-COOKIE`;
       const messageId = `MSG-${tokenState.toUpperCase()}-SESSION-COOKIE`;
       const customerMessage = 'Help with a shipment.';
@@ -485,179 +479,64 @@ describe('support response safety', () => {
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
 
-      try {
-        await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-        const session = await fixture.session(calderPikeUser);
-        // A valid-length token with no corresponding session, not a malformed cookie.
-        const unknownToken = 'A'.repeat(43);
-        if (tokenState === 'unknown') {
-          const digest = await crypto.subtle.digest(
-            'SHA-256',
-            new TextEncoder().encode(unknownToken),
-          );
-          const tokenHash = btoa(String.fromCharCode(...new Uint8Array(digest)))
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=+$/, '');
-          expect(
-            await database
-              .prepare('SELECT session_id FROM sessions WHERE token_hash = ?')
-              .bind(tokenHash)
-              .first(),
-          ).toBeNull();
-        }
-        const fetchMock = fixture.mockModel(assistantMessage);
-        const makeRequest = (authenticated: boolean) => {
-          const request = session.request({
-            incidentId,
-            messageId,
-            messages: [{ role: 'user', content: customerMessage }],
-          });
-          request.headers.set('Origin', new URL(request.url).origin);
-          request.headers.set('Sec-Fetch-Site', 'same-origin');
-          expect(request.headers.has('Cookie')).toBe(true);
-          // Only the session cookie changes; origin, IDs, and payload remain valid.
-          if (!authenticated) {
-            if (tokenState === 'missing') request.headers.delete('Cookie');
-            else {
-              const unknownCookie = `sable_session=${unknownToken}`;
-              expect(request.headers.get('Cookie')).not.toBe(unknownCookie);
-              request.headers.set('Cookie', unknownCookie);
-            }
-          }
-          expect(request.headers.has('Cookie')).toBe(
-            authenticated || tokenState === 'unknown',
-          );
-          return request;
-        };
-        const batchSpy = vi.spyOn(database, 'batch');
-        try {
-          const denied = await POST(makeRequest(false));
-          expect(denied.status).toBe(401);
-          expect(await denied.json()).toEqual({
-            error: 'Authentication required.',
-          });
-          expect(fetchMock).not.toHaveBeenCalled();
-          expect(batchSpy).not.toHaveBeenCalled();
-          expect(await fixture.findIncident(incidentId)).toBeNull();
-          expect((await fixture.messages(incidentId)).results).toEqual([]);
-
-          // Positive control: signing in allows the exact same request to save once.
-          const allowed = await POST(makeRequest(true));
-          expect(allowed.status).toBe(200);
-          expect(await allowed.json()).toMatchObject({
-            message: assistantMessage,
-          });
-          expect(fetchMock).toHaveBeenCalledOnce();
-          const savedIncident = await fixture.findIncident(incidentId);
-          const savedMessages = await fixture.messages(incidentId);
-          expect(savedIncident).toMatchObject({
-            user_id: calderPikeUser.userId,
-          });
-          expect(savedMessages.results).toHaveLength(2);
-          expect(savedMessages.results).toMatchObject([
-            {
-              message_id: messageId,
-              role: 'user',
-              content: customerMessage,
-              sequence_number: 1,
-            },
-            {
-              message_id: `AST-${messageId}`,
-              role: 'assistant',
-              content: assistantMessage,
-              sequence_number: 2,
-            },
-          ]);
-
-          // Knowing saved IDs must not allow an anonymous caller to replay a reply.
-          batchSpy.mockClear();
-          const deniedReplay = await POST(makeRequest(false));
-          expect(deniedReplay.status).toBe(401);
-          expect(await deniedReplay.json()).toEqual({
-            error: 'Authentication required.',
-          });
-          expect(fetchMock).toHaveBeenCalledOnce();
-          expect(batchSpy).not.toHaveBeenCalled();
-          expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
-          expect((await fixture.messages(incidentId)).results).toEqual(
-            savedMessages.results,
-          );
-        } finally {
-          batchSpy.mockRestore();
-        }
-      } finally {
-        await fixture.cleanup();
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      // A valid-length token with no corresponding session, not a malformed cookie.
+      const unknownToken = 'A'.repeat(43);
+      if (tokenState === 'unknown') {
+        const digest = await crypto.subtle.digest(
+          'SHA-256',
+          new TextEncoder().encode(unknownToken),
+        );
+        const tokenHash = btoa(String.fromCharCode(...new Uint8Array(digest)))
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=+$/, '');
+        expect(
+          await database
+            .prepare('SELECT session_id FROM sessions WHERE token_hash = ?')
+            .bind(tokenHash)
+            .first(),
+        ).toBeNull();
       }
-      expect(await fixture.findIncident(incidentId)).toBeNull();
-      expect((await fixture.messages(incidentId)).results).toEqual([]);
-    },
-  );
-
-  it.each(['Origin', 'Sec-Fetch-Site', 'same-site-Origin'])(
-    'rejects untrusted %s chat requests with a valid session without generating, saving, or replaying replies',
-    async (header) => {
-      const database = await getDatabase();
-      const fixture = createSupportApiFixture(database);
-      const incidentId = `INC-UNTRUSTED-${header.toUpperCase()}`;
-      const messageId = `MSG-UNTRUSTED-${header.toUpperCase()}`;
-      const customerMessage = 'Help with a shipment.';
-      const assistantMessage = 'Which shipment do you need help with?';
-      expect(await fixture.findIncident(incidentId)).toBeNull();
-      expect((await fixture.messages(incidentId)).results).toEqual([]);
-
-      try {
-        await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-        const session = await fixture.session(calderPikeUser);
-        const fetchMock = fixture.mockModel(assistantMessage);
-        const makeRequest = (untrusted: boolean) => {
-          const request = session.request({
-            incidentId,
-            messageId,
-            messages: [{ role: 'user', content: customerMessage }],
-          });
-          // Change only the selected header; the cookie and payload stay identical.
-          if (header === 'same-site-Origin') {
-            const appUrl = new URL(request.url);
-            const otherPortUrl = new URL(request.url);
-            otherPortUrl.port = '8080';
-            expect(otherPortUrl.hostname).toBe(appUrl.hostname);
-            expect(otherPortUrl.origin).not.toBe(appUrl.origin);
-            // Keep same-site metadata constant; only Origin changes for the control.
-            request.headers.set('Sec-Fetch-Site', 'same-site');
-            request.headers.set(
-              'Origin',
-              untrusted ? otherPortUrl.origin : appUrl.origin,
-            );
-          } else if (header === 'Origin')
-            request.headers.set(
-              'Origin',
-              untrusted
-                ? 'https://untrusted.example'
-                : new URL(request.url).origin,
-            );
+      const fetchMock = fixture.mockModel(assistantMessage);
+      const makeRequest = (authenticated: boolean) => {
+        const request = session.request({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content: customerMessage }],
+        });
+        request.headers.set('Origin', new URL(request.url).origin);
+        request.headers.set('Sec-Fetch-Site', 'same-origin');
+        expect(request.headers.has('Cookie')).toBe(true);
+        // Only the session cookie changes; origin, IDs, and payload remain valid.
+        if (!authenticated) {
+          if (tokenState === 'missing') request.headers.delete('Cookie');
           else {
-            // Exercise fetch metadata independently of the Origin check.
-            expect(request.headers.has('Origin')).toBe(false);
-            request.headers.set(
-              'Sec-Fetch-Site',
-              untrusted ? 'cross-site' : 'same-origin',
-            );
+            const unknownCookie = `sable_session=${unknownToken}`;
+            expect(request.headers.get('Cookie')).not.toBe(unknownCookie);
+            request.headers.set('Cookie', unknownCookie);
           }
-          return request;
-        };
-
-        const denied = await POST(makeRequest(true));
-        expect(denied.status).toBe(403);
+        }
+        expect(request.headers.has('Cookie')).toBe(
+          authenticated || tokenState === 'unknown',
+        );
+        return request;
+      };
+      const batchSpy = vi.spyOn(database, 'batch');
+      try {
+        const denied = await POST(makeRequest(false));
+        expect(denied.status).toBe(401);
         expect(await denied.json()).toEqual({
-          error: 'Cross-origin access denied.',
+          error: 'Authentication required.',
         });
         expect(fetchMock).not.toHaveBeenCalled();
+        expect(batchSpy).not.toHaveBeenCalled();
         expect(await fixture.findIncident(incidentId)).toBeNull();
         expect((await fixture.messages(incidentId)).results).toEqual([]);
 
-        // Positive control: the same session and IDs work from the app's own origin.
-        const allowed = await POST(makeRequest(false));
+        // Positive control: signing in allows the exact same request to save once.
+        const allowed = await POST(makeRequest(true));
         expect(allowed.status).toBe(200);
         expect(await allowed.json()).toMatchObject({
           message: assistantMessage,
@@ -665,7 +544,9 @@ describe('support response safety', () => {
         expect(fetchMock).toHaveBeenCalledOnce();
         const savedIncident = await fixture.findIncident(incidentId);
         const savedMessages = await fixture.messages(incidentId);
-        expect(savedIncident).toMatchObject({ user_id: calderPikeUser.userId });
+        expect(savedIncident).toMatchObject({
+          user_id: calderPikeUser.userId,
+        });
         expect(savedMessages.results).toHaveLength(2);
         expect(savedMessages.results).toMatchObject([
           {
@@ -682,20 +563,127 @@ describe('support response safety', () => {
           },
         ]);
 
-        // Completed exchanges must not bypass request trust checks through cached replay.
-        const deniedReplay = await POST(makeRequest(true));
-        expect(deniedReplay.status).toBe(403);
+        // Knowing saved IDs must not allow an anonymous caller to replay a reply.
+        batchSpy.mockClear();
+        const deniedReplay = await POST(makeRequest(false));
+        expect(deniedReplay.status).toBe(401);
         expect(await deniedReplay.json()).toEqual({
-          error: 'Cross-origin access denied.',
+          error: 'Authentication required.',
         });
         expect(fetchMock).toHaveBeenCalledOnce();
+        expect(batchSpy).not.toHaveBeenCalled();
         expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
         expect((await fixture.messages(incidentId)).results).toEqual(
           savedMessages.results,
         );
       } finally {
-        await fixture.cleanup();
+        batchSpy.mockRestore();
       }
+
+      await fixture.cleanup();
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+    },
+  );
+
+  test.for(['Origin', 'Sec-Fetch-Site', 'same-site-Origin'])(
+    'rejects untrusted %s chat requests with a valid session without generating, saving, or replaying replies',
+    async (header, { supportApi: fixture }) => {
+      const incidentId = `INC-UNTRUSTED-${header.toUpperCase()}`;
+      const messageId = `MSG-UNTRUSTED-${header.toUpperCase()}`;
+      const customerMessage = 'Help with a shipment.';
+      const assistantMessage = 'Which shipment do you need help with?';
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const fetchMock = fixture.mockModel(assistantMessage);
+      const makeRequest = (untrusted: boolean) => {
+        const request = session.request({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content: customerMessage }],
+        });
+        // Change only the selected header; the cookie and payload stay identical.
+        if (header === 'same-site-Origin') {
+          const appUrl = new URL(request.url);
+          const otherPortUrl = new URL(request.url);
+          otherPortUrl.port = '8080';
+          expect(otherPortUrl.hostname).toBe(appUrl.hostname);
+          expect(otherPortUrl.origin).not.toBe(appUrl.origin);
+          // Keep same-site metadata constant; only Origin changes for the control.
+          request.headers.set('Sec-Fetch-Site', 'same-site');
+          request.headers.set(
+            'Origin',
+            untrusted ? otherPortUrl.origin : appUrl.origin,
+          );
+        } else if (header === 'Origin')
+          request.headers.set(
+            'Origin',
+            untrusted
+              ? 'https://untrusted.example'
+              : new URL(request.url).origin,
+          );
+        else {
+          // Exercise fetch metadata independently of the Origin check.
+          expect(request.headers.has('Origin')).toBe(false);
+          request.headers.set(
+            'Sec-Fetch-Site',
+            untrusted ? 'cross-site' : 'same-origin',
+          );
+        }
+        return request;
+      };
+
+      const denied = await POST(makeRequest(true));
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toEqual({
+        error: 'Cross-origin access denied.',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(await fixture.findIncident(incidentId)).toBeNull();
+      expect((await fixture.messages(incidentId)).results).toEqual([]);
+
+      // Positive control: the same session and IDs work from the app's own origin.
+      const allowed = await POST(makeRequest(false));
+      expect(allowed.status).toBe(200);
+      expect(await allowed.json()).toMatchObject({
+        message: assistantMessage,
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const savedIncident = await fixture.findIncident(incidentId);
+      const savedMessages = await fixture.messages(incidentId);
+      expect(savedIncident).toMatchObject({ user_id: calderPikeUser.userId });
+      expect(savedMessages.results).toHaveLength(2);
+      expect(savedMessages.results).toMatchObject([
+        {
+          message_id: messageId,
+          role: 'user',
+          content: customerMessage,
+          sequence_number: 1,
+        },
+        {
+          message_id: `AST-${messageId}`,
+          role: 'assistant',
+          content: assistantMessage,
+          sequence_number: 2,
+        },
+      ]);
+
+      // Completed exchanges must not bypass request trust checks through cached replay.
+      const deniedReplay = await POST(makeRequest(true));
+      expect(deniedReplay.status).toBe(403);
+      expect(await deniedReplay.json()).toEqual({
+        error: 'Cross-origin access denied.',
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
+      expect((await fixture.messages(incidentId)).results).toEqual(
+        savedMessages.results,
+      );
+
+      await fixture.cleanup();
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
     },
@@ -1391,9 +1379,9 @@ describe('support response safety', () => {
     expect((await fixture.messages(incidentId)).results).toEqual([]);
   });
 
-  it('returns and saves a grounded response under the authenticated user incident', async () => {
-    const database = await getDatabase();
-    const fixture = createSupportApiFixture(database);
+  test('returns and saves a grounded response under the authenticated user incident', async ({
+    supportApi: fixture,
+  }) => {
     const incidentId = 'INC-VALID-RESPONSE-REGRESSION';
     const messageId = 'MSG-VALID-RESPONSE-REGRESSION';
     const customerMessage = 'Show return RTN-2022-000014.';
@@ -1406,45 +1394,43 @@ describe('support response safety', () => {
 
     const fetchMock = fixture.mockModel(assistantMessage);
 
-    try {
-      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-      const session = await fixture.session(calderPikeUser);
-      const request = session.request({
-        incidentId,
-        messageId,
-        messages: [{ role: 'user', content: customerMessage }],
-      });
-      const response = await POST(request);
-      expect(fetchMock).toHaveBeenCalledOnce();
-      expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({
-        message: assistantMessage,
-      });
-      expect(await findIncident()).toEqual({ user_id: calderPikeUser.userId });
-      expect((await savedMessages()).results).toEqual([
-        {
-          message_id: messageId,
-          sequence_number: 1,
-          role: 'user',
-          content: customerMessage,
-        },
-        {
-          message_id: `AST-${messageId}`,
-          sequence_number: 2,
-          role: 'assistant',
-          content: assistantMessage,
-        },
-      ]);
-    } finally {
-      await fixture.cleanup();
-    }
+    await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+    const session = await fixture.session(calderPikeUser);
+    const request = session.request({
+      incidentId,
+      messageId,
+      messages: [{ role: 'user', content: customerMessage }],
+    });
+    const response = await POST(request);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      message: assistantMessage,
+    });
+    expect(await findIncident()).toEqual({ user_id: calderPikeUser.userId });
+    expect((await savedMessages()).results).toEqual([
+      {
+        message_id: messageId,
+        sequence_number: 1,
+        role: 'user',
+        content: customerMessage,
+      },
+      {
+        message_id: `AST-${messageId}`,
+        sequence_number: 2,
+        role: 'assistant',
+        content: assistantMessage,
+      },
+    ]);
+
+    await fixture.cleanup();
     expect(await findIncident()).toBeNull();
     expect((await savedMessages()).results).toEqual([]);
   });
 
-  it('does not duplicate the saved exchange when the same chat message is retried', async () => {
-    const database = await getDatabase();
-    const fixture = createSupportApiFixture(database);
+  test('replays a completed exchange without duplicating messages, changing ownership, or regenerating the reply', async ({
+    supportApi: fixture,
+  }) => {
     const incidentId = 'INC-RETRY-RESPONSE-REGRESSION';
     const messageId = 'MSG-RETRY-RESPONSE-REGRESSION';
     const customerMessage = 'Show return RTN-2022-000014.';
@@ -1455,100 +1441,51 @@ describe('support response safety', () => {
     expect(await findIncident()).toBeNull();
     expect((await savedMessages()).results).toEqual([]);
 
-    fixture.mockModel(assistantMessage);
-
-    try {
-      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-      const session = await fixture.session(calderPikeUser);
-      const makeRequest = () =>
-        session.request({
-          incidentId,
-          messageId,
-          messages: [{ role: 'user', content: customerMessage }],
-        });
-      const firstResponse = await POST(makeRequest());
-      expect(firstResponse.status).toBe(200);
-      expect(await firstResponse.json()).toMatchObject({
-        message: assistantMessage,
-      });
-      const originalMessages = await savedMessages();
-      expect(originalMessages.results).toMatchObject([
-        {
-          message_id: messageId,
-          sequence_number: 1,
-          role: 'user',
-          content: customerMessage,
-        },
-        {
-          message_id: `AST-${messageId}`,
-          sequence_number: 2,
-          role: 'assistant',
-          content: assistantMessage,
-        },
-      ]);
-      expect(originalMessages.results).toHaveLength(2);
-
-      const retryResponse = await POST(makeRequest());
-      expect(retryResponse.status).toBe(200);
-      expect(await retryResponse.json()).toMatchObject({
-        message: assistantMessage,
-      });
-      expect((await savedMessages()).results).toEqual(originalMessages.results);
-      expect(await findIncident()).toEqual({ user_id: calderPikeUser.userId });
-    } finally {
-      await fixture.cleanup();
-    }
-    expect(await findIncident()).toBeNull();
-    expect((await savedMessages()).results).toEqual([]);
-  });
-
-  it('replays the original saved reply without regenerating it on a completed retry', async () => {
-    const database = await getDatabase();
-    const fixture = createSupportApiFixture(database);
-    const incidentId = 'INC-REPLAY-RESPONSE-REGRESSION';
-    const messageId = 'MSG-REPLAY-RESPONSE-REGRESSION';
-    const customerMessage = 'Show return RTN-2022-000014.';
-    const originalReply =
-      'Return RTN-2022-000014 is closed. Linked order: SBL-2022-000118.';
     const regeneratedReply =
       'The linked order is SBL-2022-000118. Return RTN-2022-000014 has status closed.';
-    const savedMessages = () => fixture.messages(incidentId);
-    expect(await fixture.findIncident(incidentId)).toBeNull();
+    const fetchMock = fixture.mockModel(assistantMessage, regeneratedReply);
 
-    const fetchMock = fixture.mockModel(originalReply, regeneratedReply);
-
-    try {
-      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-      const session = await fixture.session(calderPikeUser);
-      const makeRequest = () =>
-        session.request({
-          incidentId,
-          messageId,
-          messages: [{ role: 'user', content: customerMessage }],
-        });
-      const firstResponse = await POST(makeRequest());
-      expect(firstResponse.status).toBe(200);
-      expect(await firstResponse.json()).toMatchObject({
-        message: originalReply,
+    await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+    const session = await fixture.session(calderPikeUser);
+    const makeRequest = () =>
+      session.request({
+        incidentId,
+        messageId,
+        messages: [{ role: 'user', content: customerMessage }],
       });
-      const originalMessages = await savedMessages();
-      expect(originalMessages.results).toHaveLength(2);
-      expect(originalMessages.results[1]).toMatchObject({
+    const firstResponse = await POST(makeRequest());
+    expect(firstResponse.status).toBe(200);
+    expect(await firstResponse.json()).toMatchObject({
+      message: assistantMessage,
+    });
+    const originalMessages = await savedMessages();
+    expect(originalMessages.results).toMatchObject([
+      {
+        message_id: messageId,
+        sequence_number: 1,
+        role: 'user',
+        content: customerMessage,
+      },
+      {
         message_id: `AST-${messageId}`,
+        sequence_number: 2,
         role: 'assistant',
-        content: originalReply,
-      });
+        content: assistantMessage,
+      },
+    ]);
+    expect(originalMessages.results).toHaveLength(2);
 
-      const retryResponse = await POST(makeRequest());
-      expect(retryResponse.status).toBe(200);
-      expect(await retryResponse.json()).toMatchObject({
-        message: originalReply,
-      });
-      expect(fetchMock).toHaveBeenCalledOnce();
-      expect((await savedMessages()).results).toEqual(originalMessages.results);
-    } finally {
-      await fixture.cleanup();
-    }
+    const retryResponse = await POST(makeRequest());
+    expect(retryResponse.status).toBe(200);
+    expect(await retryResponse.json()).toMatchObject({
+      message: assistantMessage,
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect((await savedMessages()).results).toEqual(originalMessages.results);
+    expect(await findIncident()).toEqual({ user_id: calderPikeUser.userId });
+
+    await fixture.cleanup();
+    expect(await findIncident()).toBeNull();
     expect((await savedMessages()).results).toEqual([]);
   });
 
@@ -1824,9 +1761,10 @@ describe('support response safety', () => {
     },
   );
 
-  it('denies another user replaying a saved reply with the same incident and message IDs', async () => {
-    const database = await getDatabase();
-    const fixture = createSupportApiFixture(database);
+  test('denies another user replaying a saved reply with the same incident and message IDs', async ({
+    database,
+    supportApi: fixture,
+  }) => {
     const otherUser = await loadActiveUserFixture(database, 'USR-MCS-001');
     expect(otherUser.distributorId).not.toBe(calderPikeUser.distributorId);
     const incidentId = 'INC-REPLAY-ISOLATION-REGRESSION';
@@ -1848,53 +1786,52 @@ describe('support response safety', () => {
       });
     const fetchMock = fixture.mockModel('No authorized return was found.');
 
-    try {
-      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-      for (const user of [calderPikeUser, otherUser]) {
-        sessions.push(await fixture.session(user));
-      }
-      await saveSupportExchange(
-        database,
-        calderPikeUser,
-        incidentId,
-        messageId,
-        customerMessage,
-        privateReply,
-      );
-      const originalIncident = await findIncident();
-      const originalMessages = await savedMessages();
-      expect(originalIncident).toMatchObject({
-        user_id: calderPikeUser.userId,
-      });
-      expect(originalMessages.results).toHaveLength(2);
-
-      // Positive control: this exact request replays successfully for its owner.
-      const ownerResponse = await POST(makeRequest(sessions[0]));
-      expect(ownerResponse.status).toBe(200);
-      expect(await ownerResponse.json()).toMatchObject({
-        message: privateReply,
-      });
-      expect(fetchMock).not.toHaveBeenCalled();
-
-      // Only the session changes; knowing the IDs and prompt grants no access.
-      const otherResponse = await POST(makeRequest(sessions[1]));
-      expect(otherResponse.status).toBe(403);
-      expect(await otherResponse.json()).toEqual({
-        error: 'Incident access denied.',
-      });
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect(await findIncident()).toEqual(originalIncident);
-      expect((await savedMessages()).results).toEqual(originalMessages.results);
-    } finally {
-      await fixture.cleanup();
+    await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+    for (const user of [calderPikeUser, otherUser]) {
+      sessions.push(await fixture.session(user));
     }
+    await saveSupportExchange(
+      database,
+      calderPikeUser,
+      incidentId,
+      messageId,
+      customerMessage,
+      privateReply,
+    );
+    const originalIncident = await findIncident();
+    const originalMessages = await savedMessages();
+    expect(originalIncident).toMatchObject({
+      user_id: calderPikeUser.userId,
+    });
+    expect(originalMessages.results).toHaveLength(2);
+
+    // Positive control: this exact request replays successfully for its owner.
+    const ownerResponse = await POST(makeRequest(sessions[0]));
+    expect(ownerResponse.status).toBe(200);
+    expect(await ownerResponse.json()).toMatchObject({
+      message: privateReply,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Only the session changes; knowing the IDs and prompt grants no access.
+    const otherResponse = await POST(makeRequest(sessions[1]));
+    expect(otherResponse.status).toBe(403);
+    expect(await otherResponse.json()).toEqual({
+      error: 'Incident access denied.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await findIncident()).toEqual(originalIncident);
+    expect((await savedMessages()).results).toEqual(originalMessages.results);
+
+    await fixture.cleanup();
     expect(await findIncident()).toBeNull();
     expect((await savedMessages()).results).toEqual([]);
   });
 
-  it('rejects reuse of a saved message ID with different customer text', async () => {
-    const database = await getDatabase();
-    const fixture = createSupportApiFixture(database);
+  test('rejects reuse of a saved message ID with different customer text', async ({
+    database,
+    supportApi: fixture,
+  }) => {
     const incidentId = 'INC-MESSAGE-CONFLICT-REGRESSION';
     const messageId = 'MSG-MESSAGE-CONFLICT-REGRESSION';
     const originalText = 'Show return RTN-2022-000014.';
@@ -1908,61 +1845,60 @@ describe('support response safety', () => {
 
     const fetchMock = fixture.mockModel('The linked order is SBL-2022-000118.');
 
-    try {
-      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-      const session = await fixture.session(calderPikeUser);
-      const makeRequest = (content: string) =>
-        session.request({
-          incidentId,
-          messageId,
-          messages: [{ role: 'user', content }],
-        });
-      await saveSupportExchange(
-        database,
-        calderPikeUser,
+    await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+    const session = await fixture.session(calderPikeUser);
+    const makeRequest = (content: string) =>
+      session.request({
         incidentId,
         messageId,
-        originalText,
-        originalReply,
-      );
-      const originalIncident = await findIncident();
-      const originalMessages = await savedMessages();
-      expect(originalIncident).toMatchObject({
-        user_id: calderPikeUser.userId,
+        messages: [{ role: 'user', content }],
       });
-      expect(originalMessages.results).toHaveLength(2);
-      expect(originalMessages.results[0]).toMatchObject({
-        message_id: messageId,
-        role: 'user',
-        content: originalText,
-      });
+    await saveSupportExchange(
+      database,
+      calderPikeUser,
+      incidentId,
+      messageId,
+      originalText,
+      originalReply,
+    );
+    const originalIncident = await findIncident();
+    const originalMessages = await savedMessages();
+    expect(originalIncident).toMatchObject({
+      user_id: calderPikeUser.userId,
+    });
+    expect(originalMessages.results).toHaveLength(2);
+    expect(originalMessages.results[0]).toMatchObject({
+      message_id: messageId,
+      role: 'user',
+      content: originalText,
+    });
 
-      const response = await POST(makeRequest(changedText));
-      expect(response.status).toBe(409);
-      expect(await response.json()).toEqual({
-        error:
-          'This message ID was already used for different text. Send a new message.',
-      });
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect(await findIncident()).toEqual(originalIncident);
-      expect((await savedMessages()).results).toEqual(originalMessages.results);
+    const response = await POST(makeRequest(changedText));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error:
+        'This message ID was already used for different text. Send a new message.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await findIncident()).toEqual(originalIncident);
+    expect((await savedMessages()).results).toEqual(originalMessages.results);
 
-      // Rejecting the conflicting request must not break a legitimate retry.
-      const retry = await POST(makeRequest(originalText));
-      expect(retry.status).toBe(200);
-      expect(await retry.json()).toMatchObject({ message: originalReply });
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect((await savedMessages()).results).toEqual(originalMessages.results);
-    } finally {
-      await fixture.cleanup();
-    }
+    // Rejecting the conflicting request must not break a legitimate retry.
+    const retry = await POST(makeRequest(originalText));
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({ message: originalReply });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await savedMessages()).results).toEqual(originalMessages.results);
+
+    await fixture.cleanup();
     expect(await findIncident()).toBeNull();
     expect((await savedMessages()).results).toEqual([]);
   });
 
-  it('rejects reuse of a saved message ID in a different incident', async () => {
-    const database = await getDatabase();
-    const fixture = createSupportApiFixture(database);
+  test('rejects reuse of a saved message ID in a different incident', async ({
+    database,
+    supportApi: fixture,
+  }) => {
     const sourceId = 'INC-CROSS-INCIDENT-SOURCE-REGRESSION';
     const targetId = 'INC-CROSS-INCIDENT-TARGET-REGRESSION';
     const messageId = 'MSG-CROSS-INCIDENT-REGRESSION';
@@ -1976,62 +1912,61 @@ describe('support response safety', () => {
 
     const fetchMock = fixture.mockModel(originalReply);
 
-    try {
-      await fixture.trackTemporaryIncident(sourceId, calderPikeUser);
-      await fixture.trackTemporaryIncident(targetId, calderPikeUser);
-      const session = await fixture.session(calderPikeUser);
-      const makeRequest = (incidentId: string) =>
-        session.request({
-          incidentId,
-          messageId,
-          messages: [{ role: 'user', content: customerMessage }],
-        });
-      await saveSupportExchange(
-        database,
-        calderPikeUser,
-        sourceId,
+    await fixture.trackTemporaryIncident(sourceId, calderPikeUser);
+    await fixture.trackTemporaryIncident(targetId, calderPikeUser);
+    const session = await fixture.session(calderPikeUser);
+    const makeRequest = (incidentId: string) =>
+      session.request({
+        incidentId,
         messageId,
-        customerMessage,
-        originalReply,
-      );
-      await saveSupportExchange(
-        database,
-        calderPikeUser,
-        targetId,
-        'MSG-CROSS-INCIDENT-TARGET-REGRESSION',
-        'Hello.',
-        'How can I help?',
-      );
-      const originalIncidents = await incidents();
-      const originalMessages = await savedMessages();
-      expect(originalIncidents.results).toHaveLength(2);
-      expect(originalMessages.results).toHaveLength(4);
-
-      // Same user, message ID, and text; only the destination incident changes.
-      const response = await POST(makeRequest(targetId));
-      expect(response.status).toBe(409);
-      expect(await response.json()).toEqual({
-        error: 'This message ID is already in use. Send a new message.',
+        messages: [{ role: 'user', content: customerMessage }],
       });
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect((await incidents()).results).toEqual(originalIncidents.results);
-      expect((await savedMessages()).results).toEqual(originalMessages.results);
+    await saveSupportExchange(
+      database,
+      calderPikeUser,
+      sourceId,
+      messageId,
+      customerMessage,
+      originalReply,
+    );
+    await saveSupportExchange(
+      database,
+      calderPikeUser,
+      targetId,
+      'MSG-CROSS-INCIDENT-TARGET-REGRESSION',
+      'Hello.',
+      'How can I help?',
+    );
+    const originalIncidents = await incidents();
+    const originalMessages = await savedMessages();
+    expect(originalIncidents.results).toHaveLength(2);
+    expect(originalMessages.results).toHaveLength(4);
 
-      const retry = await POST(makeRequest(sourceId));
-      expect(retry.status).toBe(200);
-      expect(await retry.json()).toMatchObject({ message: originalReply });
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect((await savedMessages()).results).toEqual(originalMessages.results);
-    } finally {
-      await fixture.cleanup();
-    }
+    // Same user, message ID, and text; only the destination incident changes.
+    const response = await POST(makeRequest(targetId));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: 'This message ID is already in use. Send a new message.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await incidents()).results).toEqual(originalIncidents.results);
+    expect((await savedMessages()).results).toEqual(originalMessages.results);
+
+    const retry = await POST(makeRequest(sourceId));
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({ message: originalReply });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await savedMessages()).results).toEqual(originalMessages.results);
+
+    await fixture.cleanup();
     expect((await incidents()).results).toEqual([]);
     expect((await savedMessages()).results).toEqual([]);
   });
 
-  it('rejects a customer message ID that belongs to a saved assistant message', async () => {
-    const database = await getDatabase();
-    const fixture = createSupportApiFixture(database);
+  test('rejects a customer message ID that belongs to a saved assistant message', async ({
+    database,
+    supportApi: fixture,
+  }) => {
     const incidentId = 'INC-MESSAGE-ROLE-COLLISION-REGRESSION';
     const originalMessageId = 'MSG-MESSAGE-ROLE-COLLISION-REGRESSION';
     const assistantMessageId = `AST-${originalMessageId}`;
@@ -2044,56 +1979,55 @@ describe('support response safety', () => {
     expect((await savedMessages()).results).toEqual([]);
     const fetchMock = fixture.mockModel(originalReply);
 
-    try {
-      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-      const session = await fixture.session(calderPikeUser);
-      const makeRequest = (messageId: string) =>
-        session.request({
-          incidentId,
-          messageId,
-          messages: [{ role: 'user', content: customerMessage }],
-        });
-      await saveSupportExchange(
-        database,
-        calderPikeUser,
+    await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+    const session = await fixture.session(calderPikeUser);
+    const makeRequest = (messageId: string) =>
+      session.request({
         incidentId,
-        originalMessageId,
-        customerMessage,
-        originalReply,
-      );
-      const originalIncident = await findIncident();
-      const originalMessages = await savedMessages();
-      expect(originalMessages.results).toHaveLength(2);
-      expect(originalMessages.results[1]).toMatchObject({
-        message_id: assistantMessageId,
-        role: 'assistant',
-        content: originalReply,
+        messageId,
+        messages: [{ role: 'user', content: customerMessage }],
       });
+    await saveSupportExchange(
+      database,
+      calderPikeUser,
+      incidentId,
+      originalMessageId,
+      customerMessage,
+      originalReply,
+    );
+    const originalIncident = await findIncident();
+    const originalMessages = await savedMessages();
+    expect(originalMessages.results).toHaveLength(2);
+    expect(originalMessages.results[1]).toMatchObject({
+      message_id: assistantMessageId,
+      role: 'assistant',
+      content: originalReply,
+    });
 
-      const response = await POST(makeRequest(assistantMessageId));
-      expect(response.status).toBe(409);
-      expect(await response.json()).toEqual({
-        error: 'This message ID is already in use. Send a new message.',
-      });
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect(await findIncident()).toEqual(originalIncident);
-      expect((await savedMessages()).results).toEqual(originalMessages.results);
+    const response = await POST(makeRequest(assistantMessageId));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: 'This message ID is already in use. Send a new message.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await findIncident()).toEqual(originalIncident);
+    expect((await savedMessages()).results).toEqual(originalMessages.results);
 
-      const retry = await POST(makeRequest(originalMessageId));
-      expect(retry.status).toBe(200);
-      expect(await retry.json()).toMatchObject({ message: originalReply });
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect((await savedMessages()).results).toEqual(originalMessages.results);
-    } finally {
-      await fixture.cleanup();
-    }
+    const retry = await POST(makeRequest(originalMessageId));
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({ message: originalReply });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await savedMessages()).results).toEqual(originalMessages.results);
+
+    await fixture.cleanup();
     expect(await findIncident()).toBeNull();
     expect((await savedMessages()).results).toEqual([]);
   });
 
-  it('rejects a new exchange when its generated assistant ID is already in use', async () => {
-    const database = await getDatabase();
-    const fixture = createSupportApiFixture(database);
+  test('rejects a new exchange when its generated assistant ID is already in use', async ({
+    database,
+    supportApi: fixture,
+  }) => {
     const incidentId = 'INC-GENERATED-ID-COLLISION-REGRESSION';
     const newMessageId = 'MSG-GENERATED-ID-COLLISION-REGRESSION';
     const occupiedId = `AST-${newMessageId}`;
@@ -2106,61 +2040,60 @@ describe('support response safety', () => {
     expect((await savedMessages()).results).toEqual([]);
     const fetchMock = fixture.mockModel(originalReply);
 
-    try {
-      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-      const session = await fixture.session(calderPikeUser);
-      const makeRequest = (messageId: string) =>
-        session.request({
-          incidentId,
-          messageId,
-          messages: [{ role: 'user', content: customerMessage }],
-        });
-      // This is a valid saved customer ID, but it occupies the slot that the
-      // next request would use for its generated assistant reply.
-      await saveSupportExchange(
-        database,
-        calderPikeUser,
+    await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+    const session = await fixture.session(calderPikeUser);
+    const makeRequest = (messageId: string) =>
+      session.request({
         incidentId,
-        occupiedId,
-        customerMessage,
-        originalReply,
-      );
-      const originalIncident = await findIncident();
-      const originalMessages = await savedMessages();
-      expect(originalMessages.results).toHaveLength(2);
-      expect(originalMessages.results[0]).toMatchObject({
-        message_id: occupiedId,
-        role: 'user',
-        content: customerMessage,
+        messageId,
+        messages: [{ role: 'user', content: customerMessage }],
       });
-      expect(
-        originalMessages.results.some((row) => row.message_id === newMessageId),
-      ).toBe(false);
+    // This is a valid saved customer ID, but it occupies the slot that the
+    // next request would use for its generated assistant reply.
+    await saveSupportExchange(
+      database,
+      calderPikeUser,
+      incidentId,
+      occupiedId,
+      customerMessage,
+      originalReply,
+    );
+    const originalIncident = await findIncident();
+    const originalMessages = await savedMessages();
+    expect(originalMessages.results).toHaveLength(2);
+    expect(originalMessages.results[0]).toMatchObject({
+      message_id: occupiedId,
+      role: 'user',
+      content: customerMessage,
+    });
+    expect(
+      originalMessages.results.some((row) => row.message_id === newMessageId),
+    ).toBe(false);
 
-      const response = await POST(makeRequest(newMessageId));
-      expect(response.status).toBe(409);
-      expect(await response.json()).toEqual({
-        error: 'This message ID is already in use. Send a new message.',
-      });
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect(await findIncident()).toEqual(originalIncident);
-      expect((await savedMessages()).results).toEqual(originalMessages.results);
+    const response = await POST(makeRequest(newMessageId));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: 'This message ID is already in use. Send a new message.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await findIncident()).toEqual(originalIncident);
+    expect((await savedMessages()).results).toEqual(originalMessages.results);
 
-      const retry = await POST(makeRequest(occupiedId));
-      expect(retry.status).toBe(200);
-      expect(await retry.json()).toMatchObject({ message: originalReply });
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect((await savedMessages()).results).toEqual(originalMessages.results);
-    } finally {
-      await fixture.cleanup();
-    }
+    const retry = await POST(makeRequest(occupiedId));
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({ message: originalReply });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await savedMessages()).results).toEqual(originalMessages.results);
+
+    await fixture.cleanup();
     expect(await findIncident()).toBeNull();
     expect((await savedMessages()).results).toEqual([]);
   });
 
-  it('completes a saved customer message without duplicating it or leaving a sequence gap', async () => {
-    const database = await getDatabase();
-    const fixture = createSupportApiFixture(database);
+  test('completes a saved customer message without duplicating it or leaving a sequence gap', async ({
+    database,
+    supportApi: fixture,
+  }) => {
     const incidentId = 'INC-INCOMPLETE-EXCHANGE-REGRESSION';
     const messageId = 'MSG-INCOMPLETE-EXCHANGE-REGRESSION';
     const customerMessage = 'Show return RTN-2022-000014.';
@@ -2176,84 +2109,83 @@ describe('support response safety', () => {
       'The linked order is SBL-2022-000118.',
     );
 
-    try {
-      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-      const session = await fixture.session(calderPikeUser);
-      const makeRequest = () =>
-        session.request({
-          incidentId,
-          messageId,
-          messages: [{ role: 'user', content: customerMessage }],
-        });
-      // Model an interrupted exchange directly; do not use the saving function
-      // under test to manufacture the missing-reply state.
-      await database.batch([
-        database
-          .prepare(`INSERT INTO support_incidents
+    await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+    const session = await fixture.session(calderPikeUser);
+    const makeRequest = () =>
+      session.request({
+        incidentId,
+        messageId,
+        messages: [{ role: 'user', content: customerMessage }],
+      });
+    // Model an interrupted exchange directly; do not use the saving function
+    // under test to manufacture the missing-reply state.
+    await database.batch([
+      database
+        .prepare(`INSERT INTO support_incidents
           (incident_id, user_id, title, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?)`)
-          .bind(
-            incidentId,
-            calderPikeUser.userId,
-            'Return inquiry',
-            createdAt,
-            createdAt,
-          ),
-        database
-          .prepare(`INSERT INTO support_messages
+        .bind(
+          incidentId,
+          calderPikeUser.userId,
+          'Return inquiry',
+          createdAt,
+          createdAt,
+        ),
+      database
+        .prepare(`INSERT INTO support_messages
           (message_id, incident_id, sequence_number, role, content, created_at)
           VALUES (?, ?, 1, 'user', ?, ?)`)
-          .bind(messageId, incidentId, customerMessage, createdAt),
-      ]);
-      const before = await savedMessages();
-      expect(before.results).toEqual([
-        {
-          message_id: messageId,
-          incident_id: incidentId,
-          sequence_number: 1,
-          role: 'user',
-          content: customerMessage,
-          created_at: createdAt,
-        },
-      ]);
-
-      const response = await POST(makeRequest());
-      expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({
-        message: assistantMessage,
-      });
-      expect(fetchMock).toHaveBeenCalledOnce();
-      const completed = await savedMessages();
-      expect(completed.results).toHaveLength(2);
-      expect(completed.results[0]).toEqual(before.results[0]);
-      expect(completed.results[1]).toMatchObject({
-        message_id: `AST-${messageId}`,
+        .bind(messageId, incidentId, customerMessage, createdAt),
+    ]);
+    const before = await savedMessages();
+    expect(before.results).toEqual([
+      {
+        message_id: messageId,
         incident_id: incidentId,
-        sequence_number: 2,
-        role: 'assistant',
-        content: assistantMessage,
-      });
-      expect(await findIncident()).toMatchObject({
-        user_id: calderPikeUser.userId,
-        title: 'Return inquiry',
+        sequence_number: 1,
+        role: 'user',
+        content: customerMessage,
         created_at: createdAt,
-      });
+      },
+    ]);
 
-      const retry = await POST(makeRequest());
-      expect(retry.status).toBe(200);
-      expect(await retry.json()).toMatchObject({ message: assistantMessage });
-      expect(fetchMock).toHaveBeenCalledOnce();
-      expect((await savedMessages()).results).toEqual(completed.results);
-    } finally {
-      await fixture.cleanup();
-    }
+    const response = await POST(makeRequest());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      message: assistantMessage,
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const completed = await savedMessages();
+    expect(completed.results).toHaveLength(2);
+    expect(completed.results[0]).toEqual(before.results[0]);
+    expect(completed.results[1]).toMatchObject({
+      message_id: `AST-${messageId}`,
+      incident_id: incidentId,
+      sequence_number: 2,
+      role: 'assistant',
+      content: assistantMessage,
+    });
+    expect(await findIncident()).toMatchObject({
+      user_id: calderPikeUser.userId,
+      title: 'Return inquiry',
+      created_at: createdAt,
+    });
+
+    const retry = await POST(makeRequest());
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({ message: assistantMessage });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect((await savedMessages()).results).toEqual(completed.results);
+
+    await fixture.cleanup();
     expect(await findIncident()).toBeNull();
     expect((await savedMessages()).results).toEqual([]);
   });
 
-  it('rejects recovery when another message occupies the missing reply position', async () => {
-    const database = await getDatabase();
-    const fixture = createSupportApiFixture(database);
+  test('rejects recovery when another message occupies the missing reply position', async ({
+    database,
+    supportApi: fixture,
+  }) => {
     const incidentId = 'INC-OCCUPIED-REPLY-POSITION-REGRESSION';
     const messageId = 'MSG-OCCUPIED-REPLY-POSITION-REGRESSION';
     const laterMessageId = 'MSG-LATER-EXCHANGE-REGRESSION';
@@ -2267,75 +2199,73 @@ describe('support response safety', () => {
     expect((await savedMessages()).results).toEqual([]);
     const fetchMock = fixture.mockModel(assistantMessage);
 
-    try {
-      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-      const session = await fixture.session(calderPikeUser);
-      const makeRequest = (id: string) =>
-        session.request({
-          incidentId,
-          messageId: id,
-          messages: [{ role: 'user', content: customerMessage }],
-        });
-      await database.batch([
-        database
-          .prepare(`INSERT INTO support_incidents
+    await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+    const session = await fixture.session(calderPikeUser);
+    const makeRequest = (id: string) =>
+      session.request({
+        incidentId,
+        messageId: id,
+        messages: [{ role: 'user', content: customerMessage }],
+      });
+    await database.batch([
+      database
+        .prepare(`INSERT INTO support_incidents
           (incident_id, user_id, title, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?)`)
-          .bind(
-            incidentId,
-            calderPikeUser.userId,
-            'Return inquiry',
-            createdAt,
-            createdAt,
-          ),
-        database
-          .prepare(`INSERT INTO support_messages
+        .bind(
+          incidentId,
+          calderPikeUser.userId,
+          'Return inquiry',
+          createdAt,
+          createdAt,
+        ),
+      database
+        .prepare(`INSERT INTO support_messages
           (message_id, incident_id, sequence_number, role, content, created_at)
           VALUES (?, ?, 1, 'user', ?, ?)`)
-          .bind(messageId, incidentId, customerMessage, createdAt),
-      ]);
-      // A later exchange now occupies positions 2 and 3. Recovering the first
-      // message must neither overwrite these rows nor silently skip its reply.
-      await saveSupportExchange(
-        database,
-        calderPikeUser,
-        incidentId,
-        laterMessageId,
-        customerMessage,
-        assistantMessage,
-      );
-      const originalIncident = await findIncident();
-      const originalMessages = await savedMessages();
-      expect(originalMessages.results).toHaveLength(3);
-      expect(originalMessages.results).toMatchObject([
-        { message_id: messageId, role: 'user', sequence_number: 1 },
-        { message_id: laterMessageId, role: 'user', sequence_number: 2 },
-        {
-          message_id: `AST-${laterMessageId}`,
-          role: 'assistant',
-          sequence_number: 3,
-        },
-      ]);
+        .bind(messageId, incidentId, customerMessage, createdAt),
+    ]);
+    // A later exchange now occupies positions 2 and 3. Recovering the first
+    // message must neither overwrite these rows nor silently skip its reply.
+    await saveSupportExchange(
+      database,
+      calderPikeUser,
+      incidentId,
+      laterMessageId,
+      customerMessage,
+      assistantMessage,
+    );
+    const originalIncident = await findIncident();
+    const originalMessages = await savedMessages();
+    expect(originalMessages.results).toHaveLength(3);
+    expect(originalMessages.results).toMatchObject([
+      { message_id: messageId, role: 'user', sequence_number: 1 },
+      { message_id: laterMessageId, role: 'user', sequence_number: 2 },
+      {
+        message_id: `AST-${laterMessageId}`,
+        role: 'assistant',
+        sequence_number: 3,
+      },
+    ]);
 
-      const response = await POST(makeRequest(messageId));
-      expect(response.status).toBe(409);
-      expect(await response.json()).toEqual({
-        error: 'This message ID is already in use. Send a new message.',
-      });
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect(await findIncident()).toEqual(originalIncident);
-      expect((await savedMessages()).results).toEqual(originalMessages.results);
+    const response = await POST(makeRequest(messageId));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: 'This message ID is already in use. Send a new message.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await findIncident()).toEqual(originalIncident);
+    expect((await savedMessages()).results).toEqual(originalMessages.results);
 
-      const laterRetry = await POST(makeRequest(laterMessageId));
-      expect(laterRetry.status).toBe(200);
-      expect(await laterRetry.json()).toMatchObject({
-        message: assistantMessage,
-      });
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect((await savedMessages()).results).toEqual(originalMessages.results);
-    } finally {
-      await fixture.cleanup();
-    }
+    const laterRetry = await POST(makeRequest(laterMessageId));
+    expect(laterRetry.status).toBe(200);
+    expect(await laterRetry.json()).toMatchObject({
+      message: assistantMessage,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await savedMessages()).results).toEqual(originalMessages.results);
+
+    await fixture.cleanup();
     expect(await findIncident()).toBeNull();
     expect((await savedMessages()).results).toEqual([]);
   });
@@ -3075,9 +3005,9 @@ describe('support response safety', () => {
     },
   );
 
-  it('blocks a corrupted order ID before returning or persisting the response', async () => {
-    const database = await getDatabase();
-    const fixture = createSupportApiFixture(database);
+  test('blocks a corrupted order ID before returning or persisting the response', async ({
+    supportApi: fixture,
+  }) => {
     const incidentId = 'INC-USR-CPD-001-01';
     const existingMessages = () => fixture.messages(incidentId);
     const before = await existingMessages();
@@ -3085,30 +3015,26 @@ describe('support response safety', () => {
       'Return RTN-2022-000014. Linked order: SBL-2022-0000118.',
     );
 
-    try {
-      const session = await fixture.session(calderPikeUser);
-      const request = session.request({
-        incidentId,
-        messageId: 'MSG-RETURN-SAFETY-REGRESSION',
-        messages: [{ role: 'user', content: 'Show return RTN-2022-000014.' }],
-      });
-      const response = await POST(request);
-      expect(fetchMock).toHaveBeenCalledOnce();
-      const body = fetchMock.mock.calls[0][1]?.body;
-      expect(typeof body).toBe('string');
-      if (typeof body !== 'string')
-        throw new Error('Expected a JSON model request');
-      const requestBody = JSON.parse(body);
-      expect(requestBody.messages[0].content).toContain('SBL-2022-000118');
-      expect(requestBody.messages[0].content).not.toContain('SBL-2022-0000118');
-      expect(response.status).toBe(502);
-      expect(await response.json()).toEqual({
-        error:
-          'The response contained an unverified record reference. Please try again.',
-      });
-      expect((await existingMessages()).results).toEqual(before.results);
-    } finally {
-      await fixture.cleanup();
-    }
+    const session = await fixture.session(calderPikeUser);
+    const request = session.request({
+      incidentId,
+      messageId: 'MSG-RETURN-SAFETY-REGRESSION',
+      messages: [{ role: 'user', content: 'Show return RTN-2022-000014.' }],
+    });
+    const response = await POST(request);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const body = fetchMock.mock.calls[0][1]?.body;
+    expect(typeof body).toBe('string');
+    if (typeof body !== 'string')
+      throw new Error('Expected a JSON model request');
+    const requestBody = JSON.parse(body);
+    expect(requestBody.messages[0].content).toContain('SBL-2022-000118');
+    expect(requestBody.messages[0].content).not.toContain('SBL-2022-0000118');
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      error:
+        'The response contained an unverified record reference. Please try again.',
+    });
+    expect((await existingMessages()).results).toEqual(before.results);
   });
 });
