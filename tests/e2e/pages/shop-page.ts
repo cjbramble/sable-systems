@@ -1,7 +1,23 @@
 import type { Page } from '@playwright/test';
+import { SessionControls } from './session-controls';
 
 export class ShopPage {
-  constructor(private readonly page: Page) {}
+  readonly session: SessionControls;
+  constructor(private readonly page: Page) {
+    this.session = new SessionControls(page);
+  }
+
+  categoryTab(category: string) {
+    return this.page.getByRole('button', { name: category, exact: true });
+  }
+
+  get productCategories() {
+    return this.page.getByRole('article').locator('[data-slot="badge"]');
+  }
+
+  async chooseCategory(category: string) {
+    await this.categoryTab(category).click();
+  }
 
   get signedInUser() {
     return this.page.locator('.shop-account strong');
@@ -60,8 +76,10 @@ export class ShopPage {
       .getByRole('definition');
   }
 
-  async goto() {
-    return this.page.goto('/shop');
+  async goto(category?: string) {
+    return this.page.goto(
+      category ? `/shop?category=${encodeURIComponent(category)}` : '/shop',
+    );
   }
 
   async addCase(itemNumber: string) {

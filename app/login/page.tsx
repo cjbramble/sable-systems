@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { SyntheticEvent, useEffect, useState } from 'react';
+import { SyntheticEvent, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, LockKeyhole, ShieldCheck } from 'lucide-react';
 
 import { BrandWordmark } from '@/components/brand-wordmark';
@@ -17,38 +17,47 @@ export default function LoginPage() {
   const [checking, setChecking] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const pageRequest = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    let active = true;
-    fetch('/api/auth/session', { cache: 'no-store' })
+    const controller = new AbortController();
+    pageRequest.current = controller;
+    const destination = requestedDestination();
+    fetch('/api/auth/session', { cache: 'no-store', signal: controller.signal })
       .then((response) => {
-        if (response.ok) window.location.replace(requestedDestination());
+        if (!controller.signal.aborted && response.ok)
+          window.location.replace(destination);
       })
       .catch(() => undefined)
       .finally(() => {
-        if (active) setChecking(false);
+        if (!controller.signal.aborted) setChecking(false);
       });
     return () => {
-      active = false;
+      controller.abort();
     };
   }, []);
 
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (checking || submitting) return;
+    const signal = pageRequest.current?.signal;
+    if (!signal || signal.aborted || checking || submitting) return;
+    const destination = requestedDestination();
     setSubmitting(true);
     setError('');
     try {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
+        signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
       const payload = (await response.json()) as { error?: string };
+      if (signal.aborted) return;
       if (!response.ok)
         throw new Error(payload.error || 'Access could not be verified.');
-      window.location.replace(requestedDestination());
+      window.location.replace(destination);
     } catch (requestError) {
+      if (signal.aborted) return;
       setError(
         requestError instanceof Error
           ? requestError.message

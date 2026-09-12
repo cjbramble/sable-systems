@@ -37,7 +37,7 @@ import { BrandWordmark } from '@/components/brand-wordmark';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { buildChatRequestHistory } from '@/lib/chat-history';
-import { redirectToLogin, signOut } from '@/lib/client-session';
+import { redirectToLogin, useSignOut } from '@/lib/client-session';
 import type { AccountSummary } from '@/lib/contracts';
 import {
   createIncidentTitle,
@@ -105,6 +105,8 @@ function createIncidentId() {
 }
 
 export default function SupportPage() {
+  const { signOut, signingOut, signOutError } = useSignOut();
+  const pageRequest = useRef<AbortController | null>(null);
   const [incidents, setIncidents] = useState<SupportIncident[]>([]);
   const [activeIncidentId, setActiveIncidentId] = useState<string | null>(null);
   const [incidentSearch, setIncidentSearch] = useState('');
@@ -151,13 +153,18 @@ export default function SupportPage() {
   }, []);
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
+    pageRequest.current = controller;
     Promise.all([
-      fetch('/api/account', { cache: 'no-store' }),
-      fetch('/api/incidents', { cache: 'no-store' }),
+      fetch('/api/account', { cache: 'no-store', signal: controller.signal }),
+      fetch('/api/incidents', { cache: 'no-store', signal: controller.signal }),
     ])
       .then(async ([accountResponse, incidentsResponse]) => {
-        if (accountResponse.status === 401 || incidentsResponse.status === 401) {
+        if (controller.signal.aborted) return;
+        if (
+          accountResponse.status === 401 ||
+          incidentsResponse.status === 401
+        ) {
           redirectToLogin('/support');
           throw new Error('Authentication required');
         }
@@ -168,8 +175,9 @@ export default function SupportPage() {
           incidentsResponse.json() as Promise<{ incidents: SupportIncident[] }>,
         ]);
       })
-      .then(([summary, incidentPayload]) => {
-        if (active) {
+      .then((payload) => {
+        if (!controller.signal.aborted && payload) {
+          const [summary, incidentPayload] = payload;
           setIncidents(incidentPayload.incidents);
           setActiveIncidentId(incidentPayload.incidents[0]?.id ?? null);
           setAccount(summary);
@@ -177,10 +185,10 @@ export default function SupportPage() {
         }
       })
       .catch(() => {
-        if (active) setAuthChecked(true);
+        if (!controller.signal.aborted) setAuthChecked(true);
       });
     return () => {
-      active = false;
+      controller.abort();
     };
   }, []);
 
@@ -220,13 +228,17 @@ export default function SupportPage() {
   }
 
   async function deleteIncident(incident: SupportIncident) {
+    const signal = pageRequest.current?.signal;
+    if (!signal || signal.aborted) return;
     if (!window.confirm(`Delete “${incident.title}”?`)) return;
     try {
       const response = await fetch('/api/incidents', {
         method: 'DELETE',
+        signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ incidentId: incident.id }),
       });
+      if (signal.aborted) return;
       if (response.status === 401) {
         redirectToLogin('/support');
         return;
@@ -243,6 +255,7 @@ export default function SupportPage() {
       }
       setRequestError(null);
     } catch (error) {
+      if (signal.aborted) return;
       setRequestError(
         error instanceof Error
           ? error.message
@@ -252,6 +265,8 @@ export default function SupportPage() {
   }
 
   async function sendMessage(rawMessage?: string) {
+    const signal = pageRequest.current?.signal;
+    if (!signal || signal.aborted) return;
     const content = (rawMessage ?? draft).trim();
     if (!content || isSending) return;
 
@@ -299,6 +314,7 @@ export default function SupportPage() {
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
+        signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           incidentId,
@@ -311,6 +327,7 @@ export default function SupportPage() {
         message?: string;
         error?: string;
       };
+      if (signal.aborted) return;
       if (response.status === 401) {
         redirectToLogin('/support');
         return;
@@ -349,6 +366,7 @@ export default function SupportPage() {
       );
       setRuntime('ready');
     } catch (error) {
+      if (signal.aborted) return;
       if (!(error instanceof ChatRequestError) || error.modelUnavailable)
         setRuntime('offline');
       setRequestError(
@@ -357,8 +375,10 @@ export default function SupportPage() {
           : 'The support request could not be completed. Please try again.',
       );
     } finally {
-      setIsSending(false);
-      window.setTimeout(() => inputRef.current?.focus(), 0);
+      if (!signal.aborted) {
+        setIsSending(false);
+        window.setTimeout(() => inputRef.current?.focus(), 0);
+      }
     }
   }
 
@@ -478,7 +498,18 @@ export default function SupportPage() {
               </small>
             </span>
           </div>
-          <button type="button" className="profile-row" onClick={signOut}>
+          {signOutError ? (
+            <p className="session-error" role="alert">
+              {signOutError}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            className="profile-row"
+            aria-label="Sign out"
+            onClick={signOut}
+            disabled={signingOut}
+          >
             <span className="profile-avatar">
               {initials(account?.userDisplayName)}
             </span>

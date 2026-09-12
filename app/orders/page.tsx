@@ -31,7 +31,7 @@ import type {
   OrderHistoryResponse,
   OrderStatus,
 } from '@/lib/contracts';
-import { redirectToLogin, signOut } from '@/lib/client-session';
+import { redirectToLogin, useSignOut } from '@/lib/client-session';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -57,6 +57,7 @@ function statusTone(status: OrderStatus) {
 }
 
 export default function OrdersPage() {
+  const { signOut, signingOut, signOutError } = useSignOut();
   const [data, setData] = useState<OrderHistoryResponse | null>(null);
   const [filter, setFilter] = useState<OrderHistoryFilter>('all');
   const [page, setPage] = useState(1);
@@ -81,6 +82,7 @@ export default function OrdersPage() {
         const payload = (await response.json()) as OrderHistoryResponse & {
           error?: string;
         };
+        if (controller.signal.aborted) return;
         if (response.status === 401) {
           redirectToLogin('/orders');
           throw new Error('Authentication required.');
@@ -89,13 +91,11 @@ export default function OrdersPage() {
           throw new Error(payload.error || 'Order history unavailable.');
         return payload;
       })
-      .then(setData)
+      .then((payload) => {
+        if (!controller.signal.aborted && payload) setData(payload);
+      })
       .catch((requestError: unknown) => {
-        if (
-          requestError instanceof DOMException &&
-          requestError.name === 'AbortError'
-        )
-          return;
+        if (controller.signal.aborted) return;
         setError(
           requestError instanceof Error
             ? requestError.message
@@ -166,11 +166,17 @@ export default function OrdersPage() {
             size="icon"
             aria-label="Sign out"
             onClick={signOut}
+            disabled={signingOut}
           >
             <LogOut />
           </Button>
         </div>
       </header>
+      {signOutError ? (
+        <p className="session-error" role="alert">
+          {signOutError}
+        </p>
+      ) : null}
 
       <section className="orders-hero">
         <div>

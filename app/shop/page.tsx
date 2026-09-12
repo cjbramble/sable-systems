@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
@@ -41,7 +42,8 @@ import {
   type CatalogCategory,
 } from '@/lib/catalog-categories';
 import type { AccountSummary, CatalogProduct } from '@/lib/contracts';
-import { redirectToLogin, signOut } from '@/lib/client-session';
+import { redirectToLogin, useSignOut } from '@/lib/client-session';
+import { shopDestination } from '@/lib/auth-navigation';
 import { formatCurrency } from '@/lib/format';
 
 type ShopCategory = 'All' | CatalogCategory;
@@ -73,22 +75,23 @@ function dateOffset(days: number) {
   return date.toISOString().slice(0, 10);
 }
 
-async function requestCatalog() {
-  const response = await fetch('/api/catalog', { cache: 'no-store' });
+const requestedDestination = () => shopDestination(window.location.search);
+
+async function requestCatalog(signal: AbortSignal) {
+  const response = await fetch('/api/catalog', { cache: 'no-store', signal });
+  if (response.status === 401) return null;
   const payload = (await response.json()) as {
     products?: CatalogProduct[];
     error?: string;
   };
-  if (response.status === 401) {
-    redirectToLogin('/shop');
-    return null;
-  }
   if (!response.ok || !payload.products)
     throw new Error(payload.error || 'Catalog unavailable.');
   return payload.products;
 }
 
 export default function ShopPage() {
+  const { signOut, signingOut, signOutError } = useSignOut();
+  const pageRequest = useRef<AbortController | null>(null);
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -106,26 +109,15 @@ export default function ShopPage() {
   const [checkoutError, setCheckoutError] = useState('');
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
 
-  const loadCatalog = useCallback(async () => {
-    try {
-      const nextProducts = await requestCatalog();
-      if (!nextProducts) return;
-      setProducts(nextProducts);
-      setLoadError('');
-    } catch (error) {
-      setLoadError(
-        error instanceof Error ? error.message : 'Catalog unavailable.',
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    requestCatalog()
+  const loadCatalog = useCallback((signal = pageRequest.current?.signal) => {
+    if (!signal || signal.aborted) return;
+    return requestCatalog(signal)
       .then((nextProducts) => {
-        if (!active || !nextProducts) return;
+        if (signal.aborted) return;
+        if (!nextProducts) {
+          redirectToLogin(requestedDestination());
+          return;
+        }
         const requestedCategory = new URLSearchParams(
           window.location.search,
         ).get('category');
@@ -136,42 +128,47 @@ export default function ShopPage() {
         setLoadError('');
       })
       .catch((error: unknown) => {
-        if (active)
-          setLoadError(
-            error instanceof Error ? error.message : 'Catalog unavailable.',
-          );
+        if (signal.aborted) return;
+        setLoadError(
+          error instanceof Error ? error.message : 'Catalog unavailable.',
+        );
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (!signal.aborted) setLoading(false);
       });
-    return () => {
-      active = false;
-    };
   }, []);
 
   useEffect(() => {
-    let active = true;
-    fetch('/api/account', { cache: 'no-store' })
+    const controller = new AbortController();
+    pageRequest.current = controller;
+    void loadCatalog(controller.signal);
+    return () => controller.abort();
+  }, [loadCatalog]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch('/api/account', { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
+        if (controller.signal.aborted) return;
         if (response.status === 401) {
-          redirectToLogin('/shop');
+          redirectToLogin(requestedDestination());
           throw new Error('Authentication required.');
         }
         if (!response.ok) throw new Error('Account unavailable.');
         return (await response.json()) as AccountSummary;
       })
       .then((identity) => {
-        if (active) {
+        if (!controller.signal.aborted && identity) {
           setAccount(identity);
           setRegion(identity.region);
           setAuthChecked(true);
         }
       })
       .catch(() => {
-        if (active) setAuthChecked(true);
+        if (!controller.signal.aborted) setAuthChecked(true);
       });
     return () => {
-      active = false;
+      controller.abort();
     };
   }, []);
 
@@ -246,12 +243,15 @@ export default function ShopPage() {
 
   async function submitOrder(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
+    const signal = pageRequest.current?.signal;
+    if (!signal || signal.aborted) return;
     if (!cartProducts.length || !chargeAccountAuthorized || submitting) return;
     setSubmitting(true);
     setCheckoutError('');
     try {
       const response = await fetch('/api/orders', {
         method: 'POST',
+        signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customerPoNumber: poNumber,
@@ -266,8 +266,9 @@ export default function ShopPage() {
       const payload = (await response.json()) as Confirmation & {
         error?: string;
       };
+      if (signal.aborted) return;
       if (response.status === 401) {
-        redirectToLogin('/shop');
+        redirectToLogin(requestedDestination());
         return;
       }
       if (!response.ok)
@@ -278,12 +279,13 @@ export default function ShopPage() {
       setChargeAccountAuthorized(false);
       await loadCatalog();
     } catch (error) {
+      if (signal.aborted) return;
       setCheckoutError(
         error instanceof Error ? error.message : 'Order could not be placed.',
       );
       await loadCatalog();
     } finally {
-      setSubmitting(false);
+      if (!signal.aborted) setSubmitting(false);
     }
   }
 
@@ -316,6 +318,7 @@ export default function ShopPage() {
             size="icon"
             aria-label="Sign out"
             onClick={signOut}
+            disabled={signingOut}
           >
             <LogOut />
           </Button>
@@ -324,6 +327,11 @@ export default function ShopPage() {
           </Button>
         </div>
       </header>
+      {signOutError ? (
+        <p className="session-error" role="alert">
+          {signOutError}
+        </p>
+      ) : null}
 
       <section className="shop-hero">
         <div>

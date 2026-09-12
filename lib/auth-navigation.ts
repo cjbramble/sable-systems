@@ -34,3 +34,9 @@ export function safeLoginDestination(search: string) {
 export function loginHref(destination: string) {
   return `/login?next=${encodeURIComponent(destination)}`;
 }
+
+export function shopDestination(search: string) {
+  return safeLoginDestination(
+    new URLSearchParams({ next: `/shop${search}` }).toString(),
+  );
+}

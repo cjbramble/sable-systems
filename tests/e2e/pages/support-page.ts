@@ -1,9 +1,13 @@
 import type { Page } from '@playwright/test';
 
 import { SupportMessage } from './support-message';
+import { SessionControls } from './session-controls';
 
 export class SupportPage {
-  constructor(private readonly page: Page) {}
+  readonly session: SessionControls;
+  constructor(private readonly page: Page) {
+    this.session = new SessionControls(page);
+  }
 
   get runtimeStatus() {
     return this.page.getByRole('status', { name: 'Model connection' });

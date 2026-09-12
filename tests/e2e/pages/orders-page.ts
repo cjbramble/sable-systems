@@ -1,7 +1,11 @@
 import type { Page } from '@playwright/test';
+import { SessionControls } from './session-controls';
 
 export class OrdersPage {
-  constructor(private readonly page: Page) {}
+  readonly session: SessionControls;
+  constructor(private readonly page: Page) {
+    this.session = new SessionControls(page);
+  }
 
   get heading() {
     return this.page.getByRole('heading', {
@@ -66,7 +70,7 @@ export class OrdersPage {
           new URL(response.url()).pathname === '/api/auth/logout' &&
           response.request().method() === 'POST',
       ),
-      this.page.getByRole('button', { name: 'Sign out', exact: true }).click(),
+      this.session.signOut(),
     ]);
     await this.page.waitForURL((url) => url.pathname === '/login');
     return response;

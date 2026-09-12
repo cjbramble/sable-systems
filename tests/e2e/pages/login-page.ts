@@ -10,8 +10,15 @@ export class LoginPage {
     });
   }
 
-  async goto() {
-    return this.page.goto('/login?next=/support');
+  async goto(destination = '/support') {
+    return this.page.goto(`/login?next=${encodeURIComponent(destination)}`);
+  }
+
+  async goHome() {
+    await this.page
+      .getByRole('link', { name: 'Return to SABLE Systems' })
+      .click();
+    await this.page.waitForURL((url) => url.pathname === '/');
   }
 
   async signIn(email: string, password: string, destination = '/support') {
