@@ -50,6 +50,14 @@ import { cn } from '@/lib/utils';
 
 type RuntimeState = 'checking' | 'ready' | 'offline';
 
+type SupportRequest = {
+  incidentId: string;
+  messageId: string;
+  messages: ReturnType<typeof buildChatRequestHistory>;
+};
+
+type IncidentFailure = { error: string; request?: SupportRequest };
+
 class ChatRequestError extends Error {
   constructor(
     message: string,
@@ -107,12 +115,25 @@ function createIncidentId() {
 export default function SupportPage() {
   const { signOut, signingOut, signOutError } = useSignOut();
   const pageRequest = useRef<AbortController | null>(null);
-  const [incidents, setIncidents] = useState<SupportIncident[]>([]);
-  const [activeIncidentId, setActiveIncidentId] = useState<string | null>(null);
+  const [conversation, setConversation] = useState<{
+    incidents: SupportIncident[];
+    activeIncidentId: string | null;
+    draft: string;
+  }>({ incidents: [], activeIncidentId: null, draft: '' });
+  const { incidents, activeIncidentId, draft } = conversation;
   const [incidentSearch, setIncidentSearch] = useState('');
-  const [draft, setDraft] = useState('');
-  const [isSending, setIsSending] = useState(false);
-  const [requestError, setRequestError] = useState<string | null>(null);
+  const pendingRequest = useRef<SupportRequest | null>(null);
+  const [sendingIncidentId, setSendingIncidentId] = useState<string | null>(
+    null,
+  );
+  const deletingIncidents = useRef(new Set<string>());
+  const [deletingIds, setDeletingIds] = useState<string[]>([]);
+  const [failures, setFailures] = useState<Record<string, IncidentFailure>>({});
+  const failure = activeIncidentId ? failures[activeIncidentId] : undefined;
+  const retryRequest = failure?.request;
+  const isSending = sendingIncidentId !== null;
+  const composerDisabled =
+    isSending || deletingIds.includes(activeIncidentId ?? '');
   const [runtime, setRuntime] = useState<RuntimeState>('checking');
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [loadStatus, setLoadStatus] = useState<
@@ -189,8 +210,11 @@ export default function SupportPage() {
       .then((payload) => {
         if (!controller.signal.aborted && payload) {
           const [summary, incidentPayload] = payload;
-          setIncidents(incidentPayload.incidents);
-          setActiveIncidentId(incidentPayload.incidents[0]?.id ?? null);
+          setConversation({
+            incidents: incidentPayload.incidents,
+            activeIncidentId: incidentPayload.incidents[0]?.id ?? null,
+            draft: '',
+          });
           setAccount(summary);
           setLoadStatus('ready');
         }
@@ -235,26 +259,36 @@ export default function SupportPage() {
       updatedAt: 'Now',
       messages: [openingMessage],
     };
-    setIncidents((current) => [incident, ...current]);
-    setActiveIncidentId(incident.id);
-    setDraft('');
-    setRequestError(null);
+    setConversation((current) => ({
+      incidents: [incident, ...current.incidents],
+      activeIncidentId: incident.id,
+      draft: '',
+    }));
     setIncidentSearch('');
     setMobileMenuOpen(false);
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }
 
   function selectIncident(incidentId: string) {
-    setActiveIncidentId(incidentId);
-    setDraft('');
-    setRequestError(null);
+    setConversation((current) => ({
+      ...current,
+      activeIncidentId: incidentId,
+      draft: '',
+    }));
     setMobileMenuOpen(false);
   }
 
   async function deleteIncident(incident: SupportIncident) {
     const signal = pageRequest.current?.signal;
     if (!signal || signal.aborted) return;
+    if (
+      pendingRequest.current?.incidentId === incident.id ||
+      deletingIncidents.current.has(incident.id)
+    )
+      return;
     if (!window.confirm(`Delete “${incident.title}”?`)) return;
+    deletingIncidents.current.add(incident.id);
+    setDeletingIds([...deletingIncidents.current]);
     try {
       const response = await fetch('/api/incidents', {
         method: 'DELETE',
@@ -271,28 +305,54 @@ export default function SupportPage() {
         const payload = (await response.json()) as { error?: string };
         throw new Error(payload.error || 'The incident could not be deleted.');
       }
-      const remaining = removeSupportIncident(incidents, incident.id);
-      setIncidents(remaining);
-      if (activeIncidentId === incident.id) {
-        setActiveIncidentId(remaining[0]?.id ?? null);
-        setDraft('');
-      }
-      setRequestError(null);
+      setConversation((current) => {
+        const remaining = removeSupportIncident(current.incidents, incident.id);
+        return {
+          incidents: remaining,
+          activeIncidentId:
+            current.activeIncidentId === incident.id
+              ? (remaining[0]?.id ?? null)
+              : current.activeIncidentId,
+          draft: current.activeIncidentId === incident.id ? '' : current.draft,
+        };
+      });
+      clearFailure(incident.id);
     } catch (error) {
       if (signal.aborted) return;
-      setRequestError(
-        error instanceof Error
-          ? error.message
-          : 'The incident could not be deleted.',
-      );
+      setFailures((current) => ({
+        ...current,
+        [incident.id]: {
+          ...current[incident.id],
+          error:
+            error instanceof Error
+              ? error.message
+              : 'The incident could not be deleted.',
+        },
+      }));
+    } finally {
+      deletingIncidents.current.delete(incident.id);
+      if (!signal.aborted) setDeletingIds([...deletingIncidents.current]);
     }
+  }
+
+  function clearFailure(incidentId: string) {
+    setFailures((current) => {
+      const next = { ...current };
+      delete next[incidentId];
+      return next;
+    });
   }
 
   async function sendMessage(rawMessage?: string) {
     const signal = pageRequest.current?.signal;
     if (!signal || signal.aborted) return;
     const content = (rawMessage ?? draft).trim();
-    if (!content || isSending) return;
+    if (
+      !content ||
+      pendingRequest.current ||
+      deletingIncidents.current.has(activeIncidentId ?? '')
+    )
+      return;
 
     const userMessage: SupportChatMessage = {
       id: createId(),
@@ -304,8 +364,10 @@ export default function SupportPage() {
     const nextMessages = [...messages, userMessage];
 
     if (activeIncident) {
-      setIncidents((current) =>
-        current.map((incident) =>
+      setConversation((current) => ({
+        ...current,
+        draft: '',
+        incidents: current.incidents.map((incident) =>
           incident.id === incidentId
             ? {
                 ...incident,
@@ -318,33 +380,50 @@ export default function SupportPage() {
               }
             : incident,
         ),
-      );
+      }));
     } else {
-      setIncidents((current) => [
-        {
-          id: incidentId,
-          title: createIncidentTitle(content),
-          updatedAt: 'Now',
-          messages: nextMessages,
-        },
-        ...current,
-      ]);
-      setActiveIncidentId(incidentId);
+      setConversation((current) => ({
+        draft: '',
+        activeIncidentId: incidentId,
+        incidents: [
+          {
+            id: incidentId,
+            title: createIncidentTitle(content),
+            updatedAt: 'Now',
+            messages: nextMessages,
+          },
+          ...current.incidents,
+        ],
+      }));
     }
-    setDraft('');
-    setRequestError(null);
-    setIsSending(true);
+    await submitRequest({
+      incidentId,
+      messageId: userMessage.id,
+      messages: buildChatRequestHistory(nextMessages),
+    });
+  }
+
+  async function submitRequest(request: SupportRequest) {
+    const signal = pageRequest.current?.signal;
+    if (
+      !signal ||
+      signal.aborted ||
+      pendingRequest.current ||
+      deletingIncidents.current.has(request.incidentId)
+    )
+      return;
+    // Retain the exact exchange identity/history so a lost response can replay
+    // the server's saved winner without creating another customer message.
+    pendingRequest.current = request;
+    setSendingIncidentId(request.incidentId);
+    clearFailure(request.incidentId);
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         signal,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          incidentId,
-          messageId: userMessage.id,
-          messages: buildChatRequestHistory(nextMessages),
-        }),
+        body: JSON.stringify(request),
       });
 
       const payload = (await response.json()) as {
@@ -369,38 +448,43 @@ export default function SupportPage() {
         );
       const reply = payload.message;
 
-      setIncidents((current) =>
-        current.map((incident) =>
-          incident.id === incidentId
+      const replyMessage: SupportChatMessage = {
+        id: `AST-${request.messageId}`,
+        role: 'assistant',
+        content: reply,
+        createdAt: timestamp(),
+      };
+      setConversation((current) => ({
+        ...current,
+        incidents: current.incidents.map((incident) =>
+          incident.id === request.incidentId
             ? {
                 ...incident,
                 updatedAt: 'Now',
-                messages: [
-                  ...incident.messages,
-                  {
-                    id: createId(),
-                    role: 'assistant',
-                    content: reply,
-                    createdAt: timestamp(),
-                  },
-                ],
+                messages: [...incident.messages, replyMessage],
               }
             : incident,
         ),
-      );
+      }));
       setRuntime('ready');
     } catch (error) {
       if (signal.aborted) return;
       if (!(error instanceof ChatRequestError) || error.modelUnavailable)
         setRuntime('offline');
-      setRequestError(
-        error instanceof Error
-          ? error.message
-          : 'The support request could not be completed. Please try again.',
-      );
+      setFailures((current) => ({
+        ...current,
+        [request.incidentId]: {
+          request,
+          error:
+            error instanceof Error
+              ? error.message
+              : 'The support request could not be completed. Please try again.',
+        },
+      }));
     } finally {
       if (!signal.aborted) {
-        setIsSending(false);
+        pendingRequest.current = null;
+        setSendingIncidentId(null);
         window.setTimeout(() => inputRef.current?.focus(), 0);
       }
     }
@@ -503,7 +587,10 @@ export default function SupportPage() {
                   incident.id === activeIncidentId && 'is-visible',
                 )}
                 aria-label={`Delete ${incident.title}`}
-                disabled={isSending && incident.id === activeIncidentId}
+                disabled={
+                  incident.id === sendingIncidentId ||
+                  deletingIds.includes(incident.id)
+                }
                 onClick={() => void deleteIncident(incident)}
               >
                 <Trash2 />
@@ -654,7 +741,7 @@ export default function SupportPage() {
               </article>
             ))}
 
-            {isSending ? (
+            {sendingIncidentId === activeIncidentId && isSending ? (
               <article className="chat-message">
                 <div className="assistant-avatar">
                   <Sparkles />
@@ -676,12 +763,20 @@ export default function SupportPage() {
               </article>
             ) : null}
 
-            {requestError ? (
+            {failure ? (
               <div className="chat-notice" role="alert">
                 <TriangleAlert aria-hidden="true" />
                 <div>
                   <strong>Support request interrupted</strong>
-                  <p>{requestError}</p>
+                  <p>{failure.error}</p>
+                  {retryRequest ? (
+                    <Button
+                      disabled={composerDisabled}
+                      onClick={() => void submitRequest(retryRequest)}
+                    >
+                      Retry message
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -709,19 +804,24 @@ export default function SupportPage() {
             <Textarea
               ref={inputRef}
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) =>
+                setConversation((current) => ({
+                  ...current,
+                  draft: event.target.value,
+                }))
+              }
               onKeyDown={handleKeyDown}
               maxLength={4000}
               rows={1}
               placeholder="Enter order, item, shipment, or allocation inquiry…"
               aria-label="Message COV-E"
-              disabled={isSending}
+              disabled={composerDisabled}
             />
             <Button
               type="submit"
               size="icon-lg"
               aria-label="Send message"
-              disabled={!draft.trim() || isSending}
+              disabled={!draft.trim() || composerDisabled}
             >
               <ArrowUp />
             </Button>

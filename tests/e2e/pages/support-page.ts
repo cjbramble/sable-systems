@@ -57,6 +57,37 @@ export class SupportPage {
     return this.page.getByRole('textbox', { name: 'Message COV-E' });
   }
 
+  get responding() {
+    return this.page.getByLabel('COV-E is responding');
+  }
+
+  get retryMessageButton() {
+    return this.page.getByRole('button', {
+      name: 'Retry message',
+      exact: true,
+    });
+  }
+
+  deleteButton(title: string) {
+    return this.incidents.getByRole('button', {
+      name: `Delete ${title}`,
+      exact: true,
+    });
+  }
+
+  async submitMessage(content: string) {
+    await this.messageInput.fill(content);
+    await this.page.getByRole('button', { name: 'Send message' }).click();
+  }
+
+  async confirmDeletion(title: string) {
+    const handled = this.page
+      .waitForEvent('dialog')
+      .then((dialog) => dialog.accept());
+    await this.deleteButton(title).click();
+    await handled;
+  }
+
   get incidentTitles() {
     return this.incidents.getByRole('button').locator('strong');
   }
@@ -80,13 +111,12 @@ export class SupportPage {
   }
 
   async sendMessage(content: string) {
-    await this.messageInput.fill(content);
     const response = this.page.waitForResponse(
       (response) =>
         new URL(response.url()).pathname === '/api/chat' &&
         response.request().method() === 'POST',
     );
-    await this.page.getByRole('button', { name: 'Send message' }).click();
+    await this.submitMessage(content);
     return response;
   }
 
@@ -132,9 +162,7 @@ export class SupportPage {
     const [prompt, deletionResponse] = await Promise.all([
       dialogHandled,
       response,
-      this.incidents
-        .getByRole('button', { name: `Delete ${title}`, exact: true })
-        .click(),
+      this.deleteButton(title).click(),
     ]);
     return { prompt, response: deletionResponse };
   }
