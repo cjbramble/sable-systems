@@ -1,24 +1,19 @@
 import { closeSync, existsSync, mkdirSync, openSync, writeSync } from 'node:fs';
-import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { evaluateModelRunSemantics } from './support-semantic-runs.mjs';
+import { modelLaunch, modelUrl, waitForModel } from './local-model.mjs';
+import { createProcessScope, exitStatus } from './process-scope.mjs';
 
-const modelPath = resolve(
-  process.env.CUSTOMER_SUPPORT_MODEL_PATH ||
-    'models/customer-support/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
-);
-const llamaExecutable = process.env.LLAMA_SERVER || 'llama-server';
-const modelUrl = 'http://127.0.0.1:8017/v1/models';
+const scope = createProcessScope();
 const logPath = resolve('reports/server-logs/llama-test-server.log');
-let ownedModel = null;
-let logFile = null;
-let stopping = false;
+let logFile;
+let testExitCode;
 
-async function activeModelIsReady() {
+async function activeModelIsReady(signal) {
   try {
     const response = await fetch(modelUrl, {
-      signal: AbortSignal.timeout(1_000),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(1_000)]),
     });
     if (!response.ok) return false;
     const payload = await response.json();
@@ -27,28 +22,9 @@ async function activeModelIsReady() {
       payload.data.some((model) => model?.id === 'customer-support-local')
     );
   } catch {
+    signal.throwIfAborted();
     return false;
   }
-}
-
-async function waitForModel(timeoutMs = 180_000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (ownedModel?.exitCode !== null)
-      throw new Error(`llama-server exited with code ${ownedModel?.exitCode}.`);
-    if (await activeModelIsReady()) return;
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
-  }
-  throw new Error(
-    `llama-server was not ready within ${timeoutMs / 1000} seconds.`,
-  );
-}
-
-function stopOwnedModel() {
-  if (stopping) return;
-  stopping = true;
-  if (ownedModel && ownedModel.exitCode === null) ownedModel.kill('SIGTERM');
-  if (logFile !== null) closeSync(logFile);
 }
 
 async function runVitest() {
@@ -80,7 +56,7 @@ async function runVitest() {
   const transcript = openSync(transcriptPath, 'wx');
   console.info(`Model test transcript: ${transcriptPath}`);
   try {
-    const test = spawn(
+    const test = scope.start(
       process.execPath,
       [
         vitestEntrypoint,
@@ -95,81 +71,68 @@ async function runVitest() {
       },
     );
     for (const [source, destination] of [
-      [test.stdout, process.stdout],
-      [test.stderr, process.stderr],
+      [test.child.stdout, process.stdout],
+      [test.child.stderr, process.stderr],
     ]) {
       source.on('data', (chunk) => {
         writeSync(transcript, chunk);
         destination.write(chunk);
       });
     }
-    const code = await new Promise((resolveExit) => {
-      // Wait for streams to close so the transcript retains the final verdict.
-      test.once('close', (code, signal) =>
-        resolveExit(signal ? 1 : (code ?? 1)),
-      );
-      test.once('error', (error) => {
-        writeSync(transcript, `Could not start Vitest: ${error.message}\n`);
-        console.error(error);
-      });
+    test.child.once('error', (error) => {
+      writeSync(transcript, `Could not start Vitest: ${error.message}\n`);
+      console.error(error);
     });
-    return { code, transcriptPath };
+    const result = await test.exited;
+    if (result.signal || result.error) void scope.stop(exitStatus(result));
+    await test.stop();
+    // Wait for streams to close so the transcript retains the final verdict.
+    await test.closed;
+    return { code: exitStatus(result), transcriptPath };
   } finally {
     closeSync(transcript);
   }
 }
 
-if (!(await activeModelIsReady())) {
-  if (!existsSync(modelPath))
-    throw new Error(`Missing model file: ${modelPath}`);
-  mkdirSync(dirname(logPath), { recursive: true });
-  logFile = openSync(logPath, 'a');
-  ownedModel = spawn(
-    llamaExecutable,
-    [
-      '--model',
-      modelPath,
-      '--host',
-      '127.0.0.1',
-      '--port',
-      '8017',
-      '--ctx-size',
-      '4096',
-      '--n-gpu-layers',
-      '99',
-      '--jinja',
-      '--alias',
-      'customer-support-local',
-    ],
-    { stdio: ['ignore', logFile, logFile] },
-  );
-  ownedModel.once('error', (error) => {
-    console.error(`Could not start llama-server: ${error.message}`);
-  });
-  await waitForModel();
-}
-
-process.once('SIGINT', () => {
-  stopOwnedModel();
-  process.exit(130);
-});
-process.once('SIGTERM', () => {
-  stopOwnedModel();
-  process.exit(143);
-});
-
 try {
+  if (!(await activeModelIsReady(scope.signal))) {
+    scope.signal.throwIfAborted();
+    const launch = modelLaunch();
+    if (!existsSync(launch.path))
+      throw new Error(`Missing model file: ${launch.path}`);
+    mkdirSync(dirname(logPath), { recursive: true });
+    logFile = openSync(logPath, 'a');
+    const model = scope.start(launch.executable, launch.args, {
+      stdio: ['ignore', logFile, logFile],
+    });
+    void model.exited.then((result) => {
+      if (scope.stopping) return;
+      console.error(
+        result.error
+          ? `Could not start llama-server: ${result.error.message}`
+          : `llama-server stopped unexpectedly. See ${logPath}`,
+      );
+      return scope.stop(exitStatus(result) || 1);
+    });
+    await waitForModel(activeModelIsReady, scope.signal);
+  }
+  scope.signal.throwIfAborted();
   const { code, transcriptPath } = await runVitest();
-  process.exitCode = code;
-  try {
+  testExitCode = code;
+  if (!scope.stopping) {
     const outcome = evaluateModelRunSemantics(transcriptPath, code);
-    process.exitCode = outcome.exitCode;
     for (const { scenario, error } of outcome.errors)
       console.error(`Semantic evaluation failed (${scenario}):`, error);
-  } catch (error) {
+    await scope.stop(outcome.exitCode);
+  }
+} catch (error) {
+  if (!scope.stopping) {
     console.error(error);
-    process.exitCode = code || 1;
+    await scope.stop(testExitCode || 1);
   }
 } finally {
-  stopOwnedModel();
+  await scope.stop();
+  if (logFile !== undefined) closeSync(logFile);
+  scope.dispose();
+  process.exitCode = scope.exitCode;
 }

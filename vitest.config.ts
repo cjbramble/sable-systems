@@ -3,9 +3,10 @@ import { fileURLToPath } from 'node:url';
 import { configDefaults, defineConfig } from 'vitest/config';
 
 const modelTest = process.env.SUPPORT_MODEL_TEST === '1';
-// The local report writer needs Node's filesystem, not workerd's virtual one.
+// Report output and process lifecycle tests need real Node filesystem/process APIs.
 const nodeIntegrationTests = [
   'tests/integration/support-semantic-report.test.ts',
+  'tests/integration/local-launchers.test.ts',
 ];
 
 export default defineConfig({

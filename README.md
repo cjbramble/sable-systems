@@ -38,7 +38,7 @@ npm run dev
 
 Open [http://127.0.0.1:8016](http://127.0.0.1:8016). The launcher starts
 `llama-server` on port 8017, waits for readiness, then starts the web app.
-Press Control-C to stop both processes.
+Press Control-C to stop the model, web app, and their child processes.
 
 ## Configuration
 
@@ -133,6 +133,8 @@ npm run setup:semantic
 Semantic setup provisions the Python 3.12 environment and downloads the pinned
 embedding model. Scoring runs locally on the CPU. Live-model tests use the
 configured Qwen model; the runner starts `llama-server` on port 8017 when needed.
+An already-running model server is left running. Interrupted runs retain their
+partial transcript.
 
 ### Commands
 
