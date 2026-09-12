@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from 'node:util';
 import fixture from '../tests/fixtures/semantic/case-pack.json' with { type: 'json' };
 import comparisonFixture from '../tests/fixtures/semantic/comparison.json' with { type: 'json' };
 import manifest from './semantic/model.json' with { type: 'json' };
@@ -10,6 +11,9 @@ function readTranscriptRows(text, prefix) {
 }
 
 function parseSamplingScenario(text, { label, question, testName }) {
+  // Normalize reporter styling before matching records; JSON-escaped answer
+  // content and the original saved transcript remain unchanged.
+  text = stripVTControlCharacters(text);
   const requests = readTranscriptRows(text, `${label} sampling request: `);
   const samples = readTranscriptRows(text, `${label} sample: `);
   const summaries = readTranscriptRows(text, `${label} sampling summary: `);

@@ -133,6 +133,26 @@ it.each(parserCases)(
     const expected = { request: request.requestBody, samples };
     expect(parseLines(lines)).toEqual(expected);
 
+    // Vitest resets console styling before evidence records, but may leave the
+    // summary unstyled. JSON-escaped controls inside answers are still evidence.
+    const colorize = (line: string) => `\u001b[22m\u001b[39m${line}\u001b[0m`;
+    const coloredLines = lines.map((line, index) =>
+      index === lines.length - 1 ? line : colorize(line),
+    );
+    expect(parseLines(coloredLines)).toEqual(expected);
+    const styledAnswer = { ...samples[0], answer: '\u001b[32mAnswer\u001b[0m' };
+    expect(
+      parseLines([
+        coloredLines[0],
+        colorize(row('sample', styledAnswer)),
+        ...coloredLines.slice(2),
+      ]),
+    ).toEqual({ ...expected, samples: [styledAnswer, ...samples.slice(1)] });
+    expect(() => parseLines(coloredLines.slice(1))).toThrow('complete');
+    expect(() => parseLines([...coloredLines, coloredLines[1]])).toThrow(
+      'complete',
+    );
+
     const other = parserCases.find((candidate) => candidate.label !== label)!;
     const otherLines = lines.map((line) =>
       line.replaceAll(label, other.label).replace(question, other.question),
