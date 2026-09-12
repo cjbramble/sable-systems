@@ -151,6 +151,12 @@ Browser and live-model suites run separately from `npm test` and `npm run check`
 Database tests use disposable local databases. Browser tests use controlled
 model responses.
 
+Run all test suites in sequence (stops if a suite fails):
+
+```sh
+npm test && npm run test:e2e && npm run test:model
+```
+
 Run individual files or select model tests by name:
 
 ```sh
