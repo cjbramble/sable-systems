@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+import evaluate as semantic_evaluator
 from evaluate import MANIFEST_PATH, ROOT, evaluate
 
 
@@ -12,11 +13,17 @@ def manifest():
     return json.loads(MANIFEST_PATH.read_text())
 
 
-def test_identical_reference_receives_unit_similarity_as_advisory_evidence(manifest):
-    fixture = json.loads(
+@pytest.fixture
+def case_pack_fixture():
+    return json.loads(
         (ROOT / "tests/fixtures/semantic/case-pack.json").read_text()
     )
-    answer = fixture["references"][0]
+
+
+def test_identical_reference_receives_unit_similarity_as_advisory_evidence(
+    manifest, case_pack_fixture
+):
+    answer = case_pack_fixture["references"][0]
 
     report = evaluate({"samples": [{"sample": 1, "answer": answer}]}, manifest)
 
@@ -73,3 +80,40 @@ def test_calibration_preserves_example_labels_and_splits(manifest, scenario):
         assert actual["correct"] is expected["correct"]
         for field in ("id", "text", "kind", "split"):
             assert actual[field] == expected[field]
+
+
+def test_calibration_statistics_exclude_holdout_examples(
+    manifest, case_pack_fixture, tmp_path, monkeypatch
+):
+    reference = case_pack_fixture["references"][0]
+    unrelated = "The orchard is blooming and the birds are singing."
+    # Synthetic labels deliberately invert holdout scores to expose leakage.
+    # They are test controls, not changes to the real calibration dataset.
+    case_pack_fixture["examples"] = [
+        {"id": "calibration-correct", "split": "calibration", "correct": True, "text": reference},
+        {"id": "calibration-incorrect", "split": "calibration", "correct": False, "text": unrelated},
+        {"id": "holdout-correct", "split": "holdout", "correct": True, "text": unrelated},
+        {"id": "holdout-incorrect", "split": "holdout", "correct": False, "text": reference},
+    ]
+    fixture_path = tmp_path / "tests/fixtures/semantic/case-pack.json"
+    fixture_path.parent.mkdir(parents=True)
+    fixture_path.write_text(json.dumps(case_pack_fixture))
+    local_manifest = {**manifest, "directory": str(ROOT / manifest["directory"])}
+    monkeypatch.setattr(semantic_evaluator, "ROOT", tmp_path)
+
+    report = evaluate({"samples": []}, local_manifest)
+
+    calibration = report["calibration"]
+    scores = {row["id"]: row["score"] for row in calibration["examples"]}
+    minimum_correct = scores["calibration-correct"]
+    maximum_incorrect = scores["calibration-incorrect"]
+    assert scores["holdout-correct"] < minimum_correct
+    assert scores["holdout-incorrect"] > maximum_incorrect
+    assert calibration["minimumCorrectScore"] == minimum_correct
+    assert calibration["maximumIncorrectScore"] == maximum_incorrect
+    assert calibration["candidateThreshold"] == pytest.approx(
+        (minimum_correct + maximum_incorrect) / 2
+    )
+    assert calibration["holdoutErrors"] == ["holdout-correct", "holdout-incorrect"]
+    assert calibration["status"] == "candidate_requires_review"
+    assert report["policy"]["mode"] == "advisory"
