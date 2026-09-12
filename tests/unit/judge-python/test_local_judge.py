@@ -51,6 +51,23 @@ def test_judge_uses_only_local_schema_constrained_requests(transport):
     assert transport["closed"] is True
 
 
+def test_deepeval_uses_the_fixed_rubric_in_one_binary_judgment(transport):
+    result = local_judge.judge_answer("Customer question", "Candidate answer", "Authoritative facts")
+
+    assert result["passed"] is True
+    assert len(result["calls"]) == 1
+    body = result["calls"][0]["request"]
+    prompt = body["messages"][0]["content"]
+    for step in local_judge.STEPS:
+        assert step in prompt
+    for text in ("Customer question", "Candidate answer", "Authoritative facts"):
+        assert text in prompt
+    assert body["temperature"] == 0
+    assert body["seed"] == 42
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert result["score"] == 1
+
+
 @pytest.mark.parametrize("change", [
     {"status": 503}, {"finish": "length"}, {"content": "not json"},
     {"content": '{"score":9,"reason":"Invalid"}'},

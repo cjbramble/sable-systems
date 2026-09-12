@@ -14,8 +14,15 @@ file and checks its checksum before starting the server.
 
 ## Validation status
 
-The initial 2026-09-12 pilot matched 13 of 22 authored labels: nine false
-rejections, no false acceptances, and no execution errors. This model/rubric
-combination is not approved as a pass/fail gate for chatbot responses.
+The initial 2026-09-12 pilot matched 13 of 22 authored labels, with nine false
+rejections. A rubric revision distinguishing factual correctness from reference
+wording matched all 22 labels: 11 valid and 11 invalid answers. Neither run had
+false acceptances or execution errors. The model, generation settings, examples,
+references, and labels were unchanged between runs.
+
+These examples informed the revision, including those originally labeled
+holdout. The result is calibration evidence; fresh holdout validation is pending.
+The judge is not approved as a pass/fail gate for chatbot responses.
 `npm run test:judge` reports label disagreements as failures; live-response
-judgments remain advisory. Original labels and references are unchanged.
+judgments remain advisory. Both run reports are retained locally under
+`reports/judge-runs/`.
