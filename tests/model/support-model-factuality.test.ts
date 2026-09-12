@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { AuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
@@ -161,6 +161,39 @@ async function expectFiveNormalGenerationSamples({
 }
 
 describe('support model factuality', () => {
+  it('reports the inventory retrieval date separately from its older record update', async () => {
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-09-12T15:00:00.000Z'));
+      const { answer, authorizedContext, database } = await askSupportModel(
+        [
+          {
+            role: 'user',
+            content:
+              'Give only the available-to-promise quantity for SBL-RPC-12 and the date these inventory records were retrieved, in YYYY-MM-DD format. Use the retrieval date, not the latest inventory update date.',
+          },
+        ],
+        120312,
+      );
+      expect(
+        await database
+          .prepare(
+            'SELECT SUM(on_hand_quantity - reserved_quantity - quarantined_quantity) AS available FROM inventory_balances WHERE item_number = ?',
+          )
+          .bind('SBL-RPC-12')
+          .first('available'),
+      ).toBe(312);
+      expect(authorizedContext).toContain(
+        'Inventory retrieved at: 2026-09-12T15:00:00.000Z. Latest inventory record update: 2026-09-02T09:00:00Z.',
+      );
+      console.info('Inventory retrieval date response:', answer);
+      expect(answer).toMatch(/\b312\b/);
+      expect(answer).toContain('2026-09-12');
+      expect(answer).not.toContain('2026-09-02');
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 120_000);
   it('resolves custom PO references without disclosing foreign or unknown orders', async () => {
     const database = await getDatabase();
     const orderId = 'SBL-2026-000417';
@@ -253,9 +286,7 @@ describe('support model factuality', () => {
             .bind(sku)
             .first('available'),
         ).toBe(312);
-        expect(authorizedContext).toContain(
-          'Available to promise as of 2026-09-02: 312.',
-        );
+        expect(authorizedContext).toContain('Available to promise: 312.');
         expect(answer).toContain(sku);
         expect(answer).toMatch(/\b312\b/);
       } else {
@@ -726,7 +757,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     console.info('Quarantine and inbound stock response:', answer);
 
     expect(authorizedContext).toContain(
-      'Available to promise as of 2026-09-02: 0. Inbound: 48. Expected restock: 2026-12-03.',
+      'Available to promise: 0. Inbound: 48. Expected restock: 2026-12-03.',
     );
     const normalizedAnswer = answer.replaceAll('**', '');
     expect(normalizedAnswer).toContain('SBL-CSR-R2');
@@ -818,9 +849,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
       expect(authorizedContext).toContain(
         'Requested quantity 310: not a multiple of case pack 8; currently within available-to-promise stock.',
       );
-      expect(authorizedContext).toContain(
-        'Available to promise as of 2026-09-02: 312.',
-      );
+      expect(authorizedContext).toContain('Available to promise: 312.');
 
       await expectFiveNormalGenerationSamples({
         messages,

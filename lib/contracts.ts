@@ -14,7 +14,8 @@ export type AccountSummary = {
   activeOrders: number;
   scheduledOrders: number;
   inventoryAlerts: number;
-  asOfDate: string;
+  seedAsOfDate: string;
+  retrievedAt: string;
 };
 
 export type CatalogProduct = {

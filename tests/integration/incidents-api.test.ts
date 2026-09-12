@@ -1,6 +1,7 @@
 import { describe, expect, vi } from 'vitest';
 
 import { DELETE, GET } from '@/app/api/incidents/route';
+import { POST as chat } from '@/app/api/chat/route';
 import { saveSupportExchange } from '@/db/incidents';
 import type { SupportIncident } from '@/lib/support-incidents';
 import type { SupportApiSession } from '../fixtures/support-api';
@@ -8,6 +9,82 @@ import { test } from '../fixtures/support-integration';
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support incident API', () => {
+  test('returns the same stored instants in a new reply, replay, and incident history', async ({
+    database,
+    supportApi: fixture,
+  }) => {
+    const incidentId = 'INC-SAVED-TIMESTAMP-CONTRACT';
+    const messageId = 'MSG-SAVED-TIMESTAMP-CONTRACT';
+    const savedAt = '2026-09-03T04:01:00.000Z';
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(savedAt));
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const model = fixture.mockModel('Which shipment should I trace?');
+      const request = () =>
+        session.request({
+          incidentId,
+          messageId,
+          messages: [{ role: 'user', content: 'Trace my shipment.' }],
+        });
+      const expected = {
+        message: 'Which shipment should I trace?',
+        customerCreatedAt: savedAt,
+        assistantCreatedAt: savedAt,
+        incidentUpdatedAt: savedAt,
+      };
+      const first = await chat(request());
+      expect(first.status).toBe(200);
+      expect(await first.json()).toEqual(expected);
+      vi.setSystemTime(new Date('2026-09-03T05:01:00.000Z'));
+      const replay = await chat(request());
+      expect(replay.status).toBe(200);
+      expect(await replay.json()).toEqual(expected);
+      expect(model).toHaveBeenCalledTimes(1);
+      const history = await GET(
+        new Request('http://localhost/api/incidents', {
+          headers: request().headers,
+        }),
+      );
+      const payload = (await history.json()) as {
+        incidents: SupportIncident[];
+      };
+      expect(
+        payload.incidents.find((incident) => incident.id === incidentId),
+      ).toEqual({
+        id: incidentId,
+        title: 'Trace my shipment.',
+        updatedAt: savedAt,
+        messages: [
+          {
+            id: messageId,
+            role: 'user',
+            content: 'Trace my shipment.',
+            createdAt: savedAt,
+          },
+          {
+            id: `AST-${messageId}`,
+            role: 'assistant',
+            content: expected.message,
+            createdAt: savedAt,
+          },
+        ],
+      });
+      expect(
+        (
+          await database
+            .prepare(
+              'SELECT created_at FROM support_messages WHERE incident_id = ? ORDER BY sequence_number',
+            )
+            .bind(incidentId)
+            .all()
+        ).results,
+      ).toEqual([{ created_at: savedAt }, { created_at: savedAt }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   test('denies incident listing and deletion at session expiry without disclosing or changing history', async ({
     database,
     supportApi: fixture,

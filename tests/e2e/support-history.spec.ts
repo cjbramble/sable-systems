@@ -299,7 +299,9 @@ test.describe('model failure recovery', () => {
 
     const recoveredResponse = await supportPage.sendMessage(followUpMessage);
     expect(recoveredResponse.status()).toBe(200);
-    expect(await recoveredResponse.json()).toEqual({ message: recoveredReply });
+    expect(await recoveredResponse.json()).toMatchObject({
+      message: recoveredReply,
+    });
     await expect(supportPage.requestError).toHaveCount(0);
     await expect(supportPage.messageInput).toBeEnabled();
     await expect(supportPage.messages).toHaveCount(4);
@@ -389,7 +391,7 @@ test.describe('Markdown rendering', () => {
     await supportPage.startIncident();
     const response = await supportPage.sendMessage(prompt);
     expect(response.status()).toBe(200);
-    expect(await response.json()).toEqual({ message: markdownReply });
+    expect(await response.json()).toMatchObject({ message: markdownReply });
     await expect(supportPage.requestError).toHaveCount(0);
 
     const message = supportPage.messageContaining('Formatting sample');

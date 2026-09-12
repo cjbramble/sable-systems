@@ -8,6 +8,7 @@ import {
   parseIncidentId,
   parseMessageId,
   saveSupportExchange,
+  supportReply,
   SupportMessageIdConflictError,
   SupportMessageTextConflictError,
 } from '@/db/incidents';
@@ -106,7 +107,7 @@ export async function POST(request: Request) {
         if (savedExchange.customerMessage !== customerMessage)
           throw new SupportMessageTextConflictError();
         if (savedExchange.assistantMessage !== null)
-          return Response.json({ message: savedExchange.assistantMessage });
+          return Response.json(supportReply(savedExchange));
       }
     }
 
@@ -175,7 +176,7 @@ export async function POST(request: Request) {
         customerMessage,
         content,
       );
-      return Response.json({ message: savedReply });
+      return Response.json(savedReply);
     }
 
     return Response.json({ message: content });

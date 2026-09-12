@@ -2,7 +2,15 @@ export type SupportChatMessage = {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  createdAt: string;
+  // ISO timestamp, or null for the unsaved welcome message.
+  createdAt: string | null;
+};
+
+export type SupportReply = {
+  message: string;
+  customerCreatedAt: string;
+  assistantCreatedAt: string;
+  incidentUpdatedAt: string;
 };
 
 export type SupportIncident = {

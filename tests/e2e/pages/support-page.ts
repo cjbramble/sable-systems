@@ -45,6 +45,18 @@ export class SupportPage {
     return this.messageEntries.locator('.message-bubble');
   }
 
+  get messageAuthors() {
+    return this.messageEntries.locator('.chat-message__meta strong');
+  }
+
+  get messageTimes() {
+    return this.messageEntries.locator('time');
+  }
+
+  get dateDividers() {
+    return this.page.getByLabel('Conversation date', { exact: true });
+  }
+
   messageContaining(text: string) {
     return new SupportMessage(this.messages.filter({ hasText: text }));
   }

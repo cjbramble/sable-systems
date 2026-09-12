@@ -5,6 +5,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   KeyboardEvent,
+  Fragment,
   SyntheticEvent,
   useEffect,
   useMemo,
@@ -45,7 +46,13 @@ import {
   removeSupportIncident,
   type SupportChatMessage,
   type SupportIncident,
+  type SupportReply,
 } from '@/lib/support-incidents';
+import {
+  supportDateKey,
+  supportDateLabel,
+  supportTimeLabel,
+} from '@/lib/support-time';
 import { cn } from '@/lib/utils';
 
 type RuntimeState = 'checking' | 'ready' | 'offline';
@@ -79,14 +86,11 @@ const openingMessage: SupportChatMessage = {
   role: 'assistant',
   content:
     'COV-E customer operations node online. I can assist with your authorized orders, allocations, shipments, returns, and SABLE inventory. What do you need traced?',
-  createdAt: 'Now',
+  createdAt: null,
 };
 
 function timestamp() {
-  return new Intl.DateTimeFormat('en', {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date());
+  return new Date().toISOString();
 }
 
 function roleLabel(role = 'account_admin') {
@@ -256,7 +260,7 @@ export default function SupportPage() {
     const incident: SupportIncident = {
       id: createIncidentId(),
       title: 'New service incident',
-      updatedAt: 'Now',
+      updatedAt: timestamp(),
       messages: [openingMessage],
     };
     setConversation((current) => ({
@@ -375,7 +379,7 @@ export default function SupportPage() {
                   incident.messages.length === 1
                     ? createIncidentTitle(content)
                     : incident.title,
-                updatedAt: 'Now',
+                updatedAt: userMessage.createdAt!,
                 messages: nextMessages,
               }
             : incident,
@@ -389,7 +393,7 @@ export default function SupportPage() {
           {
             id: incidentId,
             title: createIncidentTitle(content),
-            updatedAt: 'Now',
+            updatedAt: userMessage.createdAt!,
             messages: nextMessages,
           },
           ...current.incidents,
@@ -426,8 +430,7 @@ export default function SupportPage() {
         body: JSON.stringify(request),
       });
 
-      const payload = (await response.json()) as {
-        message?: string;
+      const payload = (await response.json()) as Partial<SupportReply> & {
         error?: string;
       };
       if (signal.aborted) return;
@@ -441,7 +444,12 @@ export default function SupportPage() {
           response.status >= 500,
         );
       }
-      if (!payload.message)
+      if (
+        !payload.message ||
+        !payload.customerCreatedAt ||
+        !payload.assistantCreatedAt ||
+        !payload.incidentUpdatedAt
+      )
         throw new ChatRequestError(
           'The local assistant did not return a response.',
           true,
@@ -452,7 +460,7 @@ export default function SupportPage() {
         id: `AST-${request.messageId}`,
         role: 'assistant',
         content: reply,
-        createdAt: timestamp(),
+        createdAt: payload.assistantCreatedAt,
       };
       setConversation((current) => ({
         ...current,
@@ -460,8 +468,15 @@ export default function SupportPage() {
           incident.id === request.incidentId
             ? {
                 ...incident,
-                updatedAt: 'Now',
-                messages: [...incident.messages, replyMessage],
+                updatedAt: payload.incidentUpdatedAt!,
+                messages: [
+                  ...incident.messages.map((message) =>
+                    message.id === request.messageId
+                      ? { ...message, createdAt: payload.customerCreatedAt! }
+                      : message,
+                  ),
+                  replyMessage,
+                ],
               }
             : incident,
         ),
@@ -577,7 +592,11 @@ export default function SupportPage() {
                 <MessageCircleMore />
                 <span>
                   <strong>{incident.title}</strong>
-                  <small>{incident.updatedAt}</small>
+                  <small>
+                    <time dateTime={incident.updatedAt}>
+                      {supportDateLabel(incident.updatedAt)}
+                    </time>
+                  </small>
                 </span>
               </button>
               <button
@@ -696,49 +715,59 @@ export default function SupportPage() {
 
         <div className="message-stage" aria-live="polite">
           <div className="message-stream">
-            <div className="today-divider">
-              <span>Today</span>
-            </div>
-
-            {messages.map((message) => (
-              <article
-                key={message.id}
-                className={cn(
-                  'chat-message',
-                  message.role === 'user' && 'chat-message--user',
-                )}
-              >
-                {message.role === 'assistant' ? (
-                  <div className="assistant-avatar">
-                    <Sparkles />
+            {messages.map((message, index) => (
+              <Fragment key={message.id}>
+                {index === 0 ||
+                supportDateKey(message.createdAt) !==
+                  supportDateKey(messages[index - 1].createdAt) ? (
+                  <div className="today-divider" aria-label="Conversation date">
+                    <span>{supportDateLabel(message.createdAt)}</span>
                   </div>
                 ) : null}
-                <div className="chat-message__body">
-                  <div className="chat-message__meta">
-                    <strong>
-                      {message.role === 'assistant' ? 'COV-E' : 'CALDER PIKE'}
-                    </strong>
-                    {message.role === 'assistant' ? (
-                      <BadgeCheck aria-label="Verified assistant" />
-                    ) : null}
-                    <time>{message.createdAt}</time>
+                <article
+                  className={cn(
+                    'chat-message',
+                    message.role === 'user' && 'chat-message--user',
+                  )}
+                >
+                  {message.role === 'assistant' ? (
+                    <div className="assistant-avatar">
+                      <Sparkles />
+                    </div>
+                  ) : null}
+                  <div className="chat-message__body">
+                    <div className="chat-message__meta">
+                      <strong>
+                        {message.role === 'assistant'
+                          ? 'COV-E'
+                          : (account?.userDisplayName ?? 'Authorized user')}
+                      </strong>
+                      {message.role === 'assistant' ? (
+                        <BadgeCheck aria-label="Verified assistant" />
+                      ) : null}
+                      {message.createdAt ? (
+                        <time dateTime={message.createdAt}>
+                          {supportTimeLabel(message.createdAt)}
+                        </time>
+                      ) : null}
+                    </div>
+                    <div className="message-bubble">
+                      {message.role === 'assistant' ? (
+                        <Markdown remarkPlugins={[remarkGfm]} skipHtml>
+                          {message.content}
+                        </Markdown>
+                      ) : (
+                        <p>{message.content}</p>
+                      )}
+                    </div>
                   </div>
-                  <div className="message-bubble">
-                    {message.role === 'assistant' ? (
-                      <Markdown remarkPlugins={[remarkGfm]} skipHtml>
-                        {message.content}
-                      </Markdown>
-                    ) : (
-                      <p>{message.content}</p>
-                    )}
-                  </div>
-                </div>
-                {message.role === 'user' ? (
-                  <div className="user-avatar">
-                    <CircleUserRound />
-                  </div>
-                ) : null}
-              </article>
+                  {message.role === 'user' ? (
+                    <div className="user-avatar">
+                      <CircleUserRound />
+                    </div>
+                  ) : null}
+                </article>
+              </Fragment>
             ))}
 
             {sendingIncidentId === activeIncidentId && isSending ? (
@@ -940,7 +969,7 @@ export default function SupportPage() {
             <span>
               <strong>{account?.totalOrders ?? '—'} authorized orders</strong>
               <small>
-                Dataset current to {account?.asOfDate ?? 'initializing'}
+                Seed baseline: {account?.seedAsOfDate ?? 'initializing'}
               </small>
             </span>
           </div>

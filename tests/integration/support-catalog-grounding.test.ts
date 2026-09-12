@@ -1,11 +1,66 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getDatabase } from '@/db/database';
-import { buildAuthorizedContext } from '@/db/support';
+import { buildAuthorizedContext, getAccountSummary } from '@/db/support';
 import { classifySupportQuery } from '@/lib/support-query';
 import { calderPikeUser } from '../fixtures/users';
 
 describe('support catalog grounding', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-12T15:00:00.000Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('distinguishes query time, inventory updates, and seed provenance after a balance changes', async () => {
+    const database = await getDatabase();
+    const before = await database
+      .prepare(
+        'SELECT * FROM inventory_balances WHERE item_number = ? ORDER BY location_id',
+      )
+      .bind('SBL-RPC-12')
+      .all<{
+        location_id: string;
+        reserved_quantity: number;
+        updated_at: string;
+      }>();
+    const row = before.results[0];
+    expect(row).toBeDefined();
+    try {
+      await database
+        .prepare(
+          'UPDATE inventory_balances SET reserved_quantity = reserved_quantity + 8, updated_at = ? WHERE item_number = ? AND location_id = ?',
+        )
+        .bind('2026-09-10T10:30:00.000Z', 'SBL-RPC-12', row.location_id)
+        .run();
+      const context = await buildAuthorizedContext(
+        database,
+        [{ role: 'user', content: 'How many SBL-RPC-12 are available?' }],
+        calderPikeUser,
+      );
+      expect(context).toContain('Available to promise: 304.');
+      expect(context).toContain(
+        'Inventory retrieved at: 2026-09-12T15:00:00.000Z. Latest inventory record update: 2026-09-10T10:30:00.000Z.',
+      );
+      expect(context).not.toContain('as of 2026-09-02');
+      expect(await getAccountSummary(database, calderPikeUser)).toMatchObject({
+        seedAsOfDate: '2026-09-02',
+        retrievedAt: '2026-09-12T15:00:00.000Z',
+      });
+    } finally {
+      await database
+        .prepare(
+          'UPDATE inventory_balances SET reserved_quantity = ?, updated_at = ? WHERE item_number = ? AND location_id = ?',
+        )
+        .bind(
+          row.reserved_quantity,
+          row.updated_at,
+          'SBL-RPC-12',
+          row.location_id,
+        )
+        .run();
+    }
+  });
   it('resolves whole SKU tokens and does not substitute for unknown suffixes after an order discussion', async () => {
     const database = await getDatabase();
     const previous = [
@@ -23,7 +78,7 @@ describe('support catalog grounding', () => {
       );
       expect(context).toContain('Product: SBL-RPC-12 — Redline Power Cell R12');
       expect(context).toContain('Wholesale price: $680.00');
-      expect(context).toContain('Available to promise as of 2026-09-02: 312.');
+      expect(context).toContain('Available to promise: 312.');
       expect(context).not.toContain('Order: SBL-2026-000417');
     }
     for (const sku of [
@@ -68,7 +123,7 @@ describe('support catalog grounding', () => {
         // The same matcher is used for product questions without catalog words.
         prompts: ['Tell me about Coldstart Rack Controller R2.'],
         product: 'SBL-CSR-R2 — Coldstart Rack Controller R2; category Compute.',
-        fact: 'Available to promise as of 2026-09-02: 0. Inbound: 48.',
+        fact: 'Available to promise: 0. Inbound: 48.',
       },
       {
         // Palisade's generic "license" keyword must not override RelayMesh.
@@ -85,7 +140,7 @@ describe('support catalog grounding', () => {
         prompts: ['What is the haptic availability?'],
         product:
           'SBL-BCH-V3 — Blackchannel Haptic Controller; category Interface.',
-        fact: 'Available to promise as of 2026-09-02: 134.',
+        fact: 'Available to promise: 134.',
       },
     ];
     for (const { prompts, product, fact } of scenarios) {
@@ -174,7 +229,8 @@ describe('support catalog grounding', () => {
     expect(context).toBe(`<authorized_records>
 Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
 Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
-Available to promise as of 2026-09-02: 312. Inbound: 0. Expected restock: none scheduled.
+Available to promise: 312. Inbound: 0. Expected restock: none scheduled.
+Inventory retrieved at: 2026-09-12T15:00:00.000Z. Latest inventory record update: 2026-09-02T09:00:00Z.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
 </authorized_records>`);
     expect(context).not.toMatch(/\bWHS-\d{4}\b/);
@@ -240,7 +296,8 @@ Quarantined units are excluded from availability. Do not reveal other distributo
     expect(context).toBe(`<authorized_records>
 Product: SBL-CSR-R2 — Coldstart Rack Controller R2; category Compute.
 Wholesale price: $2,250.00 per controller; case pack 4; standard lead time 90 days.
-Available to promise as of 2026-09-02: 0. Inbound: 48. Expected restock: 2026-12-03.
+Available to promise: 0. Inbound: 48. Expected restock: 2026-12-03.
+Inventory retrieved at: 2026-09-12T15:00:00.000Z. Latest inventory record update: 2026-09-02T09:00:00Z.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
 </authorized_records>`);
     expect(context).not.toMatch(/\bWHS-\d{4}\b/);
@@ -310,7 +367,8 @@ Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
 Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
 Requested quantity 320: valid case-pack multiple; exceeds current available-to-promise stock by 8.
 Stock shortfall for requested quantity 320: 8 units (320 requested; 312 available). Case-pack adjustment distance is not a stock shortfall.
-Available to promise as of 2026-09-02: 312. Inbound: 0. Expected restock: none scheduled.
+Available to promise: 312. Inbound: 0. Expected restock: none scheduled.
+Inventory retrieved at: 2026-09-12T15:00:00.000Z. Latest inventory record update: 2026-09-02T09:00:00Z.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
 </authorized_records>`);
   });
@@ -368,7 +426,8 @@ Lower valid quantity: 304 units (38 cases), 6 units below requested quantity 310
 Higher valid quantity: 312 units (39 cases), 2 units above requested quantity 310; within current available-to-promise stock.
 Nearest valid quantity: 312 units (2 units from requested quantity 310). Nearest means smallest absolute quantity difference, not rounding down or a guarantee of stock availability.
 Response labeling: Only 312 units is nearest. 304 units is a valid alternative, not a nearest quantity. If listing both, label the list "Valid alternatives", not "Nearest quantities".
-Available to promise as of 2026-09-02: 312. Inbound: 0. Expected restock: none scheduled.
+Available to promise: 312. Inbound: 0. Expected restock: none scheduled.
+Inventory retrieved at: 2026-09-12T15:00:00.000Z. Latest inventory record update: 2026-09-02T09:00:00Z.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
 </authorized_records>`);
   });
@@ -676,7 +735,8 @@ Quarantined units are excluded from availability. Do not reveal other distributo
     expect(context).toBe(`<authorized_records>
 Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
 Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
-Available to promise as of 2026-09-02: 312. Inbound: 0. Expected restock: none scheduled.
+Available to promise: 312. Inbound: 0. Expected restock: none scheduled.
+Inventory retrieved at: 2026-09-12T15:00:00.000Z. Latest inventory record update: 2026-09-02T09:00:00Z.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
 Fulfillment locations:
 - Atlantic Stack Fulfillment Hub (North Atlantic Trade District): 156 available; 0 inbound; restock not scheduled.
@@ -862,7 +922,7 @@ This is a digitally allocated license and does not have a physical stock balance
     );
 
     expect(context).toBe(`<authorized_records>
-Active Software catalog as of 2026-09-02:
+Active Software catalog retrieved at 2026-09-12T15:00:00.000Z:
 - SBL-PAL-1Y Palisade Endpoint License, Annual: $390.00 per seat; pack 25; lead 0 days; digital allocation.
 - SBL-RLY-1Y RelayMesh Node License, Annual: $620.00 per node; pack 10; lead 0 days; digital allocation.
 </authorized_records>`);
@@ -968,7 +1028,7 @@ Active Software catalog as of 2026-09-02:
     );
 
     expect(context).toBe(`<authorized_records>
-Current SABLE physical inventory advisories as of 2026-09-02:
+Current SABLE physical inventory advisories retrieved at 2026-09-12T15:00:00.000Z:
 - SBL-CSR-R2 Coldstart Rack Controller R2: 0 available; 48 inbound; restock 2026-12-03.
 - SBL-NL-4P Nerveline Four-Port Neural I/O Hub: 0 available; 80 inbound; restock 2026-10-14.
 - SBL-KTA-T7 Kestrel Tendon Assembly T7: 7 available; 0 inbound; restock not scheduled.
@@ -1107,11 +1167,13 @@ Ask which item the customer wants if a specific availability decision is require
     expect(context).toBe(`<authorized_records>
 Product: SBL-NV-16T — Nightvault 16 TB Solid-State Array; category Compute.
 Wholesale price: $1,940.00 per array; case pack 4; standard lead time 35 days.
-Available to promise as of 2026-09-02: 96. Inbound: 0. Expected restock: none scheduled.
+Available to promise: 96. Inbound: 0. Expected restock: none scheduled.
+Inventory retrieved at: 2026-09-12T15:00:00.000Z. Latest inventory record update: 2026-09-02T09:00:00Z.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
 Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
 Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
-Available to promise as of 2026-09-02: 312. Inbound: 0. Expected restock: none scheduled.
+Available to promise: 312. Inbound: 0. Expected restock: none scheduled.
+Inventory retrieved at: 2026-09-12T15:00:00.000Z. Latest inventory record update: 2026-09-02T09:00:00Z.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
 </authorized_records>`);
     expect(context).not.toMatch(/\bWHS-\d{4}\b/);

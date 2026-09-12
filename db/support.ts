@@ -64,7 +64,8 @@ export async function getAccountSummary(
     activeOrders: Number(orderCounts?.active_orders ?? 0),
     scheduledOrders: Number(orderCounts?.scheduled_orders ?? 0),
     inventoryAlerts: Number(alerts?.alert_count ?? 0),
-    asOfDate: AS_OF_DATE,
+    seedAsOfDate: AS_OF_DATE,
+    retrievedAt: new Date().toISOString(),
   };
 }
 
@@ -151,7 +152,8 @@ async function summaryContext(db: D1Database, user: AuthenticatedUser) {
   return `<authorized_records>
 Account: ${summary.displayName} (${summary.customerId}), ${summary.accountTier}
 Authenticated user: ${summary.userDisplayName} (${summary.userId}), role ${summary.userRole}.
-As-of date: ${summary.asOfDate}
+Records retrieved at: ${summary.retrievedAt}
+Seed baseline date: ${summary.seedAsOfDate}. Stored order statuses do not automatically advance with time.
 Authorized order count: ${summary.totalOrders}; active: ${summary.activeOrders}; scheduled: ${summary.scheduledOrders}.
 No specific order or item was identified in the request. Ask for a SABLE order ID, account PO number, or item number when account-specific facts are required.
 </authorized_records>`;
@@ -482,7 +484,8 @@ ${quantityNote}This is a digitally allocated license and does not have a physica
   }
   return `Product: ${product.item_number} — ${product.product_name}; category ${product.category}.
 Wholesale price: ${formatCurrency(product.unit_price_cents)} per ${product.unit_label}; case pack ${product.case_pack}; standard lead time ${product.lead_time_days} days.
-${quantityNote}${shortfallNote}${orderingRestriction}${adjustmentNote}Available to promise as of ${AS_OF_DATE}: ${available}. Inbound: ${inventory?.inbound ?? 0}. Expected restock: ${inventory?.expected_restock_date ?? 'none scheduled'}.
+${quantityNote}${shortfallNote}${orderingRestriction}${adjustmentNote}Available to promise: ${available}. Inbound: ${inventory?.inbound ?? 0}. Expected restock: ${inventory?.expected_restock_date ?? 'none scheduled'}.
+Inventory retrieved at: ${new Date().toISOString()}. Latest inventory record update: ${inventory?.updated_at ?? 'not recorded'}.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.${locationNote}`;
 }
 
@@ -561,7 +564,7 @@ async function categoryInventoryContext(db: D1Database, category: string) {
     .bind(category)
     .all<Record<string, string | number | null>>();
   return `<authorized_records>
-Active ${category} catalog as of ${AS_OF_DATE}:
+Active ${category} catalog retrieved at ${new Date().toISOString()}:
 ${rows.results.map((row) => `- ${row.item_number} ${row.product_name}: ${formatCurrency(Number(row.unit_price_cents), 'USD')} per ${row.unit_label}; pack ${row.case_pack}; lead ${row.lead_time_days} days; ${row.fulfillment_type === 'license' ? 'digital allocation' : `${row.available} available, ${row.inbound} inbound`}.`).join('\n') || '- No active products in this category.'}
 </authorized_records>`;
 }
@@ -579,7 +582,7 @@ async function inventoryAlertContext(db: D1Database) {
       ORDER BY available, p.item_number LIMIT 6`)
     .all<Record<string, string | number | null>>();
   return `<authorized_records>
-Current SABLE physical inventory advisories as of ${AS_OF_DATE}:
+Current SABLE physical inventory advisories retrieved at ${new Date().toISOString()}:
 ${rows.results.map((row) => `- ${row.item_number} ${row.product_name}: ${row.available} available; ${row.inbound} inbound; restock ${row.restock ?? 'not scheduled'}.`).join('\n')}
 Ask which item the customer wants if a specific availability decision is required.
 </authorized_records>`;

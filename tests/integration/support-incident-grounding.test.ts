@@ -88,7 +88,7 @@ describe('support incident grounding', () => {
     );
     for (const incident of incidents.results) {
       expect(context).toContain(
-        `- ${incident.incident_id}: ${incident.title}; updated `,
+        `- ${incident.incident_id}: ${incident.title}; updated ${incident.updated_at};`,
       );
     }
     expect(context.match(/; 2 messages\./g)).toHaveLength(3);

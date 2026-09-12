@@ -2,6 +2,7 @@ import type { AuthenticatedUser } from './auth';
 import {
   createIncidentTitle,
   type SupportIncident,
+  type SupportReply,
 } from '../lib/support-incidents.ts';
 
 const INCIDENT_ID_PATTERN = /^INC-[A-Za-z0-9-]{6,100}$/;
@@ -52,23 +53,6 @@ export function parseMessageId(value: unknown) {
     : null;
 }
 
-function messageTime(value: string) {
-  return new Intl.DateTimeFormat('en', {
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: 'UTC',
-  }).format(new Date(value));
-}
-
-function incidentTime(value: string) {
-  if (value.slice(0, 10) === new Date().toISOString().slice(0, 10)) return 'Today';
-  return new Intl.DateTimeFormat('en', {
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  }).format(new Date(value));
-}
-
 export async function listSupportIncidents(
   db: D1Database,
   user: AuthenticatedUser,
@@ -88,7 +72,7 @@ export async function listSupportIncidents(
     const incident = incidents.get(row.incident_id) ?? {
       id: row.incident_id,
       title: row.title,
-      updatedAt: incidentTime(row.incident_updated_at),
+      updatedAt: row.incident_updated_at,
       messages: [],
     };
     if (row.message_id && row.role && row.content && row.message_created_at) {
@@ -96,7 +80,7 @@ export async function listSupportIncidents(
         id: row.message_id,
         role: row.role,
         content: row.content,
-        createdAt: messageTime(row.message_created_at),
+        createdAt: row.message_created_at,
       });
     }
     incidents.set(row.incident_id, incident);
@@ -163,7 +147,24 @@ export async function hasSupportMessageIdConflict(
 type SavedSupportExchange = {
   customerMessage: string;
   assistantMessage: string | null;
+  customerCreatedAt: string;
+  assistantCreatedAt: string | null;
+  incidentUpdatedAt: string;
 };
+
+export function supportReply(exchange: SavedSupportExchange): SupportReply {
+  if (
+    exchange.assistantMessage === null ||
+    exchange.assistantCreatedAt === null
+  )
+    throw new Error('The saved support reply is incomplete.');
+  return {
+    message: exchange.assistantMessage,
+    customerCreatedAt: exchange.customerCreatedAt,
+    assistantCreatedAt: exchange.assistantCreatedAt,
+    incidentUpdatedAt: exchange.incidentUpdatedAt,
+  };
+}
 
 export async function getSavedSupportExchange(
   db: D1Database,
@@ -174,7 +175,10 @@ export async function getSavedSupportExchange(
   // Keep the original input so callers can distinguish retries from ID reuse.
   return db
     .prepare(`SELECT customer.content AS customerMessage,
-        assistant.content AS assistantMessage
+        assistant.content AS assistantMessage,
+        customer.created_at AS customerCreatedAt,
+        assistant.created_at AS assistantCreatedAt,
+        i.updated_at AS incidentUpdatedAt
       FROM support_incidents i
       JOIN support_messages customer ON customer.incident_id = i.incident_id
       LEFT JOIN support_messages assistant ON assistant.incident_id = i.incident_id
@@ -193,9 +197,11 @@ export async function saveSupportExchange(
   messageId: string,
   customerMessage: string,
   assistantMessage: string,
-): Promise<string> {
+): Promise<SupportReply> {
   const existing = await db
-    .prepare('SELECT user_id, title FROM support_incidents WHERE incident_id = ?')
+    .prepare(
+      'SELECT user_id, title FROM support_incidents WHERE incident_id = ?',
+    )
     .bind(incidentId)
     .first<{ user_id: string; title: string }>();
   if (existing && existing.user_id !== user.userId)
@@ -293,7 +299,7 @@ export async function saveSupportExchange(
       'The support exchange was not saved as a complete matching pair.',
     );
   }
-  return saved.assistantMessage;
+  return supportReply(saved);
 }
 
 export async function deleteSupportIncident(
@@ -302,7 +308,9 @@ export async function deleteSupportIncident(
   incidentId: string,
 ) {
   await db
-    .prepare('DELETE FROM support_incidents WHERE incident_id = ? AND user_id = ?')
+    .prepare(
+      'DELETE FROM support_incidents WHERE incident_id = ? AND user_id = ?',
+    )
     .bind(incidentId, user.userId)
     .run();
 }

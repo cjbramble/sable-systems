@@ -96,7 +96,9 @@ describe('support incident persistence', () => {
       await dropTrigger();
       triggerCreated = false;
       expect(await findTrigger()).toBeNull();
-      await expect(save()).resolves.toBe(assistantMessage);
+      await expect(save()).resolves.toMatchObject({
+        message: assistantMessage,
+      });
       const saved = await fixture.messages(incidentId);
       expect(saved.results).toHaveLength(4);
       expect(saved.results.slice(0, 2)).toEqual(beforeMessages.results);
@@ -194,7 +196,9 @@ describe('support incident persistence', () => {
       await dropTrigger();
       triggerCreated = false;
       expect(await findTrigger()).toBeNull();
-      await expect(save()).resolves.toBe(assistantMessage);
+      await expect(save()).resolves.toMatchObject({
+        message: assistantMessage,
+      });
       expect(await fixture.findIncident(incidentId)).toMatchObject({
         incident_id: incidentId,
         user_id: calderPikeUser.userId,

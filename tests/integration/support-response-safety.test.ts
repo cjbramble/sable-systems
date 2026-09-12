@@ -199,7 +199,9 @@ describe('support response safety', () => {
 
         const accepted = await POST(makeRequest(allowedHistory));
         expect(accepted.status).toBe(200);
-        expect(await accepted.json()).toEqual({ message: assistantMessage });
+        expect(await accepted.json()).toMatchObject({
+          message: assistantMessage,
+        });
         expect(fetchMock).toHaveBeenCalledOnce();
         const modelBody = fetchMock.mock.calls[0][1]?.body;
         if (typeof modelBody !== 'string')
@@ -358,7 +360,9 @@ describe('support response safety', () => {
         // Correct only the invalid ID field; the message now saves as one exchange.
         const retried = await POST(makeRequest(true));
         expect(retried.status).toBe(200);
-        expect(await retried.json()).toEqual({ message: assistantMessage });
+        expect(await retried.json()).toMatchObject({
+          message: assistantMessage,
+        });
         expect(fetchMock).toHaveBeenCalledOnce();
         expect(await fixture.findIncident(incidentId)).toMatchObject({
           user_id: calderPikeUser.userId,
@@ -441,7 +445,7 @@ describe('support response safety', () => {
       // Correcting only the JSON syntax must allow one complete exchange to save.
       const retried = await POST(makeRequest(false));
       expect(retried.status).toBe(200);
-      expect(await retried.json()).toEqual({ message: assistantMessage });
+      expect(await retried.json()).toMatchObject({ message: assistantMessage });
       expect(fetchMock).toHaveBeenCalledOnce();
       expect(await fixture.findIncident(incidentId)).toMatchObject({
         user_id: calderPikeUser.userId,
@@ -541,7 +545,9 @@ describe('support response safety', () => {
           // Positive control: signing in allows the exact same request to save once.
           const allowed = await POST(makeRequest(true));
           expect(allowed.status).toBe(200);
-          expect(await allowed.json()).toEqual({ message: assistantMessage });
+          expect(await allowed.json()).toMatchObject({
+            message: assistantMessage,
+          });
           expect(fetchMock).toHaveBeenCalledOnce();
           const savedIncident = await fixture.findIncident(incidentId);
           const savedMessages = await fixture.messages(incidentId);
@@ -653,7 +659,9 @@ describe('support response safety', () => {
         // Positive control: the same session and IDs work from the app's own origin.
         const allowed = await POST(makeRequest(false));
         expect(allowed.status).toBe(200);
-        expect(await allowed.json()).toEqual({ message: assistantMessage });
+        expect(await allowed.json()).toMatchObject({
+          message: assistantMessage,
+        });
         expect(fetchMock).toHaveBeenCalledOnce();
         const savedIncident = await fixture.findIncident(incidentId);
         const savedMessages = await fixture.messages(incidentId);
@@ -973,7 +981,7 @@ describe('support response safety', () => {
         // The same IDs remain usable after the model server recovers.
         const retry = await POST(makeRequest());
         expect(retry.status).toBe(200);
-        expect(await retry.json()).toEqual({ message: assistantMessage });
+        expect(await retry.json()).toMatchObject({ message: assistantMessage });
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(await fixture.findIncidentOwner(incidentId)).toEqual({
           user_id: calderPikeUser.userId,
@@ -1000,7 +1008,9 @@ describe('support response safety', () => {
         ).toEqual(initialMessages.results);
         const replay = await POST(makeRequest());
         expect(replay.status).toBe(200);
-        expect(await replay.json()).toEqual({ message: assistantMessage });
+        expect(await replay.json()).toMatchObject({
+          message: assistantMessage,
+        });
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
         expect((await fixture.messages(incidentId)).results).toEqual(
@@ -1066,7 +1076,7 @@ describe('support response safety', () => {
 
         const retry = await POST(makeRequest());
         expect(retry.status).toBe(200);
-        expect(await retry.json()).toEqual({ message: assistantMessage });
+        expect(await retry.json()).toMatchObject({ message: assistantMessage });
         expect(fetchMock).toHaveBeenCalledOnce();
         expect(exchangeReads).toBe(3);
         expect(await fixture.findIncidentOwner(incidentId)).toEqual({
@@ -1177,7 +1187,9 @@ describe('support response safety', () => {
         for (let retry = 0; retry < 2; retry += 1) {
           const response = await POST(makeRequest());
           expect(response.status).toBe(200);
-          expect(await response.json()).toEqual({ message: assistantMessage });
+          expect(await response.json()).toMatchObject({
+            message: assistantMessage,
+          });
           expect(fetchMock).toHaveBeenCalledOnce();
           expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
           expect((await fixture.messages(incidentId)).results).toEqual(
@@ -1254,7 +1266,7 @@ describe('support response safety', () => {
       expect(await findTrigger()).toBeNull();
       const retry = await POST(makeRequest());
       expect(retry.status).toBe(200);
-      expect(await retry.json()).toEqual({ message: assistantMessage });
+      expect(await retry.json()).toMatchObject({ message: assistantMessage });
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(await fixture.findIncidentOwner(incidentId)).toEqual({
         user_id: calderPikeUser.userId,
@@ -1277,7 +1289,7 @@ describe('support response safety', () => {
       const savedMessages = await fixture.messages(incidentId);
       const replay = await POST(makeRequest());
       expect(replay.status).toBe(200);
-      expect(await replay.json()).toEqual({ message: assistantMessage });
+      expect(await replay.json()).toMatchObject({ message: assistantMessage });
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
       expect((await fixture.messages(incidentId)).results).toEqual(
@@ -1340,7 +1352,7 @@ describe('support response safety', () => {
 
       const retry = await POST(makeRequest());
       expect(retry.status).toBe(200);
-      expect(await retry.json()).toEqual({ message: assistantMessage });
+      expect(await retry.json()).toMatchObject({ message: assistantMessage });
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(batchMock).toHaveBeenCalledTimes(2);
       expect(await fixture.findIncidentOwner(incidentId)).toEqual({
@@ -1364,7 +1376,7 @@ describe('support response safety', () => {
       const savedMessages = await fixture.messages(incidentId);
       const replay = await POST(makeRequest());
       expect(replay.status).toBe(200);
-      expect(await replay.json()).toEqual({ message: assistantMessage });
+      expect(await replay.json()).toMatchObject({ message: assistantMessage });
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(batchMock).toHaveBeenCalledTimes(2);
       expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
@@ -1405,7 +1417,9 @@ describe('support response safety', () => {
       const response = await POST(request);
       expect(fetchMock).toHaveBeenCalledOnce();
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ message: assistantMessage });
+      expect(await response.json()).toMatchObject({
+        message: assistantMessage,
+      });
       expect(await findIncident()).toEqual({ user_id: calderPikeUser.userId });
       expect((await savedMessages()).results).toEqual([
         {
@@ -1454,7 +1468,9 @@ describe('support response safety', () => {
         });
       const firstResponse = await POST(makeRequest());
       expect(firstResponse.status).toBe(200);
-      expect(await firstResponse.json()).toEqual({ message: assistantMessage });
+      expect(await firstResponse.json()).toMatchObject({
+        message: assistantMessage,
+      });
       const originalMessages = await savedMessages();
       expect(originalMessages.results).toMatchObject([
         {
@@ -1474,7 +1490,9 @@ describe('support response safety', () => {
 
       const retryResponse = await POST(makeRequest());
       expect(retryResponse.status).toBe(200);
-      expect(await retryResponse.json()).toEqual({ message: assistantMessage });
+      expect(await retryResponse.json()).toMatchObject({
+        message: assistantMessage,
+      });
       expect((await savedMessages()).results).toEqual(originalMessages.results);
       expect(await findIncident()).toEqual({ user_id: calderPikeUser.userId });
     } finally {
@@ -1510,7 +1528,9 @@ describe('support response safety', () => {
         });
       const firstResponse = await POST(makeRequest());
       expect(firstResponse.status).toBe(200);
-      expect(await firstResponse.json()).toEqual({ message: originalReply });
+      expect(await firstResponse.json()).toMatchObject({
+        message: originalReply,
+      });
       const originalMessages = await savedMessages();
       expect(originalMessages.results).toHaveLength(2);
       expect(originalMessages.results[1]).toMatchObject({
@@ -1521,7 +1541,9 @@ describe('support response safety', () => {
 
       const retryResponse = await POST(makeRequest());
       expect(retryResponse.status).toBe(200);
-      expect(await retryResponse.json()).toEqual({ message: originalReply });
+      expect(await retryResponse.json()).toMatchObject({
+        message: originalReply,
+      });
       expect(fetchMock).toHaveBeenCalledOnce();
       expect((await savedMessages()).results).toEqual(originalMessages.results);
     } finally {
@@ -1578,7 +1600,7 @@ describe('support response safety', () => {
           vi.setSystemTime(new Date('2026-09-02T23:59:59.999Z'));
         const beforeInvalidation = await POST(makeRequest(session));
         expect(beforeInvalidation.status).toBe(200);
-        expect(await beforeInvalidation.json()).toEqual({
+        expect(await beforeInvalidation.json()).toMatchObject({
           message: privateReply,
         });
         expect(fetchMock).not.toHaveBeenCalled();
@@ -1604,7 +1626,7 @@ describe('support response safety', () => {
         const freshSession = await fixture.session(calderPikeUser);
         const recovered = await POST(makeRequest(freshSession));
         expect(recovered.status).toBe(200);
-        expect(await recovered.json()).toEqual({ message: privateReply });
+        expect(await recovered.json()).toMatchObject({ message: privateReply });
         expect(fetchMock).not.toHaveBeenCalled();
         expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
         expect((await fixture.messages(incidentId)).results).toEqual(
@@ -1752,7 +1774,12 @@ describe('support response safety', () => {
           expect(response.status).toBe(expectedStatus);
           expect(await response.json()).toEqual(
             status === 'active'
-              ? { message: privateReply }
+              ? {
+                  message: privateReply,
+                  customerCreatedAt: expect.any(String),
+                  assistantCreatedAt: expect.any(String),
+                  incidentUpdatedAt: expect.any(String),
+                }
               : { error: 'Authentication required.' },
           );
           expect(fetchMock).not.toHaveBeenCalled();
@@ -1844,7 +1871,9 @@ describe('support response safety', () => {
       // Positive control: this exact request replays successfully for its owner.
       const ownerResponse = await POST(makeRequest(sessions[0]));
       expect(ownerResponse.status).toBe(200);
-      expect(await ownerResponse.json()).toEqual({ message: privateReply });
+      expect(await ownerResponse.json()).toMatchObject({
+        message: privateReply,
+      });
       expect(fetchMock).not.toHaveBeenCalled();
 
       // Only the session changes; knowing the IDs and prompt grants no access.
@@ -1921,7 +1950,7 @@ describe('support response safety', () => {
       // Rejecting the conflicting request must not break a legitimate retry.
       const retry = await POST(makeRequest(originalText));
       expect(retry.status).toBe(200);
-      expect(await retry.json()).toEqual({ message: originalReply });
+      expect(await retry.json()).toMatchObject({ message: originalReply });
       expect(fetchMock).not.toHaveBeenCalled();
       expect((await savedMessages()).results).toEqual(originalMessages.results);
     } finally {
@@ -1990,7 +2019,7 @@ describe('support response safety', () => {
 
       const retry = await POST(makeRequest(sourceId));
       expect(retry.status).toBe(200);
-      expect(await retry.json()).toEqual({ message: originalReply });
+      expect(await retry.json()).toMatchObject({ message: originalReply });
       expect(fetchMock).not.toHaveBeenCalled();
       expect((await savedMessages()).results).toEqual(originalMessages.results);
     } finally {
@@ -2052,7 +2081,7 @@ describe('support response safety', () => {
 
       const retry = await POST(makeRequest(originalMessageId));
       expect(retry.status).toBe(200);
-      expect(await retry.json()).toEqual({ message: originalReply });
+      expect(await retry.json()).toMatchObject({ message: originalReply });
       expect(fetchMock).not.toHaveBeenCalled();
       expect((await savedMessages()).results).toEqual(originalMessages.results);
     } finally {
@@ -2119,7 +2148,7 @@ describe('support response safety', () => {
 
       const retry = await POST(makeRequest(occupiedId));
       expect(retry.status).toBe(200);
-      expect(await retry.json()).toEqual({ message: originalReply });
+      expect(await retry.json()).toMatchObject({ message: originalReply });
       expect(fetchMock).not.toHaveBeenCalled();
       expect((await savedMessages()).results).toEqual(originalMessages.results);
     } finally {
@@ -2190,7 +2219,9 @@ describe('support response safety', () => {
 
       const response = await POST(makeRequest());
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ message: assistantMessage });
+      expect(await response.json()).toMatchObject({
+        message: assistantMessage,
+      });
       expect(fetchMock).toHaveBeenCalledOnce();
       const completed = await savedMessages();
       expect(completed.results).toHaveLength(2);
@@ -2210,7 +2241,7 @@ describe('support response safety', () => {
 
       const retry = await POST(makeRequest());
       expect(retry.status).toBe(200);
-      expect(await retry.json()).toEqual({ message: assistantMessage });
+      expect(await retry.json()).toMatchObject({ message: assistantMessage });
       expect(fetchMock).toHaveBeenCalledOnce();
       expect((await savedMessages()).results).toEqual(completed.results);
     } finally {
@@ -2297,7 +2328,9 @@ describe('support response safety', () => {
 
       const laterRetry = await POST(makeRequest(laterMessageId));
       expect(laterRetry.status).toBe(200);
-      expect(await laterRetry.json()).toEqual({ message: assistantMessage });
+      expect(await laterRetry.json()).toMatchObject({
+        message: assistantMessage,
+      });
       expect(fetchMock).not.toHaveBeenCalled();
       expect((await savedMessages()).results).toEqual(originalMessages.results);
     } finally {
@@ -2384,7 +2417,7 @@ describe('support response safety', () => {
         expect(replies).toContain(savedReply);
         expect(
           await Promise.all(responses.map((response) => response.json())),
-        ).toEqual([{ message: savedReply }, { message: savedReply }]);
+        ).toMatchObject([{ message: savedReply }, { message: savedReply }]);
         expect(await fixture.findIncidentOwner(incidentId)).toEqual({
           user_id: calderPikeUser.userId,
         });
@@ -2392,7 +2425,7 @@ describe('support response safety', () => {
 
         const retry = await POST(makeRequest());
         expect(retry.status).toBe(200);
-        expect(await retry.json()).toEqual({ message: savedReply });
+        expect(await retry.json()).toMatchObject({ message: savedReply });
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect((await savedMessages()).results).toEqual(completed.results);
       } finally {
@@ -2481,7 +2514,7 @@ describe('support response safety', () => {
         },
       ]);
       expect(responses[winnerIndex].status).toBe(200);
-      expect(await responses[winnerIndex].json()).toEqual({
+      expect(await responses[winnerIndex].json()).toMatchObject({
         message: winner.reply,
       });
       expect(responses[loserIndex].status).toBe(403);
@@ -2497,7 +2530,7 @@ describe('support response safety', () => {
       });
       const ownerRetry = await POST(makeRequest(winnerIndex));
       expect(ownerRetry.status).toBe(200);
-      expect(await ownerRetry.json()).toEqual({ message: winner.reply });
+      expect(await ownerRetry.json()).toMatchObject({ message: winner.reply });
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect((await fixture.incidents(incidentId)).results).toEqual(
         savedIncidents.results,
@@ -2591,12 +2624,12 @@ describe('support response safety', () => {
           },
         ]);
         expect(responses[index].status).toBe(200);
-        expect(await responses[index].json()).toEqual({
+        expect(await responses[index].json()).toMatchObject({
           message: exchange.reply,
         });
         const retry = await POST(makeRequest(exchange));
         expect(retry.status).toBe(200);
-        expect(await retry.json()).toEqual({ message: exchange.reply });
+        expect(await retry.json()).toMatchObject({ message: exchange.reply });
       }
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect((await fixture.messages(incidentId)).results).toEqual(
@@ -2692,7 +2725,7 @@ describe('support response safety', () => {
         },
       ]);
       expect(responses[winnerIndex].status).toBe(200);
-      expect(await responses[winnerIndex].json()).toEqual({
+      expect(await responses[winnerIndex].json()).toMatchObject({
         message: winner.reply,
       });
       expect(responses[1 - winnerIndex].status).toBe(409);
@@ -2708,7 +2741,14 @@ describe('support response safety', () => {
         const retry = await POST(makeRequest(exchange));
         expect(retry.status).toBe(index === winnerIndex ? 200 : 409);
         expect(await retry.json()).toEqual(
-          index === winnerIndex ? { message: winner.reply } : conflictBody,
+          index === winnerIndex
+            ? {
+                message: winner.reply,
+                customerCreatedAt: expect.any(String),
+                assistantCreatedAt: expect.any(String),
+                incidentUpdatedAt: expect.any(String),
+              }
+            : conflictBody,
         );
       }
       expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -2820,7 +2860,7 @@ describe('support response safety', () => {
         ),
       ).toEqual(beforeMessages.results);
       expect(responses[winnerIndex].status).toBe(200);
-      expect(await responses[winnerIndex].json()).toEqual({
+      expect(await responses[winnerIndex].json()).toMatchObject({
         message: assistantMessage,
       });
       expect(responses[1 - winnerIndex].status).toBe(409);
@@ -2841,7 +2881,14 @@ describe('support response safety', () => {
         const retry = await POST(makeRequest(incidentId));
         expect(retry.status).toBe(index === winnerIndex ? 200 : 409);
         expect(await retry.json()).toEqual(
-          index === winnerIndex ? { message: assistantMessage } : conflictBody,
+          index === winnerIndex
+            ? {
+                message: assistantMessage,
+                customerCreatedAt: expect.any(String),
+                assistantCreatedAt: expect.any(String),
+                incidentUpdatedAt: expect.any(String),
+              }
+            : conflictBody,
         );
       }
       expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -2960,7 +3007,9 @@ describe('support response safety', () => {
         expect(concurrent.timedOut).toBe(false);
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(winner.status).toBe(200);
-        expect(await winner.json()).toEqual({ message: assistantMessage });
+        expect(await winner.json()).toMatchObject({
+          message: assistantMessage,
+        });
         expect(loser.status).toBe(409);
         expect(await loser.json()).toEqual(conflictBody);
         if (scope === 'a new incident')
@@ -3000,7 +3049,14 @@ describe('support response safety', () => {
           const retry = await POST(makeRequest(index));
           expect(retry.status).toBe(index === 0 ? 409 : 200);
           expect(await retry.json()).toEqual(
-            index === 0 ? conflictBody : { message: assistantMessage },
+            index === 0
+              ? conflictBody
+              : {
+                  message: assistantMessage,
+                  customerCreatedAt: expect.any(String),
+                  assistantCreatedAt: expect.any(String),
+                  incidentUpdatedAt: expect.any(String),
+                },
           );
         }
         expect(fetchMock).toHaveBeenCalledTimes(2);
