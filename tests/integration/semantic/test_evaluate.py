@@ -57,3 +57,19 @@ def test_long_response_includes_the_final_partial_chunk_in_its_embedding(manifes
 def test_rejects_blank_answers(manifest, answer):
     with pytest.raises(ValueError, match="^Only nonempty model answers can be scored$"):
         evaluate({"samples": [{"sample": 1, "answer": answer}]}, manifest)
+
+
+@pytest.mark.parametrize("scenario", ["case-pack", "comparison"])
+def test_calibration_preserves_example_labels_and_splits(manifest, scenario):
+    fixture = json.loads(
+        (ROOT / f"tests/fixtures/semantic/{scenario}.json").read_text()
+    )
+
+    report = evaluate({"samples": []}, manifest, scenario)
+
+    examples = report["calibration"]["examples"]
+    assert len(examples) == len(fixture["examples"])
+    for actual, expected in zip(examples, fixture["examples"], strict=True):
+        assert actual["correct"] is expected["correct"]
+        for field in ("id", "text", "kind", "split"):
+            assert actual[field] == expected[field]
