@@ -21,6 +21,20 @@ const users = statements.filter((row) =>
 const credentials = statements.filter((row) =>
   row.sql.startsWith('INSERT INTO user_credentials'),
 );
+const deliveryEvents = new Map(
+  statements
+    .filter(
+      (row) =>
+        row.sql.startsWith('INSERT INTO order_events') &&
+        row.params[3] === 'delivered',
+    )
+    .map((row) => [row.params[1], row.params[2]]),
+);
+const deliveredShipments = statements.filter(
+  (row) =>
+    row.sql.startsWith('INSERT INTO shipments') &&
+    row.params[2] === 'delivered',
+);
 const expectedCustomers = {
   'WHS-0427': 648,
   'WHS-1098': 24,
@@ -84,6 +98,36 @@ assert.ok(
   ),
   'expected the representative historical return',
 );
+assert.equal(
+  deliveredShipments.length,
+  449,
+  'expected the fixed delivered history',
+);
+assert.equal(
+  deliveryEvents.size,
+  deliveredShipments.length,
+  'expected one delivery event per delivered shipment',
+);
+const createdOnByOrder = new Map(
+  orders.map((row) => [row.params[0], row.params[4]]),
+);
+for (const {
+  params: [, orderId, , , , shippedOn, , deliveredOn],
+} of deliveredShipments) {
+  assert.ok(
+    createdOnByOrder.has(orderId) &&
+      shippedOn &&
+      deliveredOn &&
+      createdOnByOrder.get(orderId) <= shippedOn &&
+      shippedOn <= deliveredOn,
+    `invalid shipment timeline for ${orderId}`,
+  );
+  assert.equal(
+    String(deliveryEvents.get(orderId)).slice(0, 10),
+    deliveredOn,
+    `delivery event must agree with shipment completion for ${orderId}`,
+  );
+}
 
 console.log(
   JSON.stringify(
@@ -96,6 +140,7 @@ console.log(
       products: products.length,
       orderItems: orderItems.length,
       futurePrimaryOrders,
+      deliveredShipments: deliveredShipments.length,
       asOfDate: AS_OF_DATE,
     },
     null,

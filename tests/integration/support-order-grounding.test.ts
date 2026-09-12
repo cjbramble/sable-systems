@@ -7,6 +7,31 @@ import { parseCheckoutInput } from '@/db/shop';
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support order grounding', () => {
+  it('supplies the same historical delivery date in shipment and event records', async () => {
+    const context = await buildAuthorizedContext(
+      await getDatabase(),
+      [
+        {
+          role: 'user',
+          content: 'Show the delivery timeline for order SBL-2022-000118.',
+        },
+      ],
+      calderPikeUser,
+    );
+
+    expect(context).toContain('requested ship date: 2022-06-27;');
+    expect(context).toContain(
+      'shipped 2022-06-25; estimated delivery 2022-07-02; delivered 2022-07-01.',
+    );
+    expect(context).toContain(
+      '- 2022-07-01T09:00:00Z: Delivery completed; twelve kits were later authorized for return.',
+    );
+    expect(context).not.toContain('2022-06-27T09:00:00Z');
+    expect(context).toContain(
+      'Return: RTN-2022-000014, closed, reason sealed_surplus, requested 2022-07-08.',
+    );
+  });
+
   it('resolves checkout-valid custom POs with the same tenant-scoped lookup', async () => {
     const database = await getDatabase();
     const orderId = 'SBL-2026-000417';

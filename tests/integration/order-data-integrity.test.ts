@@ -3,6 +3,51 @@ import { describe, expect, it } from 'vitest';
 import { getDatabase } from '@/db/database';
 
 describe('order data integrity', () => {
+  it('keeps delivered order events consistent with shipment completion', async () => {
+    const database = await getDatabase();
+    const deliveries = await database
+      .prepare(`
+      SELECT o.order_id, o.created_on, s.shipped_on, s.delivered_on,
+        e.occurred_at
+      FROM orders o
+      LEFT JOIN shipments s ON s.order_id = o.order_id
+      LEFT JOIN order_events e ON e.order_id = o.order_id AND e.event_type = 'delivered'
+      WHERE o.status = 'delivered'
+      ORDER BY o.order_id
+    `)
+      .all<{
+        order_id: string;
+        created_on: string;
+        shipped_on: string | null;
+        delivered_on: string | null;
+        occurred_at: string | null;
+      }>();
+
+    expect(deliveries.results).toHaveLength(449);
+    const contradictions = deliveries.results.filter(
+      (row) =>
+        !row.shipped_on ||
+        !row.delivered_on ||
+        !row.occurred_at ||
+        row.created_on > row.shipped_on ||
+        row.shipped_on > row.delivered_on ||
+        row.occurred_at.slice(0, 10) !== row.delivered_on,
+    );
+    expect(
+      contradictions,
+      'Contradictory or incomplete delivery timelines',
+    ).toEqual([]);
+    expect(
+      deliveries.results.find((row) => row.order_id === 'SBL-2022-000118'),
+    ).toEqual({
+      order_id: 'SBL-2022-000118',
+      created_on: '2022-06-04',
+      shipped_on: '2022-06-25',
+      delivered_on: '2022-07-01',
+      occurred_at: '2022-07-01T09:00:00Z',
+    });
+  });
+
   it('has no duplicate customer PO numbers within a distributor', async () => {
     const database = await getDatabase();
     const count = await database

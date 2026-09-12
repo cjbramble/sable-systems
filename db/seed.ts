@@ -859,6 +859,28 @@ function generatedStatus(
 }
 
 function insertOrder(statements: SeedStatement[], row: OrderSeed) {
+  const plannedShippedOn = addDays(
+    row.requestedShipDate,
+    row.status === 'delivered' ? -2 : 0,
+  );
+  const shipmentTimeline = [
+    'delivered',
+    'shipped',
+    'partially_shipped',
+  ].includes(row.status)
+    ? {
+        // Early-year generated orders can be created on their requested ship date.
+        shippedOn:
+          plannedShippedOn < row.createdOn ? row.createdOn : plannedShippedOn,
+        estimatedDeliveryDate: addDays(row.requestedShipDate, 5),
+        deliveredOn:
+          row.status === 'delivered' ? addDays(row.requestedShipDate, 4) : null,
+      }
+    : null;
+  const statusDate =
+    shipmentTimeline?.deliveredOn ??
+    shipmentTimeline?.shippedOn ??
+    row.requestedShipDate;
   const itemRows = row.items.map((item, index) => {
     const catalog = productById.get(item.itemNumber);
     if (!catalog) throw new Error(`Unknown seed product ${item.itemNumber}`);
@@ -928,13 +950,13 @@ function insertOrder(statements: SeedStatement[], row: OrderSeed) {
     params: [
       `EVT-${row.orderId}-002`,
       row.orderId,
-      `${row.requestedShipDate}T09:00:00Z`,
+      `${statusDate}T09:00:00Z`,
       row.status,
       row.eventDescription ?? statusDescription(row.status),
     ],
   });
 
-  if (['delivered', 'shipped', 'partially_shipped'].includes(row.status)) {
+  if (shipmentTimeline) {
     const shipmentId = `SHP-${row.orderId.slice(4)}`;
     const shipmentStatus =
       row.status === 'delivered'
@@ -943,10 +965,6 @@ function insertOrder(statements: SeedStatement[], row: OrderSeed) {
             row.orderId === 'SBL-2026-000417'
           ? 'delayed'
           : 'in_transit';
-    const shippedOn = addDays(
-      row.requestedShipDate,
-      row.status === 'delivered' ? -2 : 0,
-    );
     statements.push({
       sql: 'INSERT INTO shipments VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       params: [
@@ -955,9 +973,9 @@ function insertOrder(statements: SeedStatement[], row: OrderSeed) {
         shipmentStatus,
         'Astra Freight Systems',
         `AST-${row.orderId.replaceAll('-', '').slice(3)}`,
-        shippedOn,
-        addDays(row.requestedShipDate, 5),
-        row.status === 'delivered' ? addDays(row.requestedShipDate, 4) : null,
+        shipmentTimeline.shippedOn,
+        shipmentTimeline.estimatedDeliveryDate,
+        shipmentTimeline.deliveredOn,
       ],
     });
     for (const item of itemRows.filter((candidate) => candidate.shipped > 0)) {

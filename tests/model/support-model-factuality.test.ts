@@ -1246,6 +1246,35 @@ No shipment matching ${externalShipment.shipment_id} is available within Calder 
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
+  it('distinguishes requested shipment from actual historical delivery', async () => {
+    const { answer, authorizedContext } = await askSupportModel(
+      [
+        {
+          role: 'user',
+          content:
+            'For order SBL-2022-000118, give the requested ship date and actual delivery date. Does the delivery-completed event agree with the shipment delivery date? Use YYYY-MM-DD dates.',
+        },
+      ],
+      2118,
+    );
+
+    console.info('Historical delivery timeline response:', answer);
+    expect(authorizedContext).toContain('delivered 2022-07-01.');
+    expect(authorizedContext).toContain(
+      '2022-07-01T09:00:00Z: Delivery completed;',
+    );
+    expect(answer).toMatch(/requested[^\n]*2022-06-27/i);
+    expect(answer).toMatch(/(?:actual|deliver)[^\n]*2022-07-01/i);
+    expect(answer).toMatch(/\bagree|\bmatch|\bconsistent|\byes\b/i);
+    expect(answer).not.toMatch(
+      /\b(?:not|never)\s+(?:agree|match|consistent)|\b(?:disagree|mismatch|inconsistent|contradict)/i,
+    );
+    expect(answer).not.toMatch(
+      /(?:actual delivery|delivered on|delivery.completed)[^\n]*2022-06-27/i,
+    );
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
+
   it('reports only authorized facts for an exact return', async () => {
     const messages = [
       {
