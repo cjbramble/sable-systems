@@ -1,4 +1,5 @@
 import type { ChatHistoryMessage } from './chat-history.ts';
+import type { OrderStatus } from './contracts.ts';
 import {
   explicitOrderPo,
   itemReferences,
@@ -9,17 +10,7 @@ import {
   type CatalogCategory,
 } from './catalog-categories.ts';
 
-export type SupportOrderStatus =
-  | 'active'
-  | 'allocating'
-  | 'backordered'
-  | 'cancelled'
-  | 'confirmed'
-  | 'delivered'
-  | 'on_hold'
-  | 'partially_shipped'
-  | 'scheduled'
-  | 'shipped';
+export type SupportOrderStatus = OrderStatus | 'active';
 
 export type SupportQueryIntent =
   | { kind: 'order'; identifier: string }

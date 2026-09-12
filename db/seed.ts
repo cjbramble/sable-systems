@@ -1,3 +1,5 @@
+import type { OrderStatus } from '../lib/contracts.ts';
+
 export type SeedStatement = {
   sql: string;
   params: Array<string | number | null>;
@@ -22,17 +24,6 @@ type ProductSeed = {
   inbound: number;
   restockDate: string | null;
 };
-
-type OrderStatus =
-  | 'scheduled'
-  | 'confirmed'
-  | 'allocating'
-  | 'backordered'
-  | 'partially_shipped'
-  | 'shipped'
-  | 'delivered'
-  | 'on_hold'
-  | 'cancelled';
 
 type OrderItemSeed = {
   itemNumber: string;
