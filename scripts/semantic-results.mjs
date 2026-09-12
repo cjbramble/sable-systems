@@ -12,7 +12,8 @@ function readTranscriptRows(text, prefix) {
 function parseSamplingScenario(text, { label, question, testName }) {
   const requests = readTranscriptRows(text, `${label} sampling request: `);
   const samples = readTranscriptRows(text, `${label} sample: `);
-  if (!requests.length && !samples.length) {
+  const summaries = readTranscriptRows(text, `${label} sampling summary: `);
+  if (!requests.length && !samples.length && !summaries.length) {
     if (
       text
         .split('\n')
@@ -24,7 +25,8 @@ function parseSamplingScenario(text, { label, question, testName }) {
   if (
     requests.length !== 1 ||
     requests[0]?.samples !== 5 ||
-    samples.length !== 5
+    samples.length !== 5 ||
+    summaries.length !== 1
   )
     throw new Error(
       `Expected one complete five-sample ${label.toLowerCase()} run`,
@@ -37,39 +39,6 @@ function parseSamplingScenario(text, { label, question, testName }) {
     throw new Error(
       'Sampling question does not match the semantic reference fixture',
     );
-  for (const [index, sample] of samples.entries()) {
-    if (sample?.sample !== index + 1 || typeof sample.passed !== 'boolean')
-      throw new Error('Missing, duplicated, or malformed sample verdict');
-    if (
-      sample.passed &&
-      (typeof sample.answer !== 'string' || !sample.answer.trim())
-    )
-      throw new Error('A passing sample must contain an answer');
-  }
-  return { request, samples };
-}
-
-// Keep the existing case-pack entry point and transcript contract unchanged.
-export function parseSamplingTranscript(text) {
-  return parseSamplingScenario(text, {
-    label: 'Case-pack',
-    question: fixture.question,
-    testName: 'preserves case-pack facts across five samples',
-  });
-}
-
-export function parseComparisonSamplingTranscript(text) {
-  const batch = parseSamplingScenario(text, {
-    label: 'Comparison',
-    question: comparisonFixture.question,
-    testName: 'preserves overlapping-name comparison facts across five samples',
-  });
-  const summaries = readTranscriptRows(text, 'Comparison sampling summary: ');
-  if (batch === null && summaries.length === 0) return null;
-  if (batch === null || summaries.length !== 1)
-    throw new Error('Expected one complete five-sample comparison run');
-
-  const { request, samples } = batch;
   if (
     request.temperature !== 0.35 ||
     request.top_p !== 0.9 ||
@@ -83,17 +52,21 @@ export function parseComparisonSamplingTranscript(text) {
     request.messages[1]?.role !== 'user'
   )
     throw new Error(
-      'Comparison request must use normal settings and independent messages',
+      `${label} request must use normal settings and independent messages`,
     );
 
   const failures = [];
-  for (const sample of samples) {
+  for (const [index, sample] of samples.entries()) {
+    if (sample?.sample !== index + 1 || typeof sample.passed !== 'boolean')
+      throw new Error('Missing, duplicated, or malformed sample verdict');
     const failure = sample.failure;
     if (sample.answer !== null && typeof sample.answer !== 'string')
-      throw new Error('Malformed comparison answer');
+      throw new Error('Malformed sample answer');
     if (sample.passed) {
+      if (!sample.answer?.trim())
+        throw new Error('A passing sample must contain an answer');
       if (failure !== undefined)
-        throw new Error('Passing comparison sample contains a failure');
+        throw new Error('Passing sample contains a failure');
     } else {
       if (
         failure?.sample !== sample.sample ||
@@ -104,7 +77,7 @@ export function parseComparisonSamplingTranscript(text) {
         !failure.error.trim() ||
         (failure.phase === 'factuality' && !sample.answer?.trim())
       )
-        throw new Error('Malformed comparison failure evidence');
+        throw new Error('Malformed sample failure evidence');
       failures.push(failure);
     }
   }
@@ -121,10 +94,26 @@ export function parseComparisonSamplingTranscript(text) {
     )
   )
     throw new Error(
-      'Comparison summary does not match the retained sample verdicts',
+      `${label} summary does not match the retained sample verdicts`,
     );
   // Preserve original answers/raw responses/verdicts; do not rejudge factuality here.
-  return batch;
+  return { request, samples };
+}
+
+export function parseSamplingTranscript(text) {
+  return parseSamplingScenario(text, {
+    label: 'Case-pack',
+    question: fixture.question,
+    testName: 'preserves case-pack facts across five samples',
+  });
+}
+
+export function parseComparisonSamplingTranscript(text) {
+  return parseSamplingScenario(text, {
+    label: 'Comparison',
+    question: comparisonFixture.question,
+    testName: 'preserves overlapping-name comparison facts across five samples',
+  });
 }
 
 const semanticScenarios = {

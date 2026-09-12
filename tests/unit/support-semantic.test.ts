@@ -6,6 +6,10 @@ import { evaluateSemanticTranscript } from '../../scripts/support-semantic.mjs';
 import casePack from '../fixtures/semantic/case-pack.json';
 import comparison from '../fixtures/semantic/comparison.json';
 import { createSemanticEvaluatorReport } from '../fixtures/semantic/evaluator';
+import {
+  createSamplingEvidence,
+  samplingScenarios,
+} from '../fixtures/semantic/transcript';
 
 vi.mock('node:fs', () => ({
   readFileSync: vi.fn(),
@@ -22,34 +26,11 @@ const semanticReportFor = (
 ) => createSemanticEvaluatorReport(fixture, samples, hash(bytes(fixture)));
 
 it('scores only the selected scenario and rejects mismatched reference evidence without changing factual verdicts', () => {
-  const batches = [
-    { key: 'case-pack', label: 'Case-pack', fixture: casePack },
-    { key: 'comparison', label: 'Comparison', fixture: comparison },
-  ].map((scenario) => ({
+  const batches = samplingScenarios.map((scenario) => ({
     ...scenario,
-    request: {
-      temperature: 0.35,
-      top_p: 0.9,
-      max_tokens: 600,
-      stream: false,
-      messages: [
-        { role: 'system', content: 'Scenario-specific authorized context' },
-        { role: 'user', content: scenario.fixture.question },
-      ],
-    },
-    samples: Array.from({ length: 5 }, (_, i) => ({
-      sample: i + 1,
-      answer: `${scenario.key} answer ${i + 1}`,
-      passed: true,
-    })),
+    ...createSamplingEvidence(scenario),
   }));
-  const transcript = batches
-    .flatMap(({ label, request, samples }) => [
-      `${label} sampling request: ${JSON.stringify({ samples: 5, requestBody: request })}`,
-      ...samples.map((sample) => `${label} sample: ${JSON.stringify(sample)}`),
-      `${label} sampling summary: ${JSON.stringify({ samples: 5, passed: 5, failures: [] })}`,
-    ])
-    .join('\n');
+  const transcript = batches.map((batch) => batch.transcript).join('\n');
   let retainedTranscript = transcript;
   vi.mocked(readFileSync).mockImplementation((path) => {
     if (String(path).endsWith('/case-pack.json')) return bytes(casePack);
@@ -152,9 +133,11 @@ it('scores only the selected scenario and rejects mismatched reference evidence 
     }
     retainedTranscript =
       'A filtered test without the selected sampling scenario';
-    expect(
-      evaluateSemanticTranscript('mixed.log', undefined, 'comparison'),
-    ).toBeNull();
+    for (const { key } of samplingScenarios) {
+      expect(
+        evaluateSemanticTranscript('mixed.log', undefined, key),
+      ).toBeNull();
+    }
     expect(vi.mocked(spawnSync).mock.calls).toHaveLength(calls);
   } finally {
     quiet.mockRestore();
@@ -165,24 +148,12 @@ it('scores only the selected scenario and rejects mismatched reference evidence 
 it('keeps unanswered inference failures unscored and failing while scoring only available answers with their original IDs', () => {
   const quiet = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {
-    for (const { key, label, fixture } of [
-      { key: 'case-pack', label: 'Case-pack', fixture: casePack },
-      { key: 'comparison', label: 'Comparison', fixture: comparison },
-    ]) {
+    for (const scenario of samplingScenarios) {
+      const { key, fixture } = scenario;
       for (const unanswered of [
         [2, 4],
         [1, 2, 3, 4, 5],
       ]) {
-        const request = {
-          temperature: 0.35,
-          top_p: 0.9,
-          max_tokens: 600,
-          stream: false,
-          messages: [
-            { role: 'system', content: 'Scenario-specific authorized context' },
-            { role: 'user', content: fixture.question },
-          ],
-        };
         const samples = Array.from({ length: 5 }, (_, index) => {
           const sample = index + 1;
           return unanswered.includes(sample)
@@ -198,19 +169,10 @@ it('keeps unanswered inference failures unscored and failing while scoring only 
               }
             : { sample, answer: `${key} answer ${sample}`, passed: true };
         });
-        const transcript = [
-          `${label} sampling request: ${JSON.stringify({ samples: 5, requestBody: request })}`,
-          ...samples.map(
-            (sample) => `${label} sample: ${JSON.stringify(sample)}`,
-          ),
-          `${label} sampling summary: ${JSON.stringify({
-            samples: 5,
-            passed: 5 - unanswered.length,
-            failures: samples
-              .filter((sample) => !sample.passed)
-              .map((sample) => sample.failure),
-          })}`,
-        ].join('\n');
+        const { request, transcript } = createSamplingEvidence(
+          scenario,
+          samples,
+        );
         vi.mocked(readFileSync).mockImplementation((path) => {
           if (String(path).endsWith(`/${key}.json`)) return bytes(fixture);
           if (path === 'unanswered.log') return transcript;
@@ -291,32 +253,9 @@ it('keeps unanswered inference failures unscored and failing while scoring only 
 it('rejects evaluator process failures and malformed output without creating or announcing a semantic report', () => {
   const quiet = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {
-    for (const { key, label, fixture } of [
-      { key: 'case-pack', label: 'Case-pack', fixture: casePack },
-      { key: 'comparison', label: 'Comparison', fixture: comparison },
-    ]) {
-      const samples = Array.from({ length: 5 }, (_, index) => ({
-        sample: index + 1,
-        answer: `${key} answer ${index + 1}`,
-        passed: true,
-      }));
-      const requestBody = {
-        temperature: 0.35,
-        top_p: 0.9,
-        max_tokens: 600,
-        stream: false,
-        messages: [
-          { role: 'system', content: 'Scenario-specific authorized context' },
-          { role: 'user', content: fixture.question },
-        ],
-      };
-      const transcript = [
-        `${label} sampling request: ${JSON.stringify({ samples: 5, requestBody })}`,
-        ...samples.map(
-          (sample) => `${label} sample: ${JSON.stringify(sample)}`,
-        ),
-        `${label} sampling summary: ${JSON.stringify({ samples: 5, passed: 5, failures: [] })}`,
-      ].join('\n');
+    for (const scenario of samplingScenarios) {
+      const { key, fixture } = scenario;
+      const { samples, transcript } = createSamplingEvidence(scenario);
       vi.mocked(readFileSync).mockImplementation((path) => {
         if (String(path).endsWith(`/${key}.json`)) return bytes(fixture);
         if (path === 'evaluator.log') return transcript;

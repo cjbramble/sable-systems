@@ -13,61 +13,37 @@ import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { evaluateSemanticTranscript } from '../../scripts/support-semantic.mjs';
 import { evaluateModelRunSemantics } from '../../scripts/support-semantic-runs.mjs';
-import casePack from '../fixtures/semantic/case-pack.json';
-import comparison from '../fixtures/semantic/comparison.json';
 import { createSemanticEvaluatorReport } from '../fixtures/semantic/evaluator';
+import {
+  createSamplingEvidence,
+  samplingScenarios,
+} from '../fixtures/semantic/transcript';
 
 vi.mock('node:child_process', () => ({ spawnSync: vi.fn() }));
 
-const scenarios = [
-  { key: 'case-pack', label: 'Case-pack', fixture: casePack },
-  { key: 'comparison', label: 'Comparison', fixture: comparison },
-] as const;
 const hash = (value: string | Uint8Array) =>
   createHash('sha256').update(value).digest('hex');
 
-function createScenarioEvidence({
-  key,
-  label,
-  fixture,
-}: (typeof scenarios)[number]) {
-  const samples = Array.from({ length: 5 }, (_, index) => ({
-    sample: index + 1,
-    answer: fixture.references[0],
-    passed: true,
-  }));
-  const requestBody = {
-    temperature: 0.35,
-    top_p: 0.9,
-    max_tokens: 600,
-    stream: false,
-    messages: [
-      { role: 'system', content: 'Scenario-specific authorized context' },
-      { role: 'user', content: fixture.question },
-    ],
-  };
-  const transcript = [
-    `${label} sampling request: ${JSON.stringify({ samples: 5, requestBody })}`,
-    ...samples.map((sample) => `${label} sample: ${JSON.stringify(sample)}`),
-    `${label} sampling summary: ${JSON.stringify({ samples: 5, passed: 5, failures: [] })}`,
-  ].join('\n');
+function createScenarioEvidence(scenario: (typeof samplingScenarios)[number]) {
+  const { key, fixture } = scenario;
+  const evidence = createSamplingEvidence(scenario);
   const response = createSemanticEvaluatorReport(
     fixture,
-    samples,
+    evidence.samples,
     hash(
       readFileSync(
         new URL(`../fixtures/semantic/${key}.json`, import.meta.url),
       ),
     ),
   );
-  return { samples, requestBody, transcript, response };
+  return { ...evidence, response };
 }
 
 it('propagates report-write failures without overwriting existing evidence or announcing a saved report', () => {
   const directory = mkdtempSync(join(tmpdir(), 'support-semantic-report-'));
   const quiet = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {
-    for (const scenario of scenarios) {
+    for (const scenario of samplingScenarios) {
       const { key } = scenario;
       const scenarioDirectory = join(directory, key);
       mkdirSync(scenarioDirectory);
@@ -148,7 +124,7 @@ it('retains the other scenario report after a write collision while preserving t
   const directory = mkdtempSync(join(tmpdir(), 'support-semantic-mixed-'));
   const quiet = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {
-    for (const failedScenario of scenarios) {
+    for (const failedScenario of samplingScenarios) {
       for (const originalExitCode of [0, 7]) {
         const runDirectory = join(
           directory,
@@ -160,7 +136,7 @@ it('retains the other scenario report after a write collision while preserving t
           'case-pack': join(runDirectory, 'mixed.semantic.json'),
           comparison: join(runDirectory, 'mixed.comparison.semantic.json'),
         };
-        const batches = scenarios.map((scenario) => ({
+        const batches = samplingScenarios.map((scenario) => ({
           ...scenario,
           ...createScenarioEvidence(scenario),
         }));
@@ -223,7 +199,7 @@ it('retains the other scenario report after a write collision while preserving t
             fixtureSha256: successfulBatch.response.fixtureSha256,
             sourceTranscript: source,
             sourceSha256: hash(transcript),
-            request: successfulBatch.requestBody,
+            request: successfulBatch.request,
             samples: successfulBatch.response.samples,
             factualSamplesPassed: true,
             factualVerdicts: successfulBatch.samples.map(
@@ -275,3 +251,95 @@ it('retains the other scenario report after a write collision while preserving t
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+it.each(samplingScenarios)(
+  'rejects incomplete $key evidence before scoring while saving the other scenario',
+  (failedScenario) => {
+    const directory = mkdtempSync(
+      join(tmpdir(), 'support-semantic-incomplete-'),
+    );
+    const quiet = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      const failed = createSamplingEvidence(failedScenario);
+      const successfulScenario = samplingScenarios.find(
+        (scenario) => scenario.key !== failedScenario.key,
+      )!;
+      const successful = createScenarioEvidence(successfulScenario);
+      // Five verdicts alone are not a completed run. Also exercise interruption
+      // before the first answer and while the summary is being written.
+      const lines = failed.transcript.split('\n');
+      for (const [index, damaged] of [
+        lines.slice(0, -1).join('\n'),
+        lines[0],
+        [
+          ...lines.slice(0, -1),
+          `${failedScenario.label} sampling summary: {`,
+        ].join('\n'),
+      ].entries()) {
+        for (const originalExitCode of [0, 7]) {
+          const prefix = `run-${index}-${originalExitCode}`;
+          const source = join(directory, `${prefix}.log`);
+          const savedPath = join(
+            directory,
+            `${prefix}${successfulScenario.key === 'comparison' ? '.comparison' : ''}.semantic.json`,
+          );
+          const transcript = [damaged, successful.transcript].join('\n');
+          writeFileSync(source, transcript, { flag: 'wx' });
+          const originalEntries = readdirSync(directory);
+          vi.mocked(spawnSync)
+            .mockReset()
+            .mockReturnValue({
+              status: 0,
+              stdout: JSON.stringify(successful.response),
+              stderr: '',
+              pid: 1,
+              signal: null,
+              output: [],
+            });
+
+          const outcome = evaluateModelRunSemantics(source, originalExitCode);
+
+          expect(outcome.exitCode).toBe(originalExitCode || 1);
+          expect(outcome.errors).toEqual([
+            { scenario: failedScenario.key, error: expect.any(Error) },
+          ]);
+          expect(outcome.reports).toHaveLength(1);
+          expect(outcome.reports[0]).toMatchObject({
+            scenario: successfulScenario.key,
+            reportPath: savedPath,
+            report: {
+              request: successful.request,
+              factualSamplesPassed: true,
+              sourceSha256: hash(transcript),
+              samples: successful.response.samples,
+            },
+          });
+          expect(spawnSync).toHaveBeenCalledExactlyOnceWith(
+            expect.any(String),
+            [
+              expect.stringMatching(/\/semantic\/evaluate\.py$/),
+              '--scenario',
+              successfulScenario.key,
+            ],
+            expect.objectContaining({
+              input: JSON.stringify({ samples: successful.samples }),
+            }),
+          );
+          expect(readFileSync(source, 'utf8')).toBe(transcript);
+          expect(readFileSync(savedPath, 'utf8')).toBe(
+            JSON.stringify(outcome.reports[0].report, null, 2) + '\n',
+          );
+          expect(
+            readdirSync(directory).filter(
+              (entry) => !originalEntries.includes(entry),
+            ),
+          ).toEqual([savedPath.slice(directory.length + 1)]);
+        }
+      }
+    } finally {
+      quiet.mockRestore();
+      vi.resetAllMocks();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);
