@@ -1,7 +1,20 @@
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import {
+  isSupportModelReady,
+  SUPPORT_MODEL_ALIAS,
+} from '../lib/model-readiness.mjs';
 
-export const modelUrl = 'http://127.0.0.1:8017/v1/models';
+export async function localModelIsReady(signal) {
+  try {
+    return await isSupportModelReady(
+      AbortSignal.any([signal, AbortSignal.timeout(1000)]),
+    );
+  } catch {
+    signal.throwIfAborted();
+    return false;
+  }
+}
 
 export function modelLaunch() {
   const path = resolve(
@@ -24,7 +37,7 @@ export function modelLaunch() {
       '99',
       '--jinja',
       '--alias',
-      'customer-support-local',
+      SUPPORT_MODEL_ALIAS,
     ],
   };
 }

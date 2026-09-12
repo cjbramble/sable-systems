@@ -8,6 +8,7 @@ const scenario = process.env.LAUNCHER_TEST_CASE;
 const send = (message) => process.send?.(message);
 const originalSpawn = childProcess.spawn;
 let spawnedModel = false;
+let metadataReplies = 0;
 let releaseModel;
 const modelReady = new Promise((resolve) => {
   releaseModel = resolve;
@@ -89,6 +90,16 @@ globalThis.fetch = async (_url, options) => {
     return new Response('', { status: 503 });
   await modelReady;
   send({ event: 'readiness-poll' });
+  if (scenario.endsWith('metadata')) {
+    const replies = [
+      () => Response.json({ data: [{ id: 'unrelated-model' }] }),
+      () => new Response('invalid JSON'),
+      () => Response.json({}),
+      () => Response.json({ data: [{ id: 'customer-support-local' }] }),
+    ];
+    send({ event: 'metadata-reply', role: String(++metadataReplies) });
+    return replies[Math.min(metadataReplies, replies.length) - 1]();
+  }
   if (scenario.endsWith('late-readiness')) {
     // Deliberately resolve successfully even after abort to check the spawn guard.
     const keepalive = setInterval(() => {}, 1000);

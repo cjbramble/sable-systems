@@ -5,6 +5,10 @@ import { SupportMessage } from './support-message';
 export class SupportPage {
   constructor(private readonly page: Page) {}
 
+  get runtimeStatus() {
+    return this.page.getByRole('status', { name: 'Model connection' });
+  }
+
   get incidents() {
     return this.page.getByRole('navigation', {
       name: 'Open service incidents',

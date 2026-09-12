@@ -2,30 +2,17 @@ import { closeSync, existsSync, mkdirSync, openSync, writeSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { evaluateModelRunSemantics } from './support-semantic-runs.mjs';
-import { modelLaunch, modelUrl, waitForModel } from './local-model.mjs';
+import {
+  localModelIsReady,
+  modelLaunch,
+  waitForModel,
+} from './local-model.mjs';
 import { createProcessScope, exitStatus } from './process-scope.mjs';
 
 const scope = createProcessScope();
 const logPath = resolve('reports/server-logs/llama-test-server.log');
 let logFile;
 let testExitCode;
-
-async function activeModelIsReady(signal) {
-  try {
-    const response = await fetch(modelUrl, {
-      signal: AbortSignal.any([signal, AbortSignal.timeout(1_000)]),
-    });
-    if (!response.ok) return false;
-    const payload = await response.json();
-    return (
-      Array.isArray(payload?.data) &&
-      payload.data.some((model) => model?.id === 'customer-support-local')
-    );
-  } catch {
-    signal.throwIfAborted();
-    return false;
-  }
-}
 
 async function runVitest() {
   const vitestEntrypoint = resolve('node_modules/vitest/vitest.mjs');
@@ -95,7 +82,7 @@ async function runVitest() {
 }
 
 try {
-  if (!(await activeModelIsReady(scope.signal))) {
+  if (!(await localModelIsReady(scope.signal))) {
     scope.signal.throwIfAborted();
     const launch = modelLaunch();
     if (!existsSync(launch.path))
@@ -114,7 +101,7 @@ try {
       );
       return scope.stop(exitStatus(result) || 1);
     });
-    await waitForModel(activeModelIsReady, scope.signal);
+    await waitForModel(localModelIsReady, scope.signal);
   }
   scope.signal.throwIfAborted();
   const { code, transcriptPath } = await runVitest();

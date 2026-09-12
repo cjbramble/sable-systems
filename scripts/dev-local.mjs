@@ -1,23 +1,15 @@
 import { closeSync, existsSync, mkdirSync, openSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { modelLaunch, modelUrl, waitForModel } from './local-model.mjs';
+import {
+  localModelIsReady,
+  modelLaunch,
+  waitForModel,
+} from './local-model.mjs';
 import { createProcessScope, exitStatus } from './process-scope.mjs';
 
 const scope = createProcessScope({ signalCodes: { SIGINT: 0, SIGTERM: 0 } });
 const logPath = resolve('reports/server-logs/llama-server.log');
 let logFile;
-
-async function modelIsReady(signal) {
-  try {
-    const response = await fetch(modelUrl, {
-      signal: AbortSignal.any([signal, AbortSignal.timeout(1000)]),
-    });
-    return response.ok;
-  } catch {
-    signal.throwIfAborted();
-    return false;
-  }
-}
 
 try {
   const launch = modelLaunch();
@@ -38,7 +30,7 @@ try {
     );
     return scope.stop(exitStatus(result) || 1);
   });
-  await waitForModel(modelIsReady, scope.signal);
+  await waitForModel(localModelIsReady, scope.signal);
   scope.signal.throwIfAborted();
   console.log('Local model ready. Starting COV-E at http://127.0.0.1:8016…');
   const web = scope.start('npm', ['run', 'dev:web'], { stdio: 'inherit' });

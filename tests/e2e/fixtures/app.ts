@@ -14,6 +14,7 @@ type App = {
   url: string;
   database: Awaited<ReturnType<Miniflare['getD1Database']>>;
   modelRequests: unknown[];
+  setModelMetadata: (payload: unknown) => void;
 };
 
 type Fixtures = {
@@ -40,6 +41,7 @@ export const test = base.extend<Fixtures>({
       );
     const responseSequence = modelResponses?.slice() ?? null;
     const modelRequests: unknown[] = [];
+    let modelMetadata: unknown = { data: [{ id: 'customer-support-local' }] };
     const unexpectedRequests: string[] = [];
     const serverPath = projectPath('dist/server');
     const files = await readdir(serverPath, { recursive: true });
@@ -72,7 +74,7 @@ export const test = base.extend<Fixtures>({
           request.method === 'GET' &&
           request.url === 'http://127.0.0.1:8017/v1/models'
         ) {
-          return Response.json({ data: [{ id: 'customer-support-local' }] });
+          return Response.json(modelMetadata);
         }
         if (
           request.method === 'POST' &&
@@ -105,7 +107,14 @@ export const test = base.extend<Fixtures>({
     try {
       const url = await runtime.ready;
       const database = await runtime.getD1Database('DB');
-      await provide({ url: url.origin, database, modelRequests });
+      await provide({
+        url: url.origin,
+        database,
+        modelRequests,
+        setModelMetadata(payload) {
+          modelMetadata = payload;
+        },
+      });
     } finally {
       await runtime.dispose();
     }

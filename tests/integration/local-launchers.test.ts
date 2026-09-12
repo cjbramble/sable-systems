@@ -5,6 +5,21 @@ describe.skipIf(process.platform === 'win32')(
   'local launcher process ownership',
   { timeout: 12000 },
   () => {
+    test.for(['dev-metadata', 'test-metadata'])(
+      'waits for the expected model metadata: %s',
+      async (scenario) => {
+        const app = launchFixture(scenario);
+        await app.ready(scenario.startsWith('dev-') ? 'web' : 'vitest');
+        app.child.kill('SIGTERM');
+        await app.stopped(scenario.startsWith('dev-') ? 0 : 143);
+        expect(
+          app.events
+            .filter((event) => event.event === 'metadata-reply')
+            .map((event) => event.role),
+        ).toEqual(['1', '2', '3', '4']);
+      },
+    );
+
     test('stops the actual npm wrapper and web descendant on normal development shutdown', async () => {
       const app = launchFixture('dev-normal');
       await app.ready('web');

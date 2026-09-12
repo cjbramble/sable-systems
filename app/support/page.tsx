@@ -523,8 +523,9 @@ export default function SupportPage() {
             <p>SABLE Systems · Authorized wholesale channel</p>
           </div>
           <div className="chat-header__actions">
-            <span
+            <output
               className={cn('runtime-status', `runtime-status--${runtime}`)}
+              aria-label="Model connection"
             >
               <i />
               {runtime === 'ready'
@@ -532,7 +533,7 @@ export default function SupportPage() {
                 : runtime === 'checking'
                   ? 'AUTHORIZING NODE'
                   : 'NODE // OFFLINE'}
-            </span>
+            </output>
             <Button
               className="header-action"
               variant="outline"

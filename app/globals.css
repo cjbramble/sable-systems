@@ -848,12 +848,14 @@
   min-height: 36px;
   align-items: center;
   gap: 5px;
-  border-radius: 999px;
-  background: #edf7f2;
+  border: 1px solid #47766f;
+  border-radius: 0;
+  background: var(--sable-raised);
   padding: 0 13px;
-  color: #39725c;
+  color: var(--sable-teal);
   font-size: 9px;
   font-weight: 700;
+  letter-spacing: 0.08em;
 }
 .runtime-status i {
   width: 5px;
@@ -862,12 +864,14 @@
   background: currentColor;
 }
 .runtime-status--checking {
-  background: #f3f0e6;
-  color: #897642;
+  border-color: #8c6a32;
+  background: #2f2518;
+  color: #e7bd68;
 }
 .runtime-status--offline {
-  background: #fff0ec;
-  color: #a94e3a;
+  border-color: #9c5948;
+  background: #2f1d1a;
+  color: #efa490;
 }
 .header-action {
   height: 36px;
@@ -1466,13 +1470,6 @@
   border-color: #10181e;
   background: #d59a42;
 }
-.runtime-status {
-  border: 1px solid #315c5f;
-  border-radius: 2px;
-  background: #122429;
-  color: #80c5bf;
-  letter-spacing: 0.08em;
-}
 .today-divider,
 .eyebrow {
   color: #6b9898;
@@ -1634,14 +1631,8 @@
   background: var(--sable-raised);
   color: var(--sable-teal);
 }
-.runtime-status,
 .header-action {
   border-radius: 0;
-}
-.runtime-status {
-  border-color: #47766f;
-  background: var(--sable-raised);
-  color: var(--sable-teal);
 }
 .message-bubble,
 .typing-bubble {

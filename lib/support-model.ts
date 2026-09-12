@@ -1,8 +1,10 @@
 import type { ChatHistoryMessage } from './chat-history';
+import { SUPPORT_MODEL_ALIAS } from './model-readiness.mjs';
+
+export { SUPPORT_MODEL_ALIAS } from './model-readiness.mjs';
 
 export const SUPPORT_MODEL_SERVER_URL =
   'http://127.0.0.1:8017/v1/chat/completions';
-export const SUPPORT_MODEL_ALIAS = 'customer-support-local';
 
 type SupportModelGeneration = {
   temperature: number;
