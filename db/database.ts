@@ -3,21 +3,28 @@ import { env } from 'cloudflare:workers';
 import {
   ACCOUNT_CHARGES_INDEX_SQL,
   ACCOUNT_CHARGES_TABLE_SQL,
+  METADATA_TABLE_SQL,
   SESSIONS_TABLE_SQL,
   USER_CREDENTIALS_TABLE_SQL,
   USERS_TABLE_SQL,
   schemaStatements,
   SCHEMA_VERSION,
   SEED_VERSION,
-  seedCleanupStatements,
 } from './schema';
 import { buildSeedStatements } from './seed';
 
 const BATCH_SIZE = 75;
+const INITIALIZATION_KEY = 'initialization_progress';
+// Change this protocol if batch boundaries or the seed statement order change.
+const INITIALIZATION_VERSION = `${SCHEMA_VERSION}/${SEED_VERSION}/${BATCH_SIZE}/1`;
+const SUPPORTED_SCHEMA_VERSIONS = new Set(['6', '7', SCHEMA_VERSION]);
 let initialization: Promise<D1Database> | null = null;
 
 export function getDatabase(): Promise<D1Database> {
-  initialization ??= initializeDatabase();
+  initialization ??= initializeDatabase().catch((error) => {
+    initialization = null;
+    throw error;
+  });
   return initialization;
 }
 
@@ -25,20 +32,29 @@ async function initializeDatabase() {
   const db = (env as unknown as { DB?: D1Database }).DB;
   if (!db) throw new Error('The DB binding is not configured.');
 
+  const seedStatements = buildSeedStatements();
+  const state = await inspectDatabase(db, seedStatements.length);
+  if (state.kind === 'empty') {
+    // Claim only an empty database, atomically, before any schema/seed work.
+    await db.batch([
+      db.prepare(METADATA_TABLE_SQL),
+      db
+        .prepare('INSERT INTO metadata (key, value) VALUES (?, ?)')
+        .bind(
+          INITIALIZATION_KEY,
+          JSON.stringify({ version: INITIALIZATION_VERSION, nextStatement: 0 }),
+        ),
+    ]);
+  }
+
   await migrateDistributorTable(db);
   await migrateChargeAccountTable(db);
   await migrateDistributorUsers(db);
   await migrateAuthTables(db);
   await db.batch(schemaStatements.map((sql) => db.prepare(sql)));
-  const currentSeed = await db
-    .prepare("SELECT value FROM metadata WHERE key = 'seed_version'")
-    .first<{ value: string }>();
-  const currentSchema = await db
-    .prepare("SELECT value FROM metadata WHERE key = 'schema_version'")
-    .first<{ value: string }>();
-  if (currentSeed?.value === SEED_VERSION) {
+  if (state.kind === 'ready') {
     await seedSupportIncidents(db);
-    if (currentSchema?.value !== SCHEMA_VERSION) {
+    if (state.schemaVersion !== SCHEMA_VERSION) {
       await db
         .prepare(`INSERT INTO metadata (key, value) VALUES (?, ?)
           ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
@@ -49,13 +65,23 @@ async function initializeDatabase() {
     return db;
   }
 
-  await db.batch(seedCleanupStatements.map((sql) => db.prepare(sql)));
-  const seedStatements = buildSeedStatements();
-  for (let index = 0; index < seedStatements.length; index += BATCH_SIZE) {
+  const nextStatement = state.kind === 'pending' ? state.nextStatement : 0;
+  for (
+    let index = nextStatement;
+    index < seedStatements.length;
+    index += BATCH_SIZE
+  ) {
     const batch = seedStatements
       .slice(index, index + BATCH_SIZE)
       .map((statement) => db.prepare(statement.sql).bind(...statement.params));
-    await db.batch(batch);
+    // D1 batches commit atomically: progress never advances past a failed batch.
+    await db.batch([
+      ...batch,
+      progressStatement(
+        db,
+        Math.min(index + BATCH_SIZE, seedStatements.length),
+      ),
+    ]);
   }
   await seedSupportIncidents(db);
   await db.batch([
@@ -65,9 +91,103 @@ async function initializeDatabase() {
     db
       .prepare('INSERT INTO metadata (key, value) VALUES (?, ?)')
       .bind('seed_version', SEED_VERSION),
+    db.prepare('DELETE FROM metadata WHERE key = ?').bind(INITIALIZATION_KEY),
   ]);
   await db.prepare('PRAGMA optimize').run();
   return db;
+}
+
+type DatabaseState =
+  | { kind: 'empty' }
+  | { kind: 'pending'; nextStatement: number }
+  | { kind: 'ready'; schemaVersion: string };
+
+function unsupportedDatabase(): never {
+  throw new Error(
+    'Unsupported database state. Startup made no changes. Preserve the database and review its version metadata before applying an explicit migration or reset.',
+  );
+}
+
+function progressStatement(db: D1Database, nextStatement: number) {
+  return db
+    .prepare(`INSERT INTO metadata (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+    .bind(
+      INITIALIZATION_KEY,
+      JSON.stringify({ version: INITIALIZATION_VERSION, nextStatement }),
+    );
+}
+
+async function inspectDatabase(
+  db: D1Database,
+  seedLength: number,
+): Promise<DatabaseState> {
+  const tables = await db
+    .prepare(`SELECT name FROM sqlite_schema
+    WHERE type = 'table' AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_cf_*'`)
+    .all<{ name: string }>();
+  const metadata = tables.results.some(({ name }) => name === 'metadata')
+    ? (
+        await db
+          .prepare('SELECT key, value FROM metadata')
+          .all<{ key: string; value: string }>()
+      ).results
+    : [];
+  const markers = new Map(metadata.map(({ key, value }) => [key, value]));
+  const seedVersion = markers.get('seed_version');
+  const schemaVersion = markers.get('schema_version');
+  const incidentVersion = markers.get('support_incidents_seed_version');
+  const progress = markers.get(INITIALIZATION_KEY);
+  if (incidentVersion !== undefined && incidentVersion !== '1')
+    unsupportedDatabase();
+
+  if (progress !== undefined) {
+    if (seedVersion !== undefined || schemaVersion !== undefined)
+      unsupportedDatabase();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(progress);
+    } catch {
+      unsupportedDatabase();
+    }
+    if (typeof parsed !== 'object' || parsed === null) unsupportedDatabase();
+    const { version, nextStatement } = parsed as Record<string, unknown>;
+    if (
+      version !== INITIALIZATION_VERSION ||
+      typeof nextStatement !== 'number' ||
+      !Number.isInteger(nextStatement) ||
+      nextStatement < 0 ||
+      nextStatement > seedLength ||
+      (incidentVersion === '1' && nextStatement !== seedLength) ||
+      (nextStatement !== seedLength && nextStatement % BATCH_SIZE !== 0)
+    )
+      unsupportedDatabase();
+    return { kind: 'pending', nextStatement };
+  }
+
+  if (seedVersion !== undefined || schemaVersion !== undefined) {
+    if (
+      seedVersion !== SEED_VERSION ||
+      schemaVersion === undefined ||
+      !SUPPORTED_SCHEMA_VERSIONS.has(schemaVersion)
+    )
+      unsupportedDatabase();
+    return { kind: 'ready', schemaVersion };
+  }
+
+  // Schema-only local databases are safe to seed; unmarked records are not.
+  const knownTables = new Set(
+    schemaStatements.flatMap((sql) => {
+      const match = /^CREATE TABLE IF NOT EXISTS (\w+)/.exec(sql);
+      return match ? [match[1]] : [];
+    }),
+  );
+  for (const { name } of tables.results) {
+    if (!knownTables.has(name)) unsupportedDatabase();
+    if (await db.prepare(`SELECT 1 FROM "${name}" LIMIT 1`).first())
+      unsupportedDatabase();
+  }
+  return { kind: 'empty' };
 }
 
 async function seedSupportIncidents(db: D1Database) {

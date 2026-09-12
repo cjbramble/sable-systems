@@ -89,9 +89,17 @@ orders dated 2021–2031, shipments, returns, account records, and support incid
 - Model server logs: `reports/server-logs/`
 - Schema and seed definitions: [db/schema.ts](db/schema.ts) and [db/seed.ts](db/seed.ts)
 
-These runtime directories are Git-ignored. For data changes, increment
-`SCHEMA_VERSION` for schema migrations and `SEED_VERSION` for a seed rebuild.
-A seed rebuild replaces application records with the seed dataset.
+These runtime directories are Git-ignored. Empty databases are seeded automatically;
+interrupted initialization resumes from the last committed batch. Existing records
+are preserved on startup. Schema versions 6 and 7 upgrade to 8 with the current
+`SEED_VERSION`.
+
+Unsupported versions or populated databases without version metadata stop startup
+without modifying records. Preserve the database and inspect its metadata before
+applying a reviewed migration. Changing `SEED_VERSION` does not reset existing data;
+rebuilding the dataset requires a separate, explicit reset. Seed statement changes
+must update the seed version so unfinished initialization cannot resume with a
+different dataset.
 
 ## Testing
 

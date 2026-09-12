@@ -1,6 +1,11 @@
 export const SCHEMA_VERSION = '8';
 export const SEED_VERSION = 'sable-distribution-2026-09-02-v7';
 
+export const METADATA_TABLE_SQL = `CREATE TABLE IF NOT EXISTS metadata (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+) STRICT`;
+
 export const USERS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS users (
   user_id TEXT PRIMARY KEY,
   distributor_id TEXT NOT NULL REFERENCES distributors(customer_id),
@@ -102,10 +107,7 @@ export const ACCOUNT_CHARGES_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_account
   ON account_charges(order_id)`;
 
 export const schemaStatements = [
-  `CREATE TABLE IF NOT EXISTS metadata (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  ) STRICT`,
+  METADATA_TABLE_SQL,
   `CREATE TABLE IF NOT EXISTS distributors (
     customer_id TEXT PRIMARY KEY,
     legal_name TEXT NOT NULL,
@@ -246,25 +248,4 @@ export const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS idx_inventory_item
     ON inventory_balances(item_number)`,
   ACCOUNT_CHARGES_INDEX_SQL,
-] as const;
-
-export const seedCleanupStatements = [
-  'DELETE FROM sessions',
-  'DELETE FROM support_messages',
-  'DELETE FROM support_incidents',
-  'DELETE FROM account_charges',
-  'DELETE FROM return_items',
-  'DELETE FROM returns',
-  'DELETE FROM shipment_items',
-  'DELETE FROM shipments',
-  'DELETE FROM order_events',
-  'DELETE FROM order_items',
-  'DELETE FROM orders',
-  'DELETE FROM inventory_balances',
-  'DELETE FROM fulfillment_locations',
-  'DELETE FROM products',
-  'DELETE FROM user_credentials',
-  'DELETE FROM users',
-  'DELETE FROM distributors',
-  'DELETE FROM metadata',
 ] as const;
