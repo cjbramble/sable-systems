@@ -1,5 +1,10 @@
 import type { ChatHistoryMessage } from './chat-history.ts';
 import {
+  explicitOrderPo,
+  itemReferences,
+  referenceTokens,
+} from './support-references.ts';
+import {
   isCatalogCategory,
   type CatalogCategory,
 } from './catalog-categories.ts';
@@ -39,23 +44,35 @@ export type SupportQueryIntent =
     }
   | { kind: 'summary'; message: string };
 
-const ORDER_PATTERN = /\b(?:SBL-\d{4}-\d{6}|[A-Z]{3}-(?:PO|REL)-\d{6})\b/i;
-const SHIPMENT_PATTERN = /\b(?:SHP-\d{4}-\d{6}|AST-\d{10})\b/i;
-const RETURN_PATTERN = /\bRTN-\d{4}-\d{6}\b/i;
+const ORDER_PATTERN =
+  /^(?:SBL-\d{4}-[A-Z0-9-]+|[A-Z]{3}-(?:PO|REL)-[A-Z0-9-]+)$/i;
+const SHIPMENT_PATTERN = /^(?:SHP|AST)-[A-Z0-9-]+$/i;
+const RETURN_PATTERN = /^RTN-[A-Z0-9-]+$/i;
 
 function identifierFrom(message: string) {
-  const returnIdentifier = message.match(RETURN_PATTERN)?.[0];
+  const tokens = referenceTokens(message);
+  const returnIdentifier = tokens.find((token) => RETURN_PATTERN.test(token));
   if (returnIdentifier)
-    return { kind: 'return' as const, identifier: returnIdentifier.toUpperCase() };
-  const shipmentIdentifier = message.match(SHIPMENT_PATTERN)?.[0];
+    return {
+      kind: 'return' as const,
+      identifier: returnIdentifier.toUpperCase(),
+    };
+  const shipmentIdentifier = tokens.find((token) =>
+    SHIPMENT_PATTERN.test(token),
+  );
   if (shipmentIdentifier)
     return {
       kind: 'shipment' as const,
       identifier: shipmentIdentifier.toUpperCase(),
     };
-  const orderIdentifier = message.match(ORDER_PATTERN)?.[0];
+  const orderIdentifier =
+    explicitOrderPo(message) ??
+    tokens.find((token) => ORDER_PATTERN.test(token));
   if (orderIdentifier)
-    return { kind: 'order' as const, identifier: orderIdentifier.toUpperCase() };
+    return {
+      kind: 'order' as const,
+      identifier: orderIdentifier.toUpperCase(),
+    };
   return null;
 }
 
@@ -91,10 +108,30 @@ export function classifySupportQuery(
   const explicitIdentifier = identifierFrom(latest);
   if (explicitIdentifier) return explicitIdentifier;
 
-  if (/\b(it|that|this|those|them|its)\b|\bthe (?:order|shipment|return)\b/.test(normalized)) {
+  const items = itemReferences(latest);
+  const category = requestedCategory(normalized);
+  const currentTopic =
+    items.length > 0 ||
+    category ||
+    /\b(?:orders|purchases?|releases?|incidents?|my account|account tier)\b/.test(
+      normalized,
+    );
+  // Explicit current targets outrank follow-ups. Bare "this" (for example,
+  // "this warehouse") does not refer back to an earlier order.
+  if (
+    !currentTopic &&
+    /\b(?:it|its|those|them)\b|\b(?:the|that|this) (?:order|shipment|return)\b|\b(?:about|for) that\s*[?.!]*$/.test(
+      normalized,
+    )
+  ) {
     for (const message of messages.slice(0, -1).toReversed()) {
       const previousIdentifier = identifierFrom(message.content);
       if (previousIdentifier) return previousIdentifier;
+      const previousItems = itemReferences(message.content);
+      if (previousItems.length)
+        return classifySupportQuery([
+          { role: 'user', content: `${latest} ${previousItems.join(' ')}` },
+        ]);
     }
   }
 
@@ -102,7 +139,8 @@ export function classifySupportQuery(
     /\b(charge|billing|authorization|payment|terms|currency|account tier|region)\b/.test(
       normalized,
     );
-  if (includeCharges) return { kind: 'account', includeCharges: true };
+  if (includeCharges && items.length === 0 && !category)
+    return { kind: 'account', includeCharges: true };
 
   const status = orderStatus(normalized);
   const yearMatch = normalized.match(/\b(20\d{2})\b/);
@@ -129,13 +167,13 @@ export function classifySupportQuery(
   )
     return { kind: 'incidents' };
 
-  const category = requestedCategory(normalized);
   // A quantity must start outside a word or hyphenated item number. A word
   // boundary alone also matches the "12" in "SBL-RPC-12 units".
   const quantityMatch = normalized.match(
     /(?<![\w-])(\d{1,6})(?!\s*(?:tb|gb|mb|kb|m)\b)(?:\s+[a-z-]+){0,2}\s+(?:units?|licenses?|controllers?|arrays?|modules?|hubs?|nodes?|packs?)\b/,
   );
   if (
+    items.length > 0 ||
     category ||
     /\b(product|item|catalog|inventory|availability|available|stock|backorder|compare|versus|vs\.?|where stocked|warehouse|fulfillment location)\b/.test(
       normalized,
@@ -146,8 +184,9 @@ export function classifySupportQuery(
       message: normalized,
       category,
       quantity: quantityMatch ? Number(quantityMatch[1]) : undefined,
-      includeLocations:
-        /\b(where|location|warehouse|stocked|region)\b/.test(normalized),
+      includeLocations: /\b(where|location|warehouse|stocked|region)\b/.test(
+        normalized,
+      ),
       compare: /\b(compare|versus|vs\.?)\b/.test(normalized),
     };
   }

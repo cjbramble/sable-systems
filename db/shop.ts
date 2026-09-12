@@ -1,5 +1,6 @@
 import type { AuthenticatedUser } from './auth';
 import type { CatalogProduct } from '@/lib/contracts';
+import { parseCustomerPo } from '@/lib/support-references';
 
 type CheckoutLine = { itemNumber: string; quantity: number };
 type CheckoutInput = {
@@ -78,10 +79,7 @@ function isCalendarDate(value: string): boolean {
 export function parseCheckoutInput(value: unknown): CheckoutInput | null {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Record<string, unknown>;
-  const customerPoNumber =
-    typeof candidate.customerPoNumber === 'string'
-      ? candidate.customerPoNumber.trim().toUpperCase()
-      : '';
+  const customerPoNumber = parseCustomerPo(candidate.customerPoNumber);
   const requestedShipDate =
     typeof candidate.requestedShipDate === 'string'
       ? candidate.requestedShipDate.trim()
@@ -91,7 +89,7 @@ export function parseCheckoutInput(value: unknown): CheckoutInput | null {
       ? candidate.shippingRegion.trim()
       : '';
   if (
-    !/^[A-Z0-9][A-Z0-9-]{3,39}$/.test(customerPoNumber) ||
+    !customerPoNumber ||
     !isCalendarDate(requestedShipDate) ||
     shippingRegion.length < 3 ||
     shippingRegion.length > 80 ||
@@ -262,10 +260,7 @@ export async function placeChargeAccountOrder(
     await db.batch(statements);
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
-    if (
-      message.includes('UNIQUE') &&
-      message.includes('customer_po_number')
-    ) {
+    if (message.includes('UNIQUE') && message.includes('customer_po_number')) {
       throw new CheckoutError(
         'That purchase-order reference is already in use.',
         409,

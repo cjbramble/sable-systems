@@ -6,6 +6,52 @@ import { classifySupportQuery } from '@/lib/support-query';
 import { calderPikeUser } from '../fixtures/users';
 
 describe('support catalog grounding', () => {
+  it('resolves whole SKU tokens and does not substitute for unknown suffixes after an order discussion', async () => {
+    const database = await getDatabase();
+    const previous = [
+      { role: 'user' as const, content: 'Show SBL-2026-000417.' },
+    ];
+    for (const content of [
+      'Is (sbl-rpc-12) available at this warehouse?',
+      'Tell me about SBL-RPC-12.',
+      'Is Redline Power Cell R12 available at this warehouse?',
+    ]) {
+      const context = await buildAuthorizedContext(
+        database,
+        [...previous, { role: 'user', content }],
+        calderPikeUser,
+      );
+      expect(context).toContain('Product: SBL-RPC-12 — Redline Power Cell R12');
+      expect(context).toContain('Wholesale price: $680.00');
+      expect(context).toContain('Available to promise as of 2026-09-02: 312.');
+      expect(context).not.toContain('Order: SBL-2026-000417');
+    }
+    for (const sku of [
+      'SBL-RPC-123',
+      'SBL-RPC-12X',
+      'SBL-RPC-12-EXTRA',
+      'SBL-RPC',
+    ]) {
+      expect(
+        await database
+          .prepare('SELECT item_number FROM products WHERE item_number = ?')
+          .bind(sku)
+          .first(),
+      ).toBeNull();
+      const context = await buildAuthorizedContext(
+        database,
+        [
+          ...previous,
+          { role: 'user', content: `Is ${sku} available at this warehouse?` },
+        ],
+        calderPikeUser,
+      );
+      expect(context).toContain(`No catalog item matching ${sku} was found.`);
+      expect(context).not.toMatch(
+        /Product:|Wholesale price:|Available to promise|Order:/,
+      );
+    }
+  });
   it('prioritizes full product names and item numbers over shared search terms', async () => {
     const database = await getDatabase();
     const scenarios = [
@@ -30,13 +76,15 @@ describe('support catalog grounding', () => {
           'Is RelayMesh Node License, Annual available?',
           'Is the SBL-RLY-1Y node license available?',
         ],
-        product: 'SBL-RLY-1Y — RelayMesh Node License, Annual; category Software.',
+        product:
+          'SBL-RLY-1Y — RelayMesh Node License, Annual; category Software.',
         fact: 'Wholesale price: $620.00 per node; minimum block 10.',
       },
       {
         // Keyword-only lookups must still work when no full name or SKU appears.
         prompts: ['What is the haptic availability?'],
-        product: 'SBL-BCH-V3 — Blackchannel Haptic Controller; category Interface.',
+        product:
+          'SBL-BCH-V3 — Blackchannel Haptic Controller; category Interface.',
         fact: 'Available to promise as of 2026-09-02: 134.',
       },
     ];

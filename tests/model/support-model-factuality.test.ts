@@ -4,6 +4,7 @@ import type { AuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { buildAuthorizedContext } from '@/db/support';
 import type { ChatHistoryMessage } from '@/lib/chat-history';
+import { hasGroundedSupportIdentifiers } from '@/lib/support-response';
 import {
   createSupportModelRequest,
   extractSupportModelContent,
@@ -160,6 +161,125 @@ async function expectFiveNormalGenerationSamples({
 }
 
 describe('support model factuality', () => {
+  it('resolves custom PO references without disclosing foreign or unknown orders', async () => {
+    const database = await getDatabase();
+    const orderId = 'SBL-2026-000417';
+    const original = await database
+      .prepare('SELECT customer_po_number FROM orders WHERE order_id = ?')
+      .bind(orderId)
+      .first<string>('customer_po_number');
+    expect(original).toBe('CPD-PO-260417');
+    const meridian = await loadActiveUserFixture(database, 'USR-MCS-001');
+    try {
+      await database
+        .prepare('UPDATE orders SET customer_po_number = ? WHERE order_id = ?')
+        .bind('REVIEW-CUSTOM-PO', orderId)
+        .run();
+      for (const scenario of [
+        { user: calderPikeUser, po: 'REVIEW-CUSTOM-PO', allowed: true },
+        { user: meridian, po: 'REVIEW-CUSTOM-PO', allowed: false },
+        { user: calderPikeUser, po: 'REVIEW-UNKNOWN-PO', allowed: false },
+      ]) {
+        const { answer, authorizedContext } = await askSupportModel(
+          [
+            {
+              role: 'user',
+              content: `Find customer PO ${scenario.po}. Give only the order ID, status, and total if authorized; otherwise explain that it cannot be located in my account.`,
+            },
+          ],
+          110427,
+          scenario.user,
+        );
+        console.info(
+          `Custom PO ${scenario.user.distributorId} ${scenario.po}:`,
+          { authorizedContext, answer },
+        );
+        if (scenario.allowed) {
+          expect(authorizedContext).toContain(
+            'Order: SBL-2026-000417; customer PO: REVIEW-CUSTOM-PO; status: partially_shipped.',
+          );
+          expect(authorizedContext).toContain('Order total: $78,320.00.');
+          expect(answer).toContain(orderId);
+          expect(answer).toMatch(/partially[_ -]shipped/i);
+          expect(answer).toMatch(/\$78,320(?:\.00)?/);
+        } else {
+          expect(authorizedContext).toContain(
+            `No order matching ${scenario.po} is available within`,
+          );
+          expect(authorizedContext).not.toContain(orderId);
+          expect(answer).toMatch(
+            /cannot|can't|unable|not (?:available|found)|no (?:matching )?order/i,
+          );
+          expect(answer).not.toMatch(
+            /SBL-2026-000417|78,320|partially[_ -]shipped|\$\s*\d/,
+          );
+        }
+        expect(hasGroundedSupportIdentifiers(answer, authorizedContext)).toBe(
+          true,
+        );
+      }
+    } finally {
+      await database
+        .prepare('UPDATE orders SET customer_po_number = ? WHERE order_id = ?')
+        .bind(original, orderId)
+        .run();
+    }
+  }, 120_000);
+
+  it('follows an explicit product topic change and refuses a mistyped SKU suffix', async () => {
+    const previous: ChatHistoryMessage[] = [
+      { role: 'user', content: 'Show SBL-2026-000417.' },
+      { role: 'assistant', content: 'That order is partially shipped.' },
+    ];
+    for (const sku of ['SBL-RPC-12', 'SBL-RPC-123']) {
+      const { answer, authorizedContext, database } = await askSupportModel(
+        [
+          ...previous,
+          {
+            role: 'user',
+            content: `Is ${sku} available at this warehouse? Give its item number and available quantity only if it is found; otherwise ask me to verify the item number.`,
+          },
+        ],
+        110312,
+      );
+      console.info(`Explicit product ${sku}:`, { authorizedContext, answer });
+      expect(authorizedContext).not.toContain('Order: SBL-2026-000417');
+      if (sku === 'SBL-RPC-12') {
+        expect(
+          await database
+            .prepare(
+              'SELECT SUM(on_hand_quantity - reserved_quantity - quarantined_quantity) AS available FROM inventory_balances WHERE item_number = ?',
+            )
+            .bind(sku)
+            .first('available'),
+        ).toBe(312);
+        expect(authorizedContext).toContain(
+          'Available to promise as of 2026-09-02: 312.',
+        );
+        expect(answer).toContain(sku);
+        expect(answer).toMatch(/\b312\b/);
+      } else {
+        expect(
+          await database
+            .prepare('SELECT item_number FROM products WHERE item_number = ?')
+            .bind(sku)
+            .first(),
+        ).toBeNull();
+        expect(authorizedContext).toContain(
+          `No catalog item matching ${sku} was found.`,
+        );
+        expect(answer).toMatch(
+          /verify|check|confirm|not found|no (?:matching |catalog )?item/i,
+        );
+        expect(answer).not.toMatch(
+          /\bSBL-RPC-12(?![\w-])|\b(?:312|680)\b|\$\s*\d/,
+        );
+      }
+      expect(hasGroundedSupportIdentifiers(answer, authorizedContext)).toBe(
+        true,
+      );
+    }
+  }, 120_000);
   it('uses only authorized identifiers, amounts, and dates for an exact order', async () => {
     const messages = [
       {

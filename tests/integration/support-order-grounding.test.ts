@@ -3,9 +3,78 @@ import { describe, expect, it } from 'vitest';
 import { getDatabase } from '@/db/database';
 import { buildAuthorizedContext } from '@/db/support';
 import { classifySupportQuery } from '@/lib/support-query';
+import { parseCheckoutInput } from '@/db/shop';
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 describe('support order grounding', () => {
+  it('resolves checkout-valid custom POs with the same tenant-scoped lookup', async () => {
+    const database = await getDatabase();
+    const orderId = 'SBL-2026-000417';
+    const original = await database
+      .prepare('SELECT customer_po_number FROM orders WHERE order_id = ?')
+      .bind(orderId)
+      .first<string>('customer_po_number');
+    expect(original).toBe('CPD-PO-260417');
+    const reference = 'REVIEW-CUSTOM-PO';
+    expect(
+      parseCheckoutInput({
+        customerPoNumber: reference.toLowerCase(),
+        requestedShipDate: '2031-01-01',
+        shippingRegion: 'North Atlantic Trade District',
+        items: [{ itemNumber: 'SBL-RPC-12', quantity: 8 }],
+      })?.customerPoNumber,
+    ).toBe(reference);
+    const meridian = await loadActiveUserFixture(database, 'USR-MCS-001');
+    try {
+      await database
+        .prepare('UPDATE orders SET customer_po_number = ? WHERE order_id = ?')
+        .bind(reference, orderId)
+        .run();
+      const canonical = await buildAuthorizedContext(
+        database,
+        [{ role: 'user', content: `Show ${orderId}.` }],
+        calderPikeUser,
+      );
+      for (const content of [
+        `Find order ${reference}.`,
+        `What is the status of customer PO ${reference.toLowerCase()}?`,
+      ]) {
+        const context = await buildAuthorizedContext(
+          database,
+          [{ role: 'user', content }],
+          calderPikeUser,
+        );
+        expect(context).toBe(canonical);
+        expect(context).toContain(
+          `Order: ${orderId}; customer PO: ${reference}; status: partially_shipped.`,
+        );
+        expect(context).toContain('Order total: $78,320.00.');
+        const foreign = await buildAuthorizedContext(
+          database,
+          [{ role: 'user', content }],
+          meridian,
+        );
+        expect(foreign).toContain(
+          `No order matching ${reference} is available within Meridian Civic Supply's authorization scope.`,
+        );
+        expect(foreign).not.toMatch(/SBL-2026-000417|78,320|partially_shipped/);
+      }
+      const unknown = await buildAuthorizedContext(
+        database,
+        [{ role: 'user', content: 'Find PO REVIEW-UNKNOWN-PO.' }],
+        calderPikeUser,
+      );
+      expect(unknown).toContain(
+        'No order matching REVIEW-UNKNOWN-PO is available within',
+      );
+      expect(unknown).not.toMatch(/Order total:|Lines:/);
+    } finally {
+      await database
+        .prepare('UPDATE orders SET customer_po_number = ? WHERE order_id = ?')
+        .bind(original, orderId)
+        .run();
+    }
+  });
   it('builds an exact, tenant-scoped context for a known order', async () => {
     const messages = [
       {

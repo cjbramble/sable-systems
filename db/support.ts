@@ -4,6 +4,7 @@ import { AS_OF_DATE } from './seed';
 import type { ChatHistoryMessage } from '@/lib/chat-history';
 import type { AccountSummary } from '@/lib/contracts';
 import { formatCurrency } from '@/lib/format';
+import { itemReferences } from '@/lib/support-references';
 import {
   classifySupportQuery,
   type SupportOrderStatus,
@@ -73,6 +74,25 @@ export async function buildAuthorizedContext(
   user: AuthenticatedUser,
 ) {
   const intent = classifySupportQuery(messages);
+  const products =
+    'message' in intent ? await matchProducts(db, intent.message) : [];
+  if (
+    intent.kind === 'catalog' ||
+    intent.kind === 'orders' ||
+    intent.kind === 'summary'
+  ) {
+    const references = itemReferences(intent.message);
+    if (references.length) {
+      const unknown = references.filter(
+        (reference) =>
+          !products.some((product) => product.item_number === reference),
+      );
+      if (unknown.length)
+        return `<authorized_records>
+No catalog item matching ${unknown.join(', ')} was found. Ask the customer to verify the complete item number. Do not substitute a similarly numbered product or infer its stock or price.
+</authorized_records>`;
+    }
+  }
   switch (intent.kind) {
     case 'order':
       return orderContext(db, intent.identifier, user);
@@ -81,7 +101,6 @@ export async function buildAuthorizedContext(
     case 'return':
       return returnContext(db, intent.identifier, user);
     case 'orders': {
-      const products = await matchProducts(db, intent.message);
       return orderSearchContext(
         db,
         user,
@@ -96,9 +115,10 @@ export async function buildAuthorizedContext(
     case 'account':
       return accountContext(db, user, intent.includeCharges);
     case 'catalog': {
-      const products = await matchProducts(db, intent.message);
       if (products.length > 0 && (!intent.category || products.length <= 3)) {
-        const selected = intent.compare ? products.slice(0, 3) : products.slice(0, 1);
+        const selected = intent.compare
+          ? products.slice(0, 3)
+          : products.slice(0, 1);
         return productComparisonContext(
           db,
           selected,
@@ -110,7 +130,6 @@ export async function buildAuthorizedContext(
       return inventoryAlertContext(db);
     }
     case 'summary': {
-      const products = await matchProducts(db, intent.message);
       if (products.length > 0)
         return productComparisonContext(db, products.slice(0, 1));
       return summaryContext(db, user);
@@ -118,10 +137,7 @@ export async function buildAuthorizedContext(
   }
 }
 
-async function incidentHistoryContext(
-  db: D1Database,
-  user: AuthenticatedUser,
-) {
+async function incidentHistoryContext(db: D1Database, user: AuthenticatedUser) {
   const incidents = (await listSupportIncidents(db, user)).slice(0, 8);
   return `<authorized_records>
 Support incidents for authenticated user ${user.userDisplayName} (${user.userId}); showing up to 8 most recent.
@@ -289,7 +305,8 @@ async function orderSearchContext(
     params.push(status);
   }
   if (year) {
-    const column = yearField === 'requested' ? 'o.requested_ship_date' : 'o.created_on';
+    const column =
+      yearField === 'requested' ? 'o.requested_ship_date' : 'o.created_on';
     clauses.push(`${column} >= ? AND ${column} < ?`);
     params.push(`${year}-01-01`, `${year + 1}-01-01`);
   }
@@ -310,7 +327,9 @@ async function orderSearchContext(
     .all<Record<string, string | number>>();
   const criteria = [
     status ? `status ${status.replaceAll('_', ' ')}` : null,
-    year ? `${yearField === 'requested' ? 'requested' : 'created'} in ${year}` : null,
+    year
+      ? `${yearField === 'requested' ? 'requested' : 'created'} in ${year}`
+      : null,
     product
       ? `containing product ${product.product_name} (${product.item_number})`
       : null,
@@ -354,12 +373,13 @@ async function matchProducts(db: D1Database, message: string) {
     .prepare('SELECT * FROM products ORDER BY product_name')
     .all<ProductRow>();
   const explicitMatches: ProductRow[] = [];
+  const references = new Set(itemReferences(message));
   const keywordCandidates: ProductRow[] = [];
   let keywordMessage = message;
   for (const product of rows.results) {
     const itemNumber = product.item_number.toLowerCase();
     const productName = product.product_name.toLowerCase();
-    if (message.includes(itemNumber) || message.includes(productName)) {
+    if (references.has(product.item_number) || message.includes(productName)) {
       explicitMatches.push(product);
       // Words inside a full name identify that product, not another product's
       // alias. Remove every explicit mention only from the keyword-search copy.
