@@ -10,8 +10,8 @@ import {
   extractSupportModelContent,
 } from '@/lib/support-model';
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
-import casePackFixture from '../fixtures/semantic/case-pack.json';
-import comparisonFixture from '../fixtures/semantic/comparison.json';
+import casePackFixture from '../fixtures/judge/case-pack.json';
+import comparisonFixture from '../fixtures/judge/comparison.json';
 import { expectCasePackResponse } from '../assertions/case-pack-response';
 import {
   expectProductComparisonResponse,

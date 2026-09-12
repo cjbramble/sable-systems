@@ -3,8 +3,8 @@ import { expectCasePackResponse } from '../assertions/case-pack-response';
 import { expectOverlappingComparisonResponse } from '../assertions/product-comparison';
 import { expectClaimsToComeFromContext } from '../assertions/context-claims';
 import { comparisonContext } from '../fixtures/model-context';
-import comparison from '../fixtures/semantic/comparison.json';
-import casePack from '../fixtures/semantic/case-pack.json';
+import comparison from '../fixtures/judge/comparison.json';
+import casePack from '../fixtures/judge/case-pack.json';
 import { distributorIdentities } from '../fixtures/users';
 
 // These preauthored examples now inform the factual checkers. Their old holdout

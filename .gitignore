@@ -62,7 +62,7 @@ yarn-error.log*
 *.tsbuildinfo
 
 # local model weights
-/models/semantic/
+/models/judge/*.partial
 /models/**/*.gguf
 /models/**/*.safetensors
 /models/**/*.onnx
@@ -80,5 +80,8 @@ next-env.d.ts
 /work/
 /reports/server-logs/
 /reports/model-runs/
+/reports/judge-runs/
+.deepeval/
+.deepeval*
 /tmp/
 /temp/

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import fixture from '../../fixtures/semantic/comparison.json';
+import fixture from '../../fixtures/judge/comparison.json';
 
 // Independently authored oracle for the 2026-09-02 test inventory. Do not derive
 // these facts from generated answers or the fixture being checked.

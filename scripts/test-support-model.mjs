@@ -1,7 +1,6 @@
 import { closeSync, existsSync, mkdirSync, openSync, writeSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
-import { evaluateModelRunSemantics } from './support-semantic-runs.mjs';
 import {
   localModelIsReady,
   modelLaunch,
@@ -13,6 +12,8 @@ const scope = createProcessScope();
 const logPath = resolve('reports/server-logs/llama-test-server.log');
 let logFile;
 let testExitCode;
+let ownedModel;
+let releasingModel = false;
 
 async function runVitest() {
   const vitestEntrypoint = resolve('node_modules/vitest/vitest.mjs');
@@ -31,7 +32,7 @@ async function runVitest() {
         throw new Error('Model transcript capture requires --reporter=verbose');
     } else if (arg === '--silent' || arg.startsWith('--silent=')) {
       throw new Error(
-        'Silent model tests cannot retain semantic evaluation evidence',
+        'Silent model tests cannot retain model evaluation evidence',
       );
     } else args.push(arg);
   }
@@ -92,8 +93,9 @@ try {
     const model = scope.start(launch.executable, launch.args, {
       stdio: ['ignore', logFile, logFile],
     });
+    ownedModel = model;
     void model.exited.then((result) => {
-      if (scope.stopping) return;
+      if (scope.stopping || releasingModel) return;
       console.error(
         result.error
           ? `Could not start llama-server: ${result.error.message}`
@@ -107,10 +109,30 @@ try {
   const { code, transcriptPath } = await runVitest();
   testExitCode = code;
   if (!scope.stopping) {
-    const outcome = evaluateModelRunSemantics(transcriptPath, code);
-    for (const { scenario, error } of outcome.errors)
-      console.error(`Semantic evaluation failed (${scenario}):`, error);
-    await scope.stop(outcome.exitCode);
+    // Release only our own chatbot model before loading the larger judge.
+    if (ownedModel) {
+      releasingModel = true;
+      await ownedModel.stop();
+      await ownedModel.closed;
+    }
+    const { listSamplingScenarios, getSamplingScenario } =
+      await import('./sampling-results.mjs');
+    const { readFileSync } = await import('node:fs');
+    const text = readFileSync(transcriptPath, 'utf8');
+    const hasSamples = listSamplingScenarios().some(
+      (scenario) =>
+        getSamplingScenario(scenario).parseTranscript(text) !== null,
+    );
+    if (hasSamples) {
+      const judge = scope.start(
+        process.execPath,
+        ['scripts/test-support-judge.mjs', '--transcript', transcriptPath],
+        { stdio: 'inherit' },
+      );
+      const result = await judge.exited;
+      await judge.closed;
+      await scope.stop(code || exitStatus(result));
+    } else await scope.stop(code);
   }
 } catch (error) {
   if (!scope.stopping) {

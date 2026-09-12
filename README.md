@@ -111,8 +111,8 @@ different dataset.
 | Cloudflare Vitest plugin | Runs Vitest tests in the Workers runtime                              |
 | Miniflare                | Local Workers runtime setup and disposable D1 databases               |
 | Playwright               | Chromium browser workflows using page objects                         |
-| pytest                   | Python evaluator integration tests using the local embedding model    |
-| Sentence Transformers    | Advisory response-similarity scoring with `all-MiniLM-L6-v2`          |
+| pytest                   | Python judge-adapter and local-only transport tests                   |
+| DeepEval                 | Rubric-based response judging with a local Qwen3-14B model             |
 
 Oxlint provides lint checks, TypeScript checks types, and a custom validator checks
 the seed dataset.
@@ -125,18 +125,23 @@ Install Chromium for browser tests:
 npx playwright install chromium
 ```
 
-For Python evaluator tests, semantic scoring, and the full live-model suite,
+For Python judge tests and the full live-model suite,
 install `uv` and run:
 
 ```sh
-npm run setup:semantic
+npm run setup:judge
 ```
 
-Semantic setup provisions the Python 3.12 environment and downloads the pinned
-embedding model. Scoring runs locally on the CPU. Live-model tests use the
-configured Qwen model; the runner starts `llama-server` on port 8017 when needed.
-An already-running model server is left running. Interrupted runs retain their
-partial transcript.
+Judge setup provisions Python 3.12 and downloads the checksum-verified Qwen3-14B
+Q4_K_M model (9 GB) into the Git-ignored `models/judge/` directory. Setup requires
+internet access; evaluation is local-only with telemetry disabled and no cloud
+provider fallback.
+
+Stop the app before running full model evaluations. The runner uses port 8017
+sequentially: generate responses with the chatbot, unload its model, then load
+the judge with an 8,192-token context and one processing slot. It never stops an
+externally started server. An occupied port prevents judge startup. Interrupted
+runs retain partial evidence.
 
 ### Commands
 
@@ -144,9 +149,9 @@ partial transcript.
 | ----------------------- | ----------------------------------------------------------------------------- |
 | `npm test`              | Deterministic unit and integration tests                                      |
 | `npm run test:e2e`      | Production build and browser tests                                            |
-| `npm run test:model`    | Live Qwen evaluations, including repeated sampling and semantic scoring       |
-| `npm run test:semantic` | Semantic calibration or scoring of a saved transcript                         |
-| `npm run test:python`   | Python evaluator integration tests                                           |
+| `npm run test:model`    | Live chatbot factuality tests, repeated sampling, then local judging          |
+| `npm run test:judge`    | Local judge validation against 22 labeled examples                            |
+| `npm run test:python`   | Judge-adapter unit tests; no model server required                              |
 | `npm run validate:data` | Seed-data validation                                                          |
 | `npm run check`         | Lint, type checks, deterministic tests, seed validation, and production build |
 
@@ -158,7 +163,7 @@ model responses.
 Run all test suites in sequence (stops if a suite fails):
 
 ```sh
-npm test && npm run test:python && npm run test:e2e && npm run test:model
+npm test && npm run test:python && npm run test:e2e && npm run test:judge && npm run test:model
 ```
 
 Run individual files or select model tests by name:
@@ -169,10 +174,10 @@ npm run test:e2e -- tests/e2e/checkout.spec.ts
 npm run test:model -- -t 'across five samples'
 ```
 
-Score a saved transcript using the `case-pack` or `comparison` scenario:
+Judge the sampling scenarios in a saved transcript without regenerating answers:
 
 ```sh
-npm run test:semantic -- --scenario case-pack --transcript reports/model-runs/<run>.log
+npm run test:judge -- --transcript reports/model-runs/<run>.log
 ```
 
 ### Organization and results
@@ -181,13 +186,21 @@ Tests are grouped under `tests/unit/`, `tests/integration/`, `tests/model/`,
 and `tests/e2e/`. Shared data and setup live in `tests/fixtures/`; reusable
 response checks live in `tests/assertions/`. Browser tests use
 `tests/e2e/pages/` for page objects and `tests/e2e/fixtures/` for setup.
-Python evaluator tests live in `tests/integration/semantic/`.
+Python judge tests live in `tests/unit/judge-python/`. Authored reference answers
+and labeled judge-validation examples live in `tests/fixtures/judge/`.
 
 Model tests check factual accuracy and authorization. Repeated-sampling tests
-evaluate five responses per scenario at normal generation settings. Semantic
-scores are advisory; factual assertions determine response correctness.
+evaluate five responses per scenario at normal generation settings. DeepEval
+uses fixed evaluation steps and schema-constrained binary verdicts to check
+groundedness, completeness, and contradictions. Judge verdicts on live answers
+are advisory; factual assertions remain mandatory. Judge validation fails if
+any authored label disagrees with its verdict. Transport, parsing, and model
+errors fail the run; they are never converted into successful judgments.
+See the [judge validation status](models/judge/README.md#validation-status)
+before interpreting live judge scores as evidence of correctness.
 
-Model transcripts and semantic reports are saved in `reports/model-runs/`.
+Model transcripts are saved in `reports/model-runs/`. Judge reports and
+incremental JSONL evidence are saved in `reports/judge-runs/`.
 Browser reports are saved in `playwright-report/`, with failure screenshots
 and traces in `test-results/`. These outputs are Git-ignored. View the browser
 report with `npx playwright show-report`.
