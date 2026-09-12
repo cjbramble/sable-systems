@@ -22,6 +22,23 @@ export class OrdersPage {
     return this.page.getByRole('table');
   }
 
+  get loadingError() {
+    return this.page.getByRole('alert');
+  }
+
+  async retryLoading() {
+    await this.page
+      .getByRole('button', { name: 'Retry order history', exact: true })
+      .click();
+  }
+
+  async submitSearch(query: string) {
+    await this.page.getByPlaceholder('Order ID, PO, or buyer').fill(query);
+    await this.page
+      .getByRole('button', { name: 'Search', exact: true })
+      .click();
+  }
+
   get orderRows() {
     return this.table.locator('tbody').getByRole('row');
   }
@@ -33,7 +50,6 @@ export class OrdersPage {
   }
 
   async search(query: string) {
-    await this.page.getByPlaceholder('Order ID, PO, or buyer').fill(query);
     const [response] = await Promise.all([
       this.page.waitForResponse((response) => {
         const url = new URL(response.url());
@@ -43,7 +59,7 @@ export class OrdersPage {
           url.searchParams.get('query') === query
         );
       }),
-      this.page.getByRole('button', { name: 'Search', exact: true }).click(),
+      this.submitSearch(query),
     ]);
     return response;
   }

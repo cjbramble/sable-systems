@@ -92,9 +92,14 @@ async function requestCatalog(signal: AbortSignal) {
 export default function ShopPage() {
   const { signOut, signingOut, signOutError } = useSignOut();
   const pageRequest = useRef<AbortController | null>(null);
+  const catalogRequest = useRef(0);
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [account, setAccount] = useState<AccountSummary | null>(null);
-  const [authChecked, setAuthChecked] = useState(false);
+  const [accountStatus, setAccountStatus] = useState<
+    'loading' | 'ready' | 'error' | 'redirecting'
+  >('loading');
+  const [accountError, setAccountError] = useState('');
+  const [accountAttempt, setAccountAttempt] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [category, setCategory] = useState<ShopCategory>('All');
@@ -103,7 +108,7 @@ export default function ShopPage() {
   const [cartOpen, setCartOpen] = useState(false);
   const [poNumber, setPoNumber] = useState('');
   const [shipDate, setShipDate] = useState(dateOffset(14));
-  const [region, setRegion] = useState('North Atlantic Trade District');
+  const [region, setRegion] = useState('');
   const [chargeAccountAuthorized, setChargeAccountAuthorized] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
@@ -111,10 +116,14 @@ export default function ShopPage() {
 
   const loadCatalog = useCallback((signal = pageRequest.current?.signal) => {
     if (!signal || signal.aborted) return;
+    const request = ++catalogRequest.current;
+    const isCurrent = () =>
+      !signal.aborted && request === catalogRequest.current;
     return requestCatalog(signal)
       .then((nextProducts) => {
-        if (signal.aborted) return;
+        if (!isCurrent()) return;
         if (!nextProducts) {
+          setAccountStatus('redirecting');
           redirectToLogin(requestedDestination());
           return;
         }
@@ -128,13 +137,13 @@ export default function ShopPage() {
         setLoadError('');
       })
       .catch((error: unknown) => {
-        if (signal.aborted) return;
+        if (!isCurrent()) return;
         setLoadError(
           error instanceof Error ? error.message : 'Catalog unavailable.',
         );
       })
       .finally(() => {
-        if (!signal.aborted) setLoading(false);
+        if (isCurrent()) setLoading(false);
       });
   }, []);
 
@@ -151,26 +160,51 @@ export default function ShopPage() {
       .then(async (response) => {
         if (controller.signal.aborted) return;
         if (response.status === 401) {
+          setAccountStatus('redirecting');
           redirectToLogin(requestedDestination());
-          throw new Error('Authentication required.');
+          return;
         }
-        if (!response.ok) throw new Error('Account unavailable.');
+        if (!response.ok)
+          throw new Error(
+            'Account details could not be loaded. Please try again.',
+          );
         return (await response.json()) as AccountSummary;
       })
       .then((identity) => {
         if (!controller.signal.aborted && identity) {
           setAccount(identity);
           setRegion(identity.region);
-          setAuthChecked(true);
+          setAccountStatus((status) =>
+            status === 'redirecting' ? status : 'ready',
+          );
         }
       })
       .catch(() => {
-        if (!controller.signal.aborted) setAuthChecked(true);
+        if (!controller.signal.aborted) {
+          setAccountError(
+            'Account details could not be loaded. Please try again.',
+          );
+          setAccountStatus((status) =>
+            status === 'redirecting' ? status : 'error',
+          );
+        }
       });
     return () => {
       controller.abort();
     };
-  }, []);
+  }, [accountAttempt]);
+
+  function retryAccount() {
+    setAccountStatus('loading');
+    setAccountError('');
+    setAccountAttempt((attempt) => attempt + 1);
+  }
+
+  function retryCatalog() {
+    setLoading(true);
+    setLoadError('');
+    void loadCatalog();
+  }
 
   const categories = useMemo<ShopCategory[]>(
     () => [
@@ -244,7 +278,8 @@ export default function ShopPage() {
   async function submitOrder(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     const signal = pageRequest.current?.signal;
-    if (!signal || signal.aborted) return;
+    if (!signal || signal.aborted || accountStatus !== 'ready' || !account)
+      return;
     if (!cartProducts.length || !chargeAccountAuthorized || submitting) return;
     setSubmitting(true);
     setCheckoutError('');
@@ -268,6 +303,7 @@ export default function ShopPage() {
       };
       if (signal.aborted) return;
       if (response.status === 401) {
+        setAccountStatus('redirecting');
         redirectToLogin(requestedDestination());
         return;
       }
@@ -289,11 +325,18 @@ export default function ShopPage() {
     }
   }
 
-  if (!authChecked) {
+  if (accountStatus !== 'ready' || !account) {
     return (
       <main className="access-check">
         <ShieldCheck />
-        <span>VERIFYING PROCUREMENT CREDENTIALS</span>
+        {accountStatus === 'error' ? (
+          <div role="alert">
+            <p>{accountError}</p>
+            <Button onClick={retryAccount}>Retry account</Button>
+          </div>
+        ) : (
+          <span>VERIFYING PROCUREMENT CREDENTIALS</span>
+        )}
       </main>
     );
   }
@@ -392,11 +435,11 @@ export default function ShopPage() {
           <span>USD // WHOLESALE UNIT PRICING</span>
         </div>
         {loadError ? (
-          <div className="catalog-state">
+          <div className="catalog-state" role="alert">
             <ShieldCheck />
             <h2>Inventory link interrupted</h2>
             <p>{loadError}</p>
-            <Button onClick={() => void loadCatalog()}>Retry uplink</Button>
+            <Button onClick={retryCatalog}>Retry uplink</Button>
           </div>
         ) : loading ? (
           <div className="catalog-state">
@@ -705,7 +748,12 @@ export default function ShopPage() {
                 className="place-order"
                 size="lg"
                 type="submit"
-                disabled={!chargeAccountAuthorized || submitting}
+                disabled={
+                  !account ||
+                  accountStatus !== 'ready' ||
+                  !chargeAccountAuthorized ||
+                  submitting
+                }
               >
                 {submitting
                   ? 'Reserving inventory…'

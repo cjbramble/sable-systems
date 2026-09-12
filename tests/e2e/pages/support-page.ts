@@ -13,6 +13,24 @@ export class SupportPage {
     return this.page.getByRole('status', { name: 'Model connection' });
   }
 
+  get loadingError() {
+    return this.page.getByRole('alert');
+  }
+
+  async retryLoading() {
+    await this.page
+      .getByRole('button', { name: 'Retry support', exact: true })
+      .click();
+  }
+
+  get signedInUser() {
+    return this.session.signOutButton;
+  }
+
+  get emptyHistory() {
+    return this.page.getByText('No open incidents.', { exact: true });
+  }
+
   get incidents() {
     return this.page.getByRole('navigation', {
       name: 'Open service incidents',

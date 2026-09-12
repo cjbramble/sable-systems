@@ -65,6 +65,8 @@ export default function OrdersPage() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -84,8 +86,9 @@ export default function OrdersPage() {
         };
         if (controller.signal.aborted) return;
         if (response.status === 401) {
+          setRedirecting(true);
           redirectToLogin('/orders');
-          throw new Error('Authentication required.');
+          return;
         }
         if (!response.ok)
           throw new Error(payload.error || 'Order history unavailable.');
@@ -107,12 +110,21 @@ export default function OrdersPage() {
       });
 
     return () => controller.abort();
-  }, [filter, page, query]);
+  }, [filter, page, query, attempt]);
+
+  function retryHistory() {
+    setLoading(true);
+    setError('');
+    setAttempt((current) => current + 1);
+  }
 
   function applySearch(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextQuery = searchInput.trim();
-    if (nextQuery === query && page === 1) return;
+    if (nextQuery === query && page === 1) {
+      if (error) retryHistory();
+      return;
+    }
     setLoading(true);
     setError('');
     setPage(1);
@@ -120,7 +132,10 @@ export default function OrdersPage() {
   }
 
   function chooseFilter(nextFilter: OrderHistoryFilter) {
-    if (nextFilter === filter && page === 1) return;
+    if (nextFilter === filter && page === 1) {
+      if (error) retryHistory();
+      return;
+    }
     setLoading(true);
     setError('');
     setFilter(nextFilter);
@@ -133,7 +148,7 @@ export default function OrdersPage() {
     setPage(nextPage);
   }
 
-  if (!data && loading) {
+  if (redirecting || (!data && loading)) {
     return (
       <main className="access-check">
         <ShieldCheck />
@@ -272,10 +287,11 @@ export default function OrdersPage() {
         </div>
 
         {error ? (
-          <div className="orders-state orders-state--error">
+          <div className="orders-state orders-state--error" role="alert">
             <ShieldCheck />
             <h3>Ledger link interrupted.</h3>
             <p>{error}</p>
+            <Button onClick={retryHistory}>Retry order history</Button>
           </div>
         ) : loading ? (
           <div className="orders-state">

@@ -23,6 +23,30 @@ export class ShopPage {
     return this.page.locator('.shop-account strong');
   }
 
+  get loadingError() {
+    return this.page.getByRole('alert');
+  }
+
+  async retryAccount() {
+    await this.page
+      .getByRole('button', { name: 'Retry account', exact: true })
+      .click();
+  }
+
+  async retryCatalog() {
+    await this.page
+      .getByRole('button', { name: 'Retry uplink', exact: true })
+      .click();
+  }
+
+  get shippingRegion() {
+    return this.cart.getByLabel('Destination region');
+  }
+
+  get accountTerms() {
+    return this.cart.getByText(/^Account terms:/);
+  }
+
   get cartTrigger() {
     return this.page.getByRole('button', { name: /^Cart \d+$/ });
   }

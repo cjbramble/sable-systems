@@ -115,7 +115,11 @@ export default function SupportPage() {
   const [requestError, setRequestError] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<RuntimeState>('checking');
   const [account, setAccount] = useState<AccountSummary | null>(null);
-  const [authChecked, setAuthChecked] = useState(false);
+  const [loadStatus, setLoadStatus] = useState<
+    'loading' | 'ready' | 'error' | 'redirecting'
+  >('loading');
+  const [loadError, setLoadError] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const messageEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -165,11 +169,18 @@ export default function SupportPage() {
           accountResponse.status === 401 ||
           incidentsResponse.status === 401
         ) {
+          setLoadStatus('redirecting');
           redirectToLogin('/support');
-          throw new Error('Authentication required');
+          return;
         }
-        if (!accountResponse.ok || !incidentsResponse.ok)
-          throw new Error('Support account data is unavailable');
+        if (!accountResponse.ok)
+          throw new Error(
+            'Support account details could not be loaded. Please try again.',
+          );
+        if (!incidentsResponse.ok)
+          throw new Error(
+            'Support history could not be loaded. Please try again.',
+          );
         return Promise.all([
           accountResponse.json() as Promise<AccountSummary>,
           incidentsResponse.json() as Promise<{ incidents: SupportIncident[] }>,
@@ -181,16 +192,29 @@ export default function SupportPage() {
           setIncidents(incidentPayload.incidents);
           setActiveIncidentId(incidentPayload.incidents[0]?.id ?? null);
           setAccount(summary);
-          setAuthChecked(true);
+          setLoadStatus('ready');
         }
       })
-      .catch(() => {
-        if (!controller.signal.aborted) setAuthChecked(true);
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setLoadError(
+            error instanceof Error
+              ? error.message
+              : 'Support account and history could not be loaded. Please try again.',
+          );
+          setLoadStatus('error');
+        }
       });
     return () => {
       controller.abort();
     };
-  }, []);
+  }, [loadAttempt]);
+
+  function retrySupport() {
+    setLoadStatus('loading');
+    setLoadError('');
+    setLoadAttempt((attempt) => attempt + 1);
+  }
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -394,11 +418,18 @@ export default function SupportPage() {
     }
   }
 
-  if (!authChecked) {
+  if (loadStatus !== 'ready') {
     return (
       <main className="access-check">
         <ShieldCheck />
-        <span>VERIFYING DISTRIBUTION CREDENTIALS</span>
+        {loadStatus === 'error' ? (
+          <div role="alert">
+            <p>{loadError}</p>
+            <Button onClick={retrySupport}>Retry support</Button>
+          </div>
+        ) : (
+          <span>VERIFYING DISTRIBUTION CREDENTIALS</span>
+        )}
       </main>
     );
   }
