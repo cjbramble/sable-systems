@@ -13,6 +13,88 @@ export class SupportPage {
     return this.page.getByRole('status', { name: 'Model connection' });
   }
 
+  get navigationTrigger() {
+    return this.page.getByRole('button', {
+      name: 'Open navigation',
+      exact: true,
+    });
+  }
+
+  get navigationDrawer() {
+    return this.page.getByRole('dialog', {
+      name: 'Support navigation',
+      exact: true,
+    });
+  }
+
+  async desktopNavigationContainsFocus() {
+    return this.page
+      .locator('.sidebar--desktop')
+      .evaluate((element) => element.contains(document.activeElement));
+  }
+
+  get closeNavigationButton() {
+    return this.navigationDrawer.getByRole('button', {
+      name: 'Close navigation',
+      exact: true,
+    });
+  }
+
+  get navigationHome() {
+    return this.navigationDrawer.getByRole('link', {
+      name: 'SABLE home',
+      exact: true,
+    });
+  }
+
+  async openNavigation() {
+    await this.navigationTrigger.click();
+  }
+
+  async navigationContainsFocus() {
+    return this.navigationDrawer.evaluate((element) =>
+      element.contains(document.activeElement),
+    );
+  }
+
+  async tryFocusingBackgroundComposer() {
+    await this.page
+      .getByRole('textbox', { name: 'Message COV-E', includeHidden: true })
+      .evaluate((element) => element.focus());
+  }
+
+  async recordChatScrolling() {
+    await this.page.addInitScript(() => {
+      const observed = window as typeof window & {
+        chatScrollBehaviors: (ScrollBehavior | undefined)[];
+      };
+      observed.chatScrollBehaviors = [];
+      const original = Object.getOwnPropertyDescriptor(
+        Element.prototype,
+        'scrollIntoView',
+      )!.value as Element['scrollIntoView'];
+      Element.prototype.scrollIntoView = function (options) {
+        if (this.parentElement?.classList.contains('message-stream')) {
+          observed.chatScrollBehaviors.push(
+            typeof options === 'object' ? options.behavior : undefined,
+          );
+        }
+        original.call(this, options);
+      };
+    });
+  }
+
+  async chatScrollBehaviors() {
+    return this.page.evaluate(
+      () =>
+        (
+          window as typeof window & {
+            chatScrollBehaviors: (ScrollBehavior | undefined)[];
+          }
+        ).chatScrollBehaviors,
+    );
+  }
+
   get loadingError() {
     return this.page.getByRole('alert');
   }

@@ -1434,8 +1434,20 @@
   color: #99a19f;
   font-size: 8px;
 }
-.sidebar-scrim {
-  display: none;
+.sidebar.support-mobile-navigation {
+  position: fixed;
+  z-index: 50;
+  width: min(84vw, 300px);
+  max-width: none;
+  height: 100dvh;
+  min-height: 0;
+  gap: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+.support-mobile-navigation > * {
+  flex-shrink: 0;
 }
 
 /* SABLE corporate operations surface */
@@ -1716,25 +1728,8 @@
   .app-shell {
     display: block;
   }
-  .sidebar {
-    position: fixed;
-    inset: 0 auto 0 0;
-    width: min(84vw, 300px);
-    transform: translateX(-105%);
-    transition: transform 220ms ease;
-    box-shadow: 20px 0 60px rgba(13, 31, 42, 0.3);
-  }
-  .sidebar--open {
-    transform: translateX(0);
-  }
-  .sidebar-scrim {
-    position: fixed;
-    z-index: 20;
-    inset: 0;
-    display: block;
-    border: 0;
-    background: rgba(18, 37, 48, 0.42);
-    backdrop-filter: blur(2px);
+  .sidebar--desktop {
+    display: none;
   }
   .chat-panel {
     min-height: 100svh;

@@ -37,6 +37,13 @@ import {
 import { BrandWordmark } from '@/components/brand-wordmark';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Sheet,
+  SheetTrigger,
+  SheetContent,
+  SheetTitle,
+  SheetClose,
+} from '@/components/ui/sheet';
 import { buildChatRequestHistory } from '@/lib/chat-history';
 import { redirectToLogin, useSignOut } from '@/lib/client-session';
 import type { AccountSummary } from '@/lib/contracts';
@@ -245,8 +252,21 @@ export default function SupportPage() {
   }
 
   useEffect(() => {
-    messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messageEndRef.current?.scrollIntoView({
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ? 'instant'
+        : 'smooth',
+    });
   }, [messages, isSending]);
+
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 768px)');
+    const closeOnDesktop = () => {
+      if (desktop.matches) setMobileMenuOpen(false);
+    };
+    desktop.addEventListener('change', closeOnDesktop);
+    return () => desktop.removeEventListener('change', closeOnDesktop);
+  }, []);
 
   function newConversation() {
     if (
@@ -254,7 +274,8 @@ export default function SupportPage() {
       activeIncident.messages.length === 1
     ) {
       setMobileMenuOpen(false);
-      window.setTimeout(() => inputRef.current?.focus(), 0);
+      if (!mobileMenuOpen)
+        window.setTimeout(() => inputRef.current?.focus(), 0);
       return;
     }
     const incident: SupportIncident = {
@@ -270,7 +291,7 @@ export default function SupportPage() {
     }));
     setIncidentSearch('');
     setMobileMenuOpen(false);
-    window.setTimeout(() => inputRef.current?.focus(), 0);
+    if (!mobileMenuOpen) window.setTimeout(() => inputRef.current?.focus(), 0);
   }
 
   function selectIncident(incidentId: string) {
@@ -533,448 +554,469 @@ export default function SupportPage() {
     );
   }
 
-  return (
-    <main className="app-shell">
-      <aside className={cn('sidebar', mobileMenuOpen && 'sidebar--open')}>
-        <div className="sidebar__brand">
-          <BrandWordmark />
-          <Button
-            className="sidebar__close md:hidden"
-            variant="ghost"
-            size="icon"
-            aria-label="Close navigation"
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            <X />
-          </Button>
-        </div>
+  const sidebarContent = (
+    <>
+      <div className="sidebar__brand">
+        <BrandWordmark />
+        <SheetClose
+          render={
+            <Button
+              className="sidebar__close md:hidden"
+              variant="ghost"
+              size="icon"
+              aria-label="Close navigation"
+            />
+          }
+        >
+          <X />
+        </SheetClose>
+      </div>
 
-        <Button className="new-chat" onClick={newConversation}>
-          <Plus />
-          New service incident
-        </Button>
+      <Button className="new-chat" onClick={newConversation}>
+        <Plus />
+        New service incident
+      </Button>
 
-        <nav className="support-destinations" aria-label="Account navigation">
-          <Link href="/shop">
-            <ShoppingBag /> Procurement
-          </Link>
-          <Link href="/orders">
-            <History /> Order history
-          </Link>
-        </nav>
+      <nav className="support-destinations" aria-label="Account navigation">
+        <Link href="/shop">
+          <ShoppingBag /> Procurement
+        </Link>
+        <Link href="/orders">
+          <History /> Order history
+        </Link>
+      </nav>
 
-        <label className="search-box">
-          <Search aria-hidden="true" />
-          <span className="sr-only">Search service incidents</span>
-          <input
-            type="search"
-            value={incidentSearch}
-            placeholder="Search incidents"
-            onChange={(event) => setIncidentSearch(event.target.value)}
-          />
-        </label>
+      <label className="search-box">
+        <Search aria-hidden="true" />
+        <span className="sr-only">Search service incidents</span>
+        <input
+          type="search"
+          value={incidentSearch}
+          placeholder="Search incidents"
+          onChange={(event) => setIncidentSearch(event.target.value)}
+        />
+      </label>
 
-        <nav className="conversation-list" aria-label="Open service incidents">
-          <p className="eyebrow">Open incidents</p>
-          {filteredIncidents.map((incident) => (
-            <div className="conversation-row" key={incident.id}>
-              <button
-                type="button"
-                className={cn(
-                  'conversation-item',
-                  incident.id === activeIncidentId && 'is-active',
-                )}
-                aria-current={
-                  incident.id === activeIncidentId ? 'page' : undefined
-                }
-                onClick={() => selectIncident(incident.id)}
-              >
-                <MessageCircleMore />
-                <span>
-                  <strong>{incident.title}</strong>
-                  <small>
-                    <time dateTime={incident.updatedAt}>
-                      {supportDateLabel(incident.updatedAt)}
-                    </time>
-                  </small>
-                </span>
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  'conversation-delete',
-                  incident.id === activeIncidentId && 'is-visible',
-                )}
-                aria-label={`Delete ${incident.title}`}
-                disabled={
-                  incident.id === sendingIncidentId ||
-                  deletingIds.includes(incident.id)
-                }
-                onClick={() => void deleteIncident(incident)}
-              >
-                <Trash2 />
-              </button>
-            </div>
-          ))}
-          {filteredIncidents.length === 0 ? (
-            <p className="conversation-empty">
-              {incidents.length === 0
-                ? 'No open incidents.'
-                : 'No incidents match this search.'}
-            </p>
-          ) : null}
-        </nav>
-
-        <div className="sidebar__footer">
-          <div className="privacy-note">
-            <ShieldCheck />
-            <span>
-              <strong>Verified private node</strong>
-              <small>
-                {account?.displayName ?? 'Authorized records'} only.
-              </small>
-            </span>
+      <nav className="conversation-list" aria-label="Open service incidents">
+        <p className="eyebrow">Open incidents</p>
+        {filteredIncidents.map((incident) => (
+          <div className="conversation-row" key={incident.id}>
+            <button
+              type="button"
+              className={cn(
+                'conversation-item',
+                incident.id === activeIncidentId && 'is-active',
+              )}
+              aria-current={
+                incident.id === activeIncidentId ? 'page' : undefined
+              }
+              onClick={() => selectIncident(incident.id)}
+            >
+              <MessageCircleMore />
+              <span>
+                <strong>{incident.title}</strong>
+                <small>
+                  <time dateTime={incident.updatedAt}>
+                    {supportDateLabel(incident.updatedAt)}
+                  </time>
+                </small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={cn(
+                'conversation-delete',
+                incident.id === activeIncidentId && 'is-visible',
+              )}
+              aria-label={`Delete ${incident.title}`}
+              disabled={
+                incident.id === sendingIncidentId ||
+                deletingIds.includes(incident.id)
+              }
+              onClick={() => void deleteIncident(incident)}
+            >
+              <Trash2 />
+            </button>
           </div>
-          {signOutError ? (
-            <p className="session-error" role="alert">
-              {signOutError}
-            </p>
-          ) : null}
-          <button
-            type="button"
-            className="profile-row"
-            aria-label="Sign out"
-            onClick={signOut}
-            disabled={signingOut}
-          >
-            <span className="profile-avatar">
-              {initials(account?.userDisplayName)}
-            </span>
-            <span>
-              <strong>{account?.userDisplayName ?? 'Authorized user'}</strong>
-              <small>
-                {account?.displayName ?? 'Distribution account'} ·{' '}
-                {roleLabel(account?.userRole)}
-              </small>
-            </span>
-            <LogOut aria-label="Sign out" />
-          </button>
-        </div>
-      </aside>
+        ))}
+        {filteredIncidents.length === 0 ? (
+          <p className="conversation-empty">
+            {incidents.length === 0
+              ? 'No open incidents.'
+              : 'No incidents match this search.'}
+          </p>
+        ) : null}
+      </nav>
 
-      {mobileMenuOpen ? (
+      <div className="sidebar__footer">
+        <div className="privacy-note">
+          <ShieldCheck />
+          <span>
+            <strong>Verified private node</strong>
+            <small>{account?.displayName ?? 'Authorized records'} only.</small>
+          </span>
+        </div>
+        {signOutError ? (
+          <p className="session-error" role="alert">
+            {signOutError}
+          </p>
+        ) : null}
         <button
           type="button"
-          className="sidebar-scrim"
-          aria-label="Close navigation"
-          onClick={() => setMobileMenuOpen(false)}
-        />
-      ) : null}
+          className="profile-row"
+          aria-label="Sign out"
+          onClick={signOut}
+          disabled={signingOut}
+        >
+          <span className="profile-avatar">
+            {initials(account?.userDisplayName)}
+          </span>
+          <span>
+            <strong>{account?.userDisplayName ?? 'Authorized user'}</strong>
+            <small>
+              {account?.displayName ?? 'Distribution account'} ·{' '}
+              {roleLabel(account?.userRole)}
+            </small>
+          </span>
+          <LogOut aria-label="Sign out" />
+        </button>
+      </div>
+    </>
+  );
 
-      <section className="chat-panel">
-        <header className="chat-header">
-          <Button
-            className="md:hidden"
-            variant="ghost"
-            size="icon"
-            aria-label="Open navigation"
-            onClick={() => setMobileMenuOpen(true)}
-          >
-            <Menu />
-          </Button>
-          <div className="assistant-avatar assistant-avatar--small">
-            <Sparkles />
-            <span className="online-dot" />
-          </div>
-          <div className="chat-header__title">
-            <h1>COV-E Customer Operations</h1>
-            <p>SABLE Systems · Authorized wholesale channel</p>
-          </div>
-          <div className="chat-header__actions">
-            <output
-              className={cn('runtime-status', `runtime-status--${runtime}`)}
-              aria-label="Model connection"
-            >
-              <i />
-              {runtime === 'ready'
-                ? 'COV-E NODE // ONLINE'
-                : runtime === 'checking'
-                  ? 'AUTHORIZING NODE'
-                  : 'NODE // OFFLINE'}
-            </output>
-            <Button
-              className="header-action"
-              variant="outline"
-              onClick={newConversation}
-            >
-              <RotateCcw />
-              <span className="hidden sm:inline">Start over</span>
-            </Button>
-          </div>
-        </header>
+  return (
+    <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+      {/* The Sheet portals its content outside this inert background. */}
+      <main className="app-shell" inert={mobileMenuOpen}>
+        <aside className="sidebar sidebar--desktop">{sidebarContent}</aside>
+        <SheetContent
+          side="left"
+          className="sidebar support-mobile-navigation"
+          showCloseButton={false}
+          finalFocus={() =>
+            window.matchMedia('(min-width: 768px)').matches
+              ? inputRef.current
+              : true
+          }
+        >
+          <SheetTitle className="sr-only">Support navigation</SheetTitle>
+          {sidebarContent}
+        </SheetContent>
 
-        <div className="message-stage" aria-live="polite">
-          <div className="message-stream">
-            {messages.map((message, index) => (
-              <Fragment key={message.id}>
-                {index === 0 ||
-                supportDateKey(message.createdAt) !==
-                  supportDateKey(messages[index - 1].createdAt) ? (
-                  <div className="today-divider" aria-label="Conversation date">
-                    <span>{supportDateLabel(message.createdAt)}</span>
-                  </div>
-                ) : null}
-                <article
-                  className={cn(
-                    'chat-message',
-                    message.role === 'user' && 'chat-message--user',
-                  )}
-                >
-                  {message.role === 'assistant' ? (
-                    <div className="assistant-avatar">
-                      <Sparkles />
+        <section className="chat-panel">
+          <header className="chat-header">
+            <SheetTrigger
+              render={
+                <Button
+                  className="md:hidden"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Open navigation"
+                />
+              }
+            >
+              <Menu />
+            </SheetTrigger>
+            <div className="assistant-avatar assistant-avatar--small">
+              <Sparkles />
+              <span className="online-dot" />
+            </div>
+            <div className="chat-header__title">
+              <h1>COV-E Customer Operations</h1>
+              <p>SABLE Systems · Authorized wholesale channel</p>
+            </div>
+            <div className="chat-header__actions">
+              <output
+                className={cn('runtime-status', `runtime-status--${runtime}`)}
+                aria-label="Model connection"
+              >
+                <i />
+                {runtime === 'ready'
+                  ? 'COV-E NODE // ONLINE'
+                  : runtime === 'checking'
+                    ? 'AUTHORIZING NODE'
+                    : 'NODE // OFFLINE'}
+              </output>
+              <Button
+                className="header-action"
+                variant="outline"
+                onClick={newConversation}
+              >
+                <RotateCcw />
+                <span className="hidden sm:inline">Start over</span>
+              </Button>
+            </div>
+          </header>
+
+          <div className="message-stage" aria-live="polite">
+            <div className="message-stream">
+              {messages.map((message, index) => (
+                <Fragment key={message.id}>
+                  {index === 0 ||
+                  supportDateKey(message.createdAt) !==
+                    supportDateKey(messages[index - 1].createdAt) ? (
+                    <div
+                      className="today-divider"
+                      aria-label="Conversation date"
+                    >
+                      <span>{supportDateLabel(message.createdAt)}</span>
                     </div>
                   ) : null}
+                  <article
+                    className={cn(
+                      'chat-message',
+                      message.role === 'user' && 'chat-message--user',
+                    )}
+                  >
+                    {message.role === 'assistant' ? (
+                      <div className="assistant-avatar">
+                        <Sparkles />
+                      </div>
+                    ) : null}
+                    <div className="chat-message__body">
+                      <div className="chat-message__meta">
+                        <strong>
+                          {message.role === 'assistant'
+                            ? 'COV-E'
+                            : (account?.userDisplayName ?? 'Authorized user')}
+                        </strong>
+                        {message.role === 'assistant' ? (
+                          <BadgeCheck aria-label="Verified assistant" />
+                        ) : null}
+                        {message.createdAt ? (
+                          <time dateTime={message.createdAt}>
+                            {supportTimeLabel(message.createdAt)}
+                          </time>
+                        ) : null}
+                      </div>
+                      <div className="message-bubble">
+                        {message.role === 'assistant' ? (
+                          <Markdown remarkPlugins={[remarkGfm]} skipHtml>
+                            {message.content}
+                          </Markdown>
+                        ) : (
+                          <p>{message.content}</p>
+                        )}
+                      </div>
+                    </div>
+                    {message.role === 'user' ? (
+                      <div className="user-avatar">
+                        <CircleUserRound />
+                      </div>
+                    ) : null}
+                  </article>
+                </Fragment>
+              ))}
+
+              {sendingIncidentId === activeIncidentId && isSending ? (
+                <article className="chat-message">
+                  <div className="assistant-avatar">
+                    <Sparkles />
+                  </div>
                   <div className="chat-message__body">
                     <div className="chat-message__meta">
-                      <strong>
-                        {message.role === 'assistant'
-                          ? 'COV-E'
-                          : (account?.userDisplayName ?? 'Authorized user')}
-                      </strong>
-                      {message.role === 'assistant' ? (
-                        <BadgeCheck aria-label="Verified assistant" />
-                      ) : null}
-                      {message.createdAt ? (
-                        <time dateTime={message.createdAt}>
-                          {supportTimeLabel(message.createdAt)}
-                        </time>
-                      ) : null}
+                      <strong>COV-E</strong>
+                      <span>Querying authorized local records…</span>
                     </div>
-                    <div className="message-bubble">
-                      {message.role === 'assistant' ? (
-                        <Markdown remarkPlugins={[remarkGfm]} skipHtml>
-                          {message.content}
-                        </Markdown>
-                      ) : (
-                        <p>{message.content}</p>
-                      )}
-                    </div>
-                  </div>
-                  {message.role === 'user' ? (
-                    <div className="user-avatar">
-                      <CircleUserRound />
-                    </div>
-                  ) : null}
-                </article>
-              </Fragment>
-            ))}
-
-            {sendingIncidentId === activeIncidentId && isSending ? (
-              <article className="chat-message">
-                <div className="assistant-avatar">
-                  <Sparkles />
-                </div>
-                <div className="chat-message__body">
-                  <div className="chat-message__meta">
-                    <strong>COV-E</strong>
-                    <span>Querying authorized local records…</span>
-                  </div>
-                  <div
-                    className="typing-bubble"
-                    aria-label="COV-E is responding"
-                  >
-                    <i />
-                    <i />
-                    <i />
-                  </div>
-                </div>
-              </article>
-            ) : null}
-
-            {failure ? (
-              <div className="chat-notice" role="alert">
-                <TriangleAlert aria-hidden="true" />
-                <div>
-                  <strong>Support request interrupted</strong>
-                  <p>{failure.error}</p>
-                  {retryRequest ? (
-                    <Button
-                      disabled={composerDisabled}
-                      onClick={() => void submitRequest(retryRequest)}
+                    <div
+                      className="typing-bubble"
+                      aria-label="COV-E is responding"
                     >
-                      Retry message
-                    </Button>
-                  ) : null}
+                      <i />
+                      <i />
+                      <i />
+                    </div>
+                  </div>
+                </article>
+              ) : null}
+
+              {failure ? (
+                <div className="chat-notice" role="alert">
+                  <TriangleAlert aria-hidden="true" />
+                  <div>
+                    <strong>Support request interrupted</strong>
+                    <p>{failure.error}</p>
+                    {retryRequest ? (
+                      <Button
+                        disabled={composerDisabled}
+                        onClick={() => void submitRequest(retryRequest)}
+                      >
+                        Retry message
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
 
-            {messages.length === 1 ? (
-              <div className="prompt-grid" aria-label="Suggested questions">
-                {starterPrompts.map((prompt) => (
-                  <button
-                    type="button"
-                    key={prompt}
-                    onClick={() => void sendMessage(prompt)}
-                  >
-                    <span>{prompt}</span>
-                    <ArrowUp />
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            <div ref={messageEndRef} />
+              {messages.length === 1 ? (
+                <div className="prompt-grid" aria-label="Suggested questions">
+                  {starterPrompts.map((prompt) => (
+                    <button
+                      type="button"
+                      key={prompt}
+                      onClick={() => void sendMessage(prompt)}
+                    >
+                      <span>{prompt}</span>
+                      <ArrowUp />
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <div ref={messageEndRef} />
+            </div>
           </div>
-        </div>
 
-        <footer className="composer-wrap">
-          <form className="composer" onSubmit={handleSubmit}>
-            <Textarea
-              ref={inputRef}
-              value={draft}
-              onChange={(event) =>
-                setConversation((current) => ({
-                  ...current,
-                  draft: event.target.value,
-                }))
-              }
-              onKeyDown={handleKeyDown}
-              maxLength={4000}
-              rows={1}
-              placeholder="Enter order, item, shipment, or allocation inquiry…"
-              aria-label="Message COV-E"
-              disabled={composerDisabled}
-            />
-            <Button
-              type="submit"
-              size="icon-lg"
-              aria-label="Send message"
-              disabled={!draft.trim() || composerDisabled}
+          <footer className="composer-wrap">
+            <form className="composer" onSubmit={handleSubmit}>
+              <Textarea
+                ref={inputRef}
+                value={draft}
+                onChange={(event) =>
+                  setConversation((current) => ({
+                    ...current,
+                    draft: event.target.value,
+                  }))
+                }
+                onKeyDown={handleKeyDown}
+                maxLength={4000}
+                rows={1}
+                placeholder="Enter order, item, shipment, or allocation inquiry…"
+                aria-label="Message COV-E"
+                disabled={composerDisabled}
+              />
+              <Button
+                type="submit"
+                size="icon-lg"
+                aria-label="Send message"
+                disabled={!draft.trim() || composerDisabled}
+              >
+                <ArrowUp />
+              </Button>
+            </form>
+            <p>
+              <ShieldCheck />
+              COV-E output is advisory. Verify critical fulfillment
+              instructions.
+            </p>
+          </footer>
+        </section>
+
+        <aside className="context-panel">
+          <div className="context-panel__header">
+            <p className="eyebrow">Authorized account</p>
+            <h2>{account?.displayName ?? 'Authorized account'}</h2>
+            <p>
+              {account?.customerId ?? 'Verifying'} ·{' '}
+              {account?.region ?? 'Trade district'}
+            </p>
+          </div>
+
+          <div
+            className="account-metrics"
+            aria-label="Authorized account summary"
+          >
+            <div>
+              <strong>{account?.activeOrders ?? '—'}</strong>
+              <span>Active orders</span>
+            </div>
+            <div>
+              <strong>{account?.scheduledOrders ?? '—'}</strong>
+              <span>Scheduled</span>
+            </div>
+            <div>
+              <strong>{account?.inventoryAlerts ?? '—'}</strong>
+              <span>Stock advisories</span>
+            </div>
+          </div>
+
+          <div className="topic-list">
+            <button
+              type="button"
+              onClick={() => void sendMessage('Help me trace an order')}
             >
+              <span className="topic-icon topic-icon--blue">
+                <Clock3 />
+              </span>
+              <span>
+                <strong>Trace an order</strong>
+                <small>Allocation and delivery events</small>
+              </span>
               <ArrowUp />
-            </Button>
-          </form>
-          <p>
-            <ShieldCheck />
-            COV-E output is advisory. Verify critical fulfillment instructions.
-          </p>
-        </footer>
-      </section>
+            </button>
+            <button
+              type="button"
+              onClick={() => void sendMessage('Help me start a return')}
+            >
+              <span className="topic-icon topic-icon--coral">
+                <RotateCcw />
+              </span>
+              <span>
+                <strong>Returns protocol</strong>
+                <small>Authorization and disposition</small>
+              </span>
+              <ArrowUp />
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                void sendMessage('Show current inventory advisories')
+              }
+            >
+              <span className="topic-icon topic-icon--mint">
+                <CircleUserRound />
+              </span>
+              <span>
+                <strong>Inventory channel</strong>
+                <small>Availability and lead times</small>
+              </span>
+              <ArrowUp />
+            </button>
+          </div>
 
-      <aside className="context-panel">
-        <div className="context-panel__header">
-          <p className="eyebrow">Authorized account</p>
-          <h2>{account?.displayName ?? 'Authorized account'}</h2>
-          <p>
-            {account?.customerId ?? 'Verifying'} ·{' '}
-            {account?.region ?? 'Trade district'}
-          </p>
-        </div>
+          <div className="service-card">
+            <div className="service-card__icon">
+              <Headphones />
+            </div>
+            <div>
+              <span className="service-card__status">
+                <i /> Biological escalation available
+              </span>
+              <h3>Request a liaison</h3>
+              <p>
+                COV-E will flag incidents requiring a Morrow Vale specialist.
+              </p>
+            </div>
+          </div>
 
-        <div
-          className="account-metrics"
-          aria-label="Authorized account summary"
-        >
-          <div>
-            <strong>{account?.activeOrders ?? '—'}</strong>
-            <span>Active orders</span>
+          <div className="trust-list">
+            <div>
+              <Check />
+              <span>
+                <strong>Tenant isolation active</strong>
+                <small>
+                  {account?.displayName ?? 'Account'} authorization scope
+                </small>
+              </span>
+            </div>
+            <div>
+              <Check />
+              <span>
+                <strong>Private cognition node</strong>
+                <small>Qwen3 4B · local inference</small>
+              </span>
+            </div>
+            <div>
+              <Check />
+              <span>
+                <strong>{account?.totalOrders ?? '—'} authorized orders</strong>
+                <small>
+                  Seed baseline: {account?.seedAsOfDate ?? 'initializing'}
+                </small>
+              </span>
+            </div>
           </div>
-          <div>
-            <strong>{account?.scheduledOrders ?? '—'}</strong>
-            <span>Scheduled</span>
-          </div>
-          <div>
-            <strong>{account?.inventoryAlerts ?? '—'}</strong>
-            <span>Stock advisories</span>
-          </div>
-        </div>
-
-        <div className="topic-list">
-          <button
-            type="button"
-            onClick={() => void sendMessage('Help me trace an order')}
-          >
-            <span className="topic-icon topic-icon--blue">
-              <Clock3 />
-            </span>
-            <span>
-              <strong>Trace an order</strong>
-              <small>Allocation and delivery events</small>
-            </span>
-            <ArrowUp />
-          </button>
-          <button
-            type="button"
-            onClick={() => void sendMessage('Help me start a return')}
-          >
-            <span className="topic-icon topic-icon--coral">
-              <RotateCcw />
-            </span>
-            <span>
-              <strong>Returns protocol</strong>
-              <small>Authorization and disposition</small>
-            </span>
-            <ArrowUp />
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              void sendMessage('Show current inventory advisories')
-            }
-          >
-            <span className="topic-icon topic-icon--mint">
-              <CircleUserRound />
-            </span>
-            <span>
-              <strong>Inventory channel</strong>
-              <small>Availability and lead times</small>
-            </span>
-            <ArrowUp />
-          </button>
-        </div>
-
-        <div className="service-card">
-          <div className="service-card__icon">
-            <Headphones />
-          </div>
-          <div>
-            <span className="service-card__status">
-              <i /> Biological escalation available
-            </span>
-            <h3>Request a liaison</h3>
-            <p>COV-E will flag incidents requiring a Morrow Vale specialist.</p>
-          </div>
-        </div>
-
-        <div className="trust-list">
-          <div>
-            <Check />
-            <span>
-              <strong>Tenant isolation active</strong>
-              <small>
-                {account?.displayName ?? 'Account'} authorization scope
-              </small>
-            </span>
-          </div>
-          <div>
-            <Check />
-            <span>
-              <strong>Private cognition node</strong>
-              <small>Qwen3 4B · local inference</small>
-            </span>
-          </div>
-          <div>
-            <Check />
-            <span>
-              <strong>{account?.totalOrders ?? '—'} authorized orders</strong>
-              <small>
-                Seed baseline: {account?.seedAsOfDate ?? 'initializing'}
-              </small>
-            </span>
-          </div>
-        </div>
-      </aside>
-    </main>
+        </aside>
+      </main>
+    </Sheet>
   );
 }
