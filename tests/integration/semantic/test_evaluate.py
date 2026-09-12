@@ -51,3 +51,9 @@ def test_long_response_includes_the_final_partial_chunk_in_its_embedding(manifes
     # The tail must change the actual embedding, not just the reported counts.
     # This is a numerical inequality, not a response-quality cutoff.
     assert report["pairwiseSimilarity"][0][1] != pytest.approx(1.0, abs=1e-6)
+
+
+@pytest.mark.parametrize("answer", ["", " \t\r\n "], ids=["empty", "whitespace"])
+def test_rejects_blank_answers(manifest, answer):
+    with pytest.raises(ValueError, match="^Only nonempty model answers can be scored$"):
+        evaluate({"samples": [{"sample": 1, "answer": answer}]}, manifest)
