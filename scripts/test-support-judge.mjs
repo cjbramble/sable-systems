@@ -22,11 +22,17 @@ const scope = createProcessScope();
 let logFile;
 try {
   const { values } = parseArgs({
-    options: { transcript: { type: 'string' } },
+    options: {
+      transcript: { type: 'string' },
+      holdout: { type: 'boolean', default: false },
+    },
     allowPositionals: false,
   });
+  if (values.transcript && values.holdout)
+    throw new Error('Choose either --transcript or --holdout.');
   const payload = {
     mode: values.transcript ? 'transcript' : 'validation',
+    validationSet: values.holdout ? 'holdout' : 'all',
     batches: {},
   };
   if (values.transcript) {

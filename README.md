@@ -150,7 +150,7 @@ runs retain partial evidence.
 | `npm test`              | Deterministic unit and integration tests                                      |
 | `npm run test:e2e`      | Production build and browser tests                                            |
 | `npm run test:model`    | Live chatbot factuality tests, repeated sampling, then local judging          |
-| `npm run test:judge`    | Local judge validation against 22 labeled examples                            |
+| `npm run test:judge`    | Local judge validation against 30 labeled examples                            |
 | `npm run test:python`   | Judge-adapter unit tests; no model server required                              |
 | `npm run validate:data` | Seed-data validation                                                          |
 | `npm run check`         | Lint, type checks, deterministic tests, seed validation, and production build |
@@ -178,6 +178,12 @@ Judge the sampling scenarios in a saved transcript without regenerating answers:
 
 ```sh
 npm run test:judge -- --transcript reports/model-runs/<run>.log
+```
+
+Run only the eight additional holdout examples:
+
+```sh
+npm run test:judge -- --holdout
 ```
 
 ### Organization and results

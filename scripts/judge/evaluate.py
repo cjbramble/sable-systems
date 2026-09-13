@@ -19,8 +19,16 @@ def main():
     mode = payload["mode"]
     if mode not in ("validation", "transcript"):
         raise ValueError("Unknown judge run mode")
+    validation_set = payload.get("validationSet", "all")
+    if validation_set not in ("all", "holdout"):
+        raise ValueError("Unknown validation set")
+    holdout_path = ROOT / "tests/fixtures/judge/holdout.json"
+    holdout = json.loads(holdout_path.read_text()) if mode == "validation" else None
     report = {
         "schemaVersion": 1, "mode": mode, "model": MANIFEST,
+        "validationSet": validation_set if mode == "validation" else None,
+        "holdoutSha256": hashlib.sha256(holdout_path.read_bytes()).hexdigest() if holdout else None,
+        "holdoutFrozenAgainst": holdout["frozenAgainst"] if holdout else None,
         "deepevalVersion": importlib.metadata.version("deepeval"),
         "policy": {"mode": "advisory", "evaluationSteps": STEPS},
         "generation": GENERATION,
@@ -41,7 +49,10 @@ def main():
             batch = payload.get("batches", {}).get(scenario)
             if mode == "transcript" and batch is None:
                 continue
-            rows = fixture["examples"] if mode == "validation" else batch["samples"]
+            if mode == "validation":
+                rows = ([] if validation_set == "holdout" else fixture["examples"]) + holdout["scenarios"][scenario]
+            else:
+                rows = batch["samples"]
             for row in rows:
                 started = time.monotonic()
                 answer = row["text"] if mode == "validation" else row["answer"]

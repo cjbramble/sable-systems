@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "frozenAgainst": "54fe73b",
+  "scenarios": {
+    "case-pack": [
+      {
+        "id": "holdout-whole-case-arithmetic",
+        "correct": true,
+        "text": "Redline Power Cell R12 availability is 39 complete cases of eight, or 312 cells. Stock covers the requested 310 with two cells left over, so the stock shortfall is zero. But 310 would be 38.75 cases: it is not an allowable whole-case order. Choose a multiple of eight; cases cannot be split.",
+        "rationale": "39 times 8 equals 312; inventory covers 310, which is not divisible by 8."
+      },
+      {
+        "id": "holdout-concise-rule-and-stock",
+        "correct": true,
+        "text": "There are 312 Redline Power Cell R12 units available against your request for 310: none are missing from stock. Ordering is a separate constraint. Eight units make a case, so 310 cannot ship as requested. Please select a whole-case quantity instead; we cannot supply a partial case.",
+        "rationale": "Conveys available stock, zero shortfall, invalid pack quantity, and the whole-case rule without an unrequested SKU."
+      },
+      {
+        "id": "holdout-omitted-pack-validity",
+        "correct": false,
+        "text": "Redline Power Cell R12 has 312 available units. Your request is for 310, leaving a stock shortfall of zero.",
+        "rationale": "Omits the explicitly requested case-pack validity; stock facts alone do not answer the question."
+      },
+      {
+        "id": "holdout-unavailable-alternative",
+        "correct": false,
+        "text": "We have 312 Redline Power Cell R12 units, enough stock for 310. The request is not a multiple of the eight-unit case pack, and partial cases are prohibited. Change it to 320 units, which is a whole-case quantity we can supply entirely from the current stock with no shortfall.",
+        "rationale": "320 is pack-valid but exceeds the available 312 by eight; the proposed fulfillment claim is false."
+      }
+    ],
+    "comparison": [
+      {
+        "id": "holdout-compact-currency",
+        "correct": true,
+        "text": "Coldstart Rack Controller R2 — available units: zero; item number: SBL-CSR-R2; price: USD 2.25k per controller; lead time: ninety days; case pack: four controllers.\nRedline Power Cell R12 — available units: three hundred twelve; item number: SBL-RPC-12; price: USD 680 per cell; lead time: eighteen days; case pack: eight cells.",
+        "rationale": "Written numbers and compact currency preserve all requested product facts."
+      },
+      {
+        "id": "holdout-equivalent-price-detail",
+        "correct": true,
+        "text": "Redline Power Cell R12: item number: SBL-RPC-12; price: $680 per cell ($5,440 for a full case); case pack: 8 cells; lead time: 18 days; available units: 312.\nColdstart Rack Controller R2: item number: SBL-CSR-R2; price: $2,250 per controller ($9,000 for a full case); case pack: 4 controllers; lead time: 90 days; available units: 0.",
+        "rationale": "Reversed product order and additional correct case totals do not change the per-unit prices or requested facts."
+      },
+      {
+        "id": "holdout-omitted-requested-identifier",
+        "correct": false,
+        "text": "Coldstart Rack Controller R2 — price: $2,250 per controller; case pack: 4 controllers; lead time: 90 days; available units: 0.\nRedline Power Cell R12 — item number: SBL-RPC-12; price: $680 per cell; case pack: 8 cells; lead time: 18 days; available units: 312.",
+        "rationale": "The question explicitly requests item numbers, but the Coldstart item number is missing."
+      },
+      {
+        "id": "holdout-price-unit-confusion",
+        "correct": false,
+        "text": "Coldstart Rack Controller R2 — item number: SBL-CSR-R2; price: $2,250 per four-controller case; case pack: 4 controllers; lead time: 90 days; available units: 0.\nRedline Power Cell R12 — item number: SBL-RPC-12; price: $680 per eight-cell case; case pack: 8 cells; lead time: 18 days; available units: 312.",
+        "rationale": "The stated prices apply to individual units, not full cases. Explicitly incorrect units are a factual error."
+      }
+    ]
+  }
+}
