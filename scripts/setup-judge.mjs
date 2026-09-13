@@ -8,7 +8,7 @@ import {
 } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import manifest from './judge/model.json' with { type: 'json' };
+import manifest from '../tools/evaluation/model.json' with { type: 'json' };
 
 const destination = resolve(manifest.path);
 const partial = `${destination}.partial`;

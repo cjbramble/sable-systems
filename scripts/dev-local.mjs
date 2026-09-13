@@ -4,8 +4,8 @@ import {
   localModelIsReady,
   modelLaunch,
   waitForModel,
-} from './local-model.mjs';
-import { createProcessScope, exitStatus } from './process-scope.mjs';
+} from './lib/local-model.mjs';
+import { createProcessScope, exitStatus } from './lib/process-scope.mjs';
 
 const scope = createProcessScope({ signalCodes: { SIGINT: 0, SIGTERM: 0 } });
 const logPath = resolve('reports/server-logs/llama-server.log');

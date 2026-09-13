@@ -5,8 +5,8 @@ import {
   localModelIsReady,
   modelLaunch,
   waitForModel,
-} from './local-model.mjs';
-import { createProcessScope, exitStatus } from './process-scope.mjs';
+} from './lib/local-model.mjs';
+import { createProcessScope, exitStatus } from './lib/process-scope.mjs';
 
 const scope = createProcessScope();
 const logPath = resolve('reports/server-logs/llama-test-server.log');
@@ -116,7 +116,7 @@ try {
       await ownedModel.closed;
     }
     const { listSamplingScenarios, getSamplingScenario } =
-      await import('./sampling-results.mjs');
+      await import('../tools/evaluation/sampling-results.mjs');
     const { readFileSync } = await import('node:fs');
     const text = readFileSync(transcriptPath, 'utf8');
     const hasSamples = listSamplingScenarios().some(

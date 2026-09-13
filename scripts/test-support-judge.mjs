@@ -10,13 +10,13 @@ import {
 import { createServer } from 'node:net';
 import { dirname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import manifest from './judge/model.json' with { type: 'json' };
+import manifest from '../tools/evaluation/model.json' with { type: 'json' };
 import {
   listSamplingScenarios,
   getSamplingScenario,
-} from './sampling-results.mjs';
-import { waitForModel } from './local-model.mjs';
-import { createProcessScope, exitStatus } from './process-scope.mjs';
+} from '../tools/evaluation/sampling-results.mjs';
+import { waitForModel } from './lib/local-model.mjs';
+import { createProcessScope, exitStatus } from './lib/process-scope.mjs';
 
 const scope = createProcessScope();
 let logFile;
@@ -88,7 +88,7 @@ try {
   if (hash.digest('hex') !== manifest.sha256)
     throw new Error('Judge checksum mismatch.');
   const python = resolve(
-    'scripts/judge/.venv',
+    'tools/evaluation/.venv',
     process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
   );
   const logPath = resolve('reports/server-logs/llama-judge-server.log');
@@ -143,7 +143,7 @@ try {
   console.info(`Judging locally; report: ${reportPath}`);
   const evaluation = scope.start(
     python,
-    ['scripts/judge/evaluate.py', '--output', reportPath],
+    ['tools/evaluation/evaluate.py', '--output', reportPath],
     {
       stdio: ['pipe', 'inherit', 'inherit'],
       env: {

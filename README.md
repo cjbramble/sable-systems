@@ -213,6 +213,11 @@ response checks live in `tests/assertions/`. Browser tests use
 Python judge tests live in `tests/unit/judge-python/`. Authored reference answers
 and labeled judge-validation examples live in `tests/fixtures/judge/`.
 
+Command entry points live in `scripts/`, with shared process and model-launch
+helpers in `scripts/lib/`. Transcript parsing, judge implementation, model
+configuration, and the locked Python project live in `tools/evaluation/`.
+The evaluator's ignored virtual environment is created there by `npm run setup:judge`.
+
 Model tests check factual accuracy and authorization. Repeated-sampling tests
 evaluate five responses per scenario at normal generation settings. DeepEval
 uses fixed evaluation steps and schema-constrained binary verdicts to check
@@ -220,7 +225,7 @@ groundedness, completeness, and contradictions. Judge verdicts on live answers
 are advisory; factual assertions remain mandatory. Judge validation fails if
 any authored label disagrees with its verdict. Transport, parsing, and model
 errors fail the run; they are never converted into successful judgments.
-See the [judge validation status](models/judge/README.md#validation-status)
+See the [judge validation status](docs/model-evaluation.md#validation-status)
 before interpreting live judge scores as evidence of correctness.
 
 Case-pack assertions include a deterministic stock-overclaim check for supported

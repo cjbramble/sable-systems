@@ -1,6 +1,6 @@
 import { stripVTControlCharacters } from 'node:util';
-import fixture from '../tests/fixtures/judge/case-pack.json' with { type: 'json' };
-import comparisonFixture from '../tests/fixtures/judge/comparison.json' with { type: 'json' };
+import fixture from '../../tests/fixtures/judge/case-pack.json' with { type: 'json' };
+import comparisonFixture from '../../tests/fixtures/judge/comparison.json' with { type: 'json' };
 
 function readTranscriptRows(text, prefix) {
   return text

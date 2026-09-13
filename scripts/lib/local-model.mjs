@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import {
   isSupportModelReady,
   SUPPORT_MODEL_ALIAS,
-} from '../lib/model-readiness.mjs';
+} from '../../lib/model-readiness.mjs';
 
 export async function localModelIsReady(signal) {
   try {

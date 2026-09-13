@@ -3,7 +3,7 @@ import {
   combinedSamplingPassed,
   parseComparisonSamplingTranscript,
   parseSamplingTranscript,
-} from '../../scripts/sampling-results.mjs';
+} from '../../tools/evaluation/sampling-results.mjs';
 import fixture from '../fixtures/judge/case-pack.json';
 import comparisonFixture from '../fixtures/judge/comparison.json';
 
