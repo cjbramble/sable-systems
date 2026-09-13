@@ -89,17 +89,18 @@ orders dated 2021–2031, shipments, returns, account records, and support incid
 - Model server logs: `reports/server-logs/`
 - Schema and seed definitions: [db/schema.ts](db/schema.ts) and [db/seed.ts](db/seed.ts)
 
-These runtime directories are Git-ignored. Empty databases are seeded automatically;
-interrupted initialization resumes from the last committed batch. Existing records
-are preserved on startup. Schema versions 6 and 7 upgrade to 8 with the current
-`SEED_VERSION`.
+Runtime directories are Git-ignored. Existing records are preserved on startup;
+interrupted initialization resumes from the last committed batch.
 
-Unsupported versions or populated databases without version metadata stop startup
-without modifying records. Preserve the database and inspect its metadata before
-applying a reviewed migration. Changing `SEED_VERSION` does not reset existing data;
-rebuilding the dataset requires a separate, explicit reset. Seed statement changes
-must update the seed version so unfinished initialization cannot resume with a
-different dataset.
+### Data maintenance
+
+Schema versions 6 and 7 upgrade to 8 with the current `SEED_VERSION`. Unsupported
+versions or populated databases without version metadata stop startup without
+modifying records. Preserve the database and inspect its metadata before migration.
+
+Seed changes must update `SEED_VERSION` to prevent resuming initialization with a
+different dataset. A version change does not reset existing data; rebuilding the
+dataset requires a separate, explicit reset.
 
 ## Testing
 
@@ -125,23 +126,28 @@ Install Chromium for browser tests:
 npx playwright install chromium
 ```
 
-For Python judge tests and the full live-model suite,
-install `uv` and run:
+For Python-only tests, install `uv` and prepare the locked environment:
+
+```sh
+uv sync --project tools/evaluation --locked
+```
+
+This prepares Python 3.12 and its dependencies. No model download or server is needed.
+
+For live model evaluation, also run:
 
 ```sh
 npm run setup:judge
 ```
 
-Judge setup provisions Python 3.12 and downloads the checksum-verified Qwen3-14B
-Q4_K_M model (9 GB) into the Git-ignored `models/judge/` directory. Setup requires
-internet access; evaluation is local-only with telemetry disabled and no cloud
-provider fallback.
+Judge setup prepares the same environment and downloads the checksum-verified
+Qwen3-14B Q4_K_M model (9 GB) to `models/judge/`. Initial setup requires internet
+access; evaluation runs locally with telemetry disabled.
 
 Stop the app before running full model evaluations. The runner uses port 8017
 sequentially: generate responses with the chatbot, unload its model, then load
-the judge with an 8,192-token context and one processing slot. It never stops an
-externally started server. An occupied port prevents judge startup. Interrupted
-runs retain partial evidence.
+the judge. It never stops an externally started server; an occupied port prevents
+judge startup. Interrupted runs retain partial evidence.
 
 ### Commands
 
@@ -174,35 +180,14 @@ npm run test:e2e -- tests/e2e/checkout.spec.ts
 npm run test:model -- -t 'across five samples'
 ```
 
-Judge the sampling scenarios in a saved transcript without regenerating answers:
+Optional evaluation diagnostics:
 
-```sh
-npm run test:judge -- --transcript reports/model-runs/<run>.log
-```
-
-Run only the eight additional holdout examples:
-
-```sh
-npm run test:judge -- --holdout
-```
-
-Run the optional two-answer, claim-by-claim faithfulness pilot:
-
-```sh
-npm run test:judge -- --claims-pilot
-```
-
-This diagnostic extracts answer claims, then checks each separately against the
-unchanged reference and retains per-claim verdicts. Its exit status checks overall
-label agreement; per-claim correctness requires review. It does not check whether
-an answer includes all requested information.
-
-To isolate the verdict stage, bypass extraction with paired stock-quantity and
-product-identity controls:
-
-```sh
-npm run test:judge -- --direct-claim-pilot
-```
+| Command | Purpose |
+| --- | --- |
+| `npm run test:judge -- --transcript reports/model-runs/<run>.log` | Judge saved samples without regenerating answers |
+| `npm run test:judge -- --holdout` | Run the eight originally held-out examples |
+| `npm run test:judge -- --claims-pilot` | Check extracted claims from two labeled answers |
+| `npm run test:judge -- --direct-claim-pilot` | Check four authored claims without extraction |
 
 ### Organization and results
 
@@ -216,21 +201,13 @@ and labeled judge-validation examples live in `tests/fixtures/judge/`.
 Command entry points live in `scripts/`, with shared process and model-launch
 helpers in `scripts/lib/`. Transcript parsing, judge implementation, model
 configuration, and the locked Python project live in `tools/evaluation/`.
-The evaluator's ignored virtual environment is created there by `npm run setup:judge`.
+The evaluator's virtual environment is Git-ignored.
 
-Model tests check factual accuracy and authorization. Repeated-sampling tests
-evaluate five responses per scenario at normal generation settings. DeepEval
-uses fixed evaluation steps and schema-constrained binary verdicts to check
-groundedness, completeness, and contradictions. Judge verdicts on live answers
-are advisory; factual assertions remain mandatory. Judge validation fails if
-any authored label disagrees with its verdict. Transport, parsing, and model
-errors fail the run; they are never converted into successful judgments.
-See the [judge validation status](docs/model-evaluation.md#validation-status)
-before interpreting live judge scores as evidence of correctness.
-
-Case-pack assertions include a deterministic stock-overclaim check for supported
-single-product wording, including the known 320-unit promise against 312 available.
-This check runs on repeated samples; it does not validate arbitrary prose.
+Model tests check factual accuracy and authorization, with five responses per
+repeated-sampling scenario. Factual assertions are mandatory; live judge verdicts
+are advisory. Judge-validation label disagreements and execution errors fail
+their runs. See [Model evaluation](docs/model-evaluation.md) for methodology,
+coverage limits, and validation history.
 
 Model transcripts are saved in `reports/model-runs/`. Judge reports and
 incremental JSONL evidence are saved in `reports/judge-runs/`.

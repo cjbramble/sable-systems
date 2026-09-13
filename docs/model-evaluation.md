@@ -2,150 +2,90 @@
 
 For setup and commands, see [Testing](../README.md#testing). Model identity and
 download details are in the [judge model record](../models/judge/README.md).
-Evaluation code and its locked Python environment live in `tools/evaluation/`;
-test cases, assertions, and reference fixtures remain under `tests/`.
 
 ## Validation status
 
-The initial 2026-09-12 pilot matched 13 of 22 authored labels, with nine false
-rejections. A rubric revision distinguishing factual correctness from reference
-wording matched all 22 labels: 11 valid and 11 invalid answers. Neither run had
-false acceptances or execution errors. The model, generation settings, examples,
-references, and labels were unchanged between runs.
+The local judge remains advisory and is not approved as a pass/fail gate for
+chatbot responses. It has accepted incorrect claims, rejected correct answers,
+and produced faulty explanations for otherwise correct verdicts.
 
-These examples informed the revision, including those originally labeled
-holdout, so that result is calibration evidence.
+Deterministic factual assertions remain mandatory. All 30 labeled judge examples
+have informed development and now serve as calibration and regression cases.
+The eight selected by `--holdout` are no longer an untouched validation set.
 
-Eight additional examples were authored against the frozen rubric at `54fe73b`.
-Their first run on 2026-09-12 matched seven labels: one false rejection, no false
-acceptances, and no execution errors. The judge demanded an unrequested item
-number in a correct answer. It also gave a faulty explanation for a correctly
-rejected answer, missing that a proposed 320-unit order exceeds 312 available
-units. Labels, examples, rubric, and model settings were not adjusted after this
-run. The judge remains unapproved as a pass/fail gate for chatbot responses.
+## Evaluation method
 
-On 2026-09-13, an evidence-focused GEval prompt template was tested once against
-all 30 unchanged examples. The rubric, model, and generation settings were fixed.
-It matched 24 labels, with six false acceptances, no false rejections, and no
-execution errors. It missed a policy contradiction, an unavailable alternative,
-swapped stock counts, an unrequested product, a missing requested identifier, and
-incorrect price units. The candidate was not adopted; the prior implementation
-was restored. The original false rejection and faulty explanation remain open.
-The full candidate prompts and responses are retained in
-`reports/judge-runs/validation-2026-09-13T04-39-29-267Z-fda8550b-5254-447e-9292-4ca2c3024076.json`.
+The runner generates chatbot responses, unloads that model, then loads the local
+Qwen3-14B judge with an 8,192-token context and one processing slot. Evaluation
+code, model configuration, and the locked Python project live in
+`tools/evaluation/`; tests, assertions, and reference fixtures remain in `tests/`.
 
-On 2026-09-13, a reasoning-mode configuration matched 29 of the same 30 labels
-in 1,951.78 seconds, with one false acceptance and no execution errors. All
-responses included separate reasoning. It accepted the unsupported claim that
-320 units could ship from 312 available. The prior configuration was restored;
-reasoning mode was not adopted.
+- **Normal evaluation:** DeepEval GEval applies fixed steps to the customer
+  question, answer, and authored reference. Verdicts are schema-constrained and
+  binary, using non-thinking generation at temperature 0 with seed 42.
+- **Claim-level diagnostic:** Extracts claims from two labeled answers and checks
+  each separately against the verbatim reference. An answer is judged faithful
+  only when every claim receives `yes`; missing verdicts are errors. This does
+  not check answer completeness.
+- **Direct-claim diagnostic:** Bypasses extraction using four authored
+  stock-quantity and product-identity controls. Each requires its explicit
+  expected `yes` or `no`; ambiguity does not satisfy a negative control.
 
-This run kept the rubric and labels fixed and used
-[Qwen's recommended thinking-mode sampling](https://huggingface.co/Qwen/Qwen3-14B#best-practices):
-temperature 0.6, top-p 0.95, top-k 20, and min-p 0, with seed 42. Thinking was
-limited to 1,024 tokens within a 2,048-token response and a 300-second request
-timeout. The model, 8,192-token context, and single processing slot were unchanged.
-The report retains the settings, requests, reasoning, and verdicts:
-`reports/judge-runs/validation-2026-09-13T10-49-54-842Z-16336bcd-f72c-4698-bf4e-54049bf79177.json`.
+Live judge verdicts do not override factual failures. Labeled validation runs
+fail on disagreement with an authored label. Transport, parsing, and model
+errors fail the run. Reports retain inputs, model calls, verdicts, and checksums;
+authored labels and rationales are withheld from the judge.
 
-All 30 examples have now informed evaluation development; they are regression
-and calibration cases, not an untouched holdout for future changes.
+## Coverage limits
 
-`npm run test:judge` includes all 30 examples; `--holdout` selects only the eight
-additional cases in `tests/fixtures/judge/holdout.json`. That file records the
-frozen rubric commit and authored label rationales, which are withheld from the
-judge. Reports retain the fixture checksum and verdict explanations.
-`npm run test:judge` reports label disagreements as failures; live-response
-judgments remain advisory. Run reports are retained locally under
-`reports/judge-runs/`.
+The case-pack assertion uses `tests/assertions/stock-availability.ts` to reject
+recognized single-product stock promises above the available quantity, including
+the observed 320-unit promise against 312 available. It covers the tested active,
+passive, and alternative-quantity wording, not arbitrary prose.
 
-## Claim-level pilot
+Matching an overall label does not establish correct claim verification.
+Equivalent wording has produced opposite judge verdicts. Adding the product name
+did not resolve the tested overclaims; the earlier missing-identity hypothesis
+was not supported by that experiment.
 
-`npm run test:judge -- --claims-pilot` uses DeepEval's claim-extraction and verdict
-templates on the existing correct stock-alternative answer and the known
-320-unit overclaim. It extracts answer claims once, then checks every claim
-separately against the original reference verbatim, without extracting reference
-facts. The non-thinking generation settings are unchanged. All claims must
-receive `yes` verdicts to pass; ambiguous verdicts fail. Reports preserve the
-reference, claims, individual verdicts, and model calls. Empty claims or missing
-verdicts are execution errors. Normal evaluations still use GEval.
+## Validation history
 
-The original `FaithfulnessMetric` run on 2026-09-13 matched both overall labels in 86.02 seconds but
-failed the diagnostic objective: it approved the claim that 320 units could ship
-from current stock. It instead rejected the valid statement that the requested
-quantity was not a whole-case multiple. Extraction omitted the explicit quantity
-from that claim and the corresponding reference restriction. Overall label
-agreement does not establish correct claim verification; this pilot is not
-approved as a replacement or additional gate. No labels or references changed.
+Agreement below means matching authored labels, not general model accuracy.
+The prompt, reasoning-mode, and claim-level experiments are separate from the
+active GEval configuration. Detailed settings and outputs are retained in the
+linked local reports.
 
-Evidence:
-`reports/judge-runs/claims-pilot-2026-09-13T12-27-01-297Z-efe3559f-37b7-4a9e-b65c-526f7e1a7d36.json`.
-
-### Direct verdict-stage probe
-
-`npm run test:judge -- --direct-claim-pilot` sends one authored claim per call to
-DeepEval's faithfulness verdict template, using the original reference verbatim.
-It bypasses both extraction steps. The first pair differs only in quantity: 312
-versus 320 units. An explicit `yes` and `no`, respectively, are required. The
-second pair varies only whether the 320-unit overclaim explicitly names the
-product; both require `no`. An ambiguous verdict does not satisfy a negative
-control. All four cases run with the same reference and settings.
-
-The first run on 2026-09-13 classified both claims correctly in 12.30 seconds.
-The rejected claim's explanation correctly identified that 320 exceeds the 312
-available. This is a focused diagnostic result, not validation of full-answer
-judging. Model settings were unchanged. The probe cannot separately attribute
-the improvement to reference preservation or one-claim-at-a-time verification.
-
-Evidence:
-`reports/judge-runs/direct-claim-pilot-2026-09-13T12-59-03-648Z-0a386626-7297-416b-99f0-7bb3195c9217.json`.
-
-### Full-answer sequential verification
-
-The reference-preserving pipeline was tested on both complete answers on
-2026-09-13. It made five calls for the valid answer and seven for the overclaim
-answer, completing in 47.62 seconds with no execution errors. The valid answer
-passed, but all six claims from the invalid answer were also accepted, including
-the 320-unit overclaim. It therefore matched only one of two labels.
-
-The extracted stock claim remained intact but lacked the product name included
-in the successful authored direct probe. That wording difference remains a
-diagnostic hypothesis, not an established cause. The pipeline is still optional
-and unapproved; the normal GEval evaluator and all original labels are unchanged.
-
-Evidence:
-`reports/judge-runs/claims-pilot-2026-09-13T13-04-22-320Z-969ddebb-8ddb-41c4-b9be-f1b27e44c86c.json`.
-
-### Product-identity comparison
-
-On 2026-09-13, the direct probe retained the original quantity pair and added two
-320-unit claims differing only by the product name. It matched two of four labels
-in 17.18 seconds, with no execution errors. Both new overclaims received `yes`,
-while the original named 320-unit control again received `no` for exceeding stock.
-
-Adding the product name did not correct this pair. The tested missing-identity
-hypothesis is unsupported; semantically equivalent stock claims still produced
-opposite verdicts under unchanged settings. The normal evaluator remains
-unchanged and advisory. Deterministic stock-overclaim coverage was added in
-`5204698`, as described below.
-
-Evidence:
-`reports/judge-runs/direct-claim-pilot-2026-09-13T13-23-59-813Z-9131181a-bf33-4686-8a7c-3ce1359ccd52.json`.
+| Date | Evaluation | Agreement | Finding |
+| --- | --- | --- | --- |
+| 2026-09-12 | Initial GEval rubric | 13/22 | Nine false rejections |
+| 2026-09-12 | Revised rubric | 22/22 | Calibration result; examples informed revision |
+| 2026-09-12 | Eight new examples, frozen against `54fe73b` | 7/8 | Demanded an unrequested SKU; also missed the stock error in another rejection's explanation |
+| 2026-09-13 | [Evidence-focused prompt][prompt] | 24/30 | Six false acceptances |
+| 2026-09-13 | [Reasoning mode][reasoning] | 29/30 | Accepted the 320-unit stock overclaim |
+| 2026-09-13 | [Original faithfulness metric][faithfulness] | 2/2 | Correct overall labels, but accepted the false stock claim and rejected a valid claim |
+| 2026-09-13 | [Original two direct claims][direct] | 2/2 | Correctly distinguished 312 from 320 in the authored wording |
+| 2026-09-13 | [Sequential full-answer verification][sequential] | 1/2 | Accepted all claims in the incorrect answer |
+| 2026-09-13 | [Four direct-claim controls][identity] | 2/4 | Adding the product name did not fix the overclaims |
 
 ## Stock-overclaim verification
 
-The case-pack assertions use `tests/assertions/stock-availability.ts` to reject
-recognized single-product current-stock promises above the available quantity.
-Regression controls cover the observed active, passive, and alternative-quantity
-wording. Unrecognized wording remains outside this check's coverage.
+Deterministic stock-overclaim coverage was added in `5204698`. On 2026-09-13,
+the full model suite passed all 35 tests, including five case-pack and five
+comparison samples. The advisory judge accepted all ten samples without
+execution errors, but one explanation incorrectly claimed the reference omitted
+the quantity-adjustment instruction.
 
-On 2026-09-13, the full `npm run test:model` run passed all 35 tests, including
-five case-pack and five comparison samples. The advisory judge accepted all ten
-samples without execution errors. One explanation incorrectly claimed the
-reference omitted the quantity-adjustment instruction. These results do not
-establish judge reliability; live verdicts remain advisory.
+Evidence: [model transcript][full-transcript] and [judge report][full-judge].
+These results do not establish judge reliability.
 
-Local, Git-ignored evidence:
+All linked run artifacts are local and Git-ignored, under `reports/model-runs/`
+and `reports/judge-runs/`. They are not included in a fresh clone.
 
-- Transcript: `reports/model-runs/2026-09-13T13-53-11-987Z-6d289aef-91d1-4e51-8196-8829c3d8e87a.log`
-- Judge report: `reports/judge-runs/transcript-2026-09-13T13-57-18-132Z-68e8545d-f322-4bd7-a4b5-d066fd1044ed.json`
+[prompt]: ../reports/judge-runs/validation-2026-09-13T04-39-29-267Z-fda8550b-5254-447e-9292-4ca2c3024076.json
+[reasoning]: ../reports/judge-runs/validation-2026-09-13T10-49-54-842Z-16336bcd-f72c-4698-bf4e-54049bf79177.json
+[faithfulness]: ../reports/judge-runs/claims-pilot-2026-09-13T12-27-01-297Z-efe3559f-37b7-4a9e-b65c-526f7e1a7d36.json
+[direct]: ../reports/judge-runs/direct-claim-pilot-2026-09-13T12-59-03-648Z-0a386626-7297-416b-99f0-7bb3195c9217.json
+[sequential]: ../reports/judge-runs/claims-pilot-2026-09-13T13-04-22-320Z-969ddebb-8ddb-41c4-b9be-f1b27e44c86c.json
+[identity]: ../reports/judge-runs/direct-claim-pilot-2026-09-13T13-23-59-813Z-9131181a-bf33-4686-8a7c-3ce1359ccd52.json
+[full-transcript]: ../reports/model-runs/2026-09-13T13-53-11-987Z-6d289aef-91d1-4e51-8196-8829c3d8e87a.log
+[full-judge]: ../reports/judge-runs/transcript-2026-09-13T13-57-18-132Z-68e8545d-f322-4bd7-a4b5-d066fd1044ed.json
