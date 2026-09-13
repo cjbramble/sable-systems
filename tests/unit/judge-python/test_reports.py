@@ -67,3 +67,58 @@ def test_validation_disagreement_fails_without_changing_the_authored_labels(monk
         # The judge sees the task, answer and reference, never the authored label or rationale.
         assert args == (fixture["question"], row["answer"], fixture["references"][0])
     assert any(row["expectedPassed"] is False and row["agrees"] is False for row in report["results"])
+
+
+def test_claim_pilot_uses_only_the_frozen_pair_and_retains_claim_evidence(monkeypatch, tmp_path):
+    calls = []
+
+    def judge(question, answer, expected):
+        calls.append((question, answer, expected))
+        return {"score": 1, "passed": True, "reason": "Always accepts",
+                "reference": expected, "claims": [answer], "verdicts": [{"verdict": "yes"}]}
+
+    monkeypatch.setattr(evaluation, "judge_claims", judge)
+    monkeypatch.setattr(evaluation, "judge_answer", lambda *args: pytest.fail("GEval must not run in the claim pilot"))
+    code, report, _ = run_report(monkeypatch, tmp_path, {"mode": "claims-pilot"})
+    assert code == 1
+    assert report["policy"]["metric"] == "FaithfulnessClaimPipeline"
+    assert report["policy"]["referenceMode"] == "verbatim"
+    assert report["policy"]["claimVerification"] == "one-at-a-time"
+    assert report["policy"]["penalizeAmbiguousClaims"] is True
+    rows = report["results"]
+    assert [row["id"] for row in rows] == ["valid-alternatives", "holdout-unavailable-alternative"]
+    assert [row["expectedPassed"] for row in rows] == [True, False]
+    fixture = json.loads((evaluation.ROOT / "tests/fixtures/judge/case-pack.json").read_text())
+    for args, row in zip(calls, rows, strict=True):
+        assert args == (fixture["question"], row["answer"], fixture["references"][0])
+        assert row["reference"] == fixture["references"][0]
+        assert row["claims"] == [row["answer"]]
+        assert row["verdicts"] == [{"verdict": "yes"}]
+
+
+def test_direct_claim_pilot_preserves_controlled_pairs_and_requires_an_explicit_contradiction(monkeypatch, tmp_path):
+    calls = []
+
+    def judge(question, claim, expected):
+        calls.append((question, claim, expected))
+        return {"score": 0, "passed": False, "reason": "Uncertain",
+                "reference": expected, "claims": [claim], "verdicts": [{"verdict": "idk"}]}
+
+    monkeypatch.setattr(evaluation, "judge_direct_claim", judge)
+    monkeypatch.setattr(evaluation, "judge_claims", lambda *args: pytest.fail("Extraction must not run"))
+    monkeypatch.setattr(evaluation, "judge_answer", lambda *args: pytest.fail("GEval must not run"))
+    code, report, _ = run_report(monkeypatch, tmp_path, {"mode": "direct-claim-pilot"})
+    assert code == 1
+    assert report["policy"]["metric"] == "FaithfulnessVerdictStage"
+    assert len(report["directClaimFixtureSha256"]) == 64
+    rows = report["results"]
+    assert [row["id"] for row in rows] == ["available-312", "unavailable-320", "unnamed-stock-overclaim", "named-stock-overclaim"]
+    assert [row["expectedPassed"] for row in rows] == [True, False, False, False]
+    assert [row["expectedVerdict"] for row in rows] == ["yes", "no", "no", "no"]
+    assert not any(row["agrees"] for row in rows)  # An idk is not proof of a contradiction.
+    assert rows[0]["answer"].replace("312", "320") == rows[1]["answer"]
+    assert rows[2]["answer"].replace("320 units", "320 Redline Power Cell R12 units") == rows[3]["answer"]
+    fixture = json.loads((evaluation.ROOT / "tests/fixtures/judge/case-pack.json").read_text())
+    for args, row in zip(calls, rows, strict=True):
+        assert args == (fixture["question"], row["answer"], fixture["references"][0])
+        assert row["reference"] == fixture["references"][0]

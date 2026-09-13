@@ -30,6 +30,8 @@ def restrict_network(event, args):
 sys.addaudithook(restrict_network)
 
 from deepeval.metrics import GEval
+from deepeval.metrics.faithfulness.faithfulness import FaithfulnessTemplate
+from deepeval.metrics.faithfulness.schema import Claims, Verdicts
 from deepeval.models import DeepEvalBaseLLM
 from deepeval.test_case import LLMTestCase, SingleTurnParams
 
@@ -101,3 +103,63 @@ def judge_answer(question, answer, expected):
     if metric.score not in (0, 1) or not isinstance(metric.reason, str) or not metric.reason.strip():
         raise ValueError("Local judge returned an invalid verdict")
     return {"score": metric.score, "passed": metric.score == 1, "reason": metric.reason, "calls": judge.requests}
+
+
+def judge_claims(question, answer, expected):
+    """Extract answer claims once; verify each against the original reference."""
+    if not all(isinstance(value, str) and value.strip() for value in (question, answer, expected)):
+        raise ValueError("Question, answer and expected facts must be nonempty strings")
+    judge = LocalJudge()
+    try:
+        prompt = FaithfulnessTemplate.generate_claims(
+            actual_output=answer, multimodal=False, multimodal_instruction="",
+        )
+        claims = judge.generate(prompt, schema=Claims).claims
+        if not claims or any(not claim.strip() for claim in claims):
+            raise ValueError("Claim evaluation requires nonempty extracted claims")
+        # Preserve the full reference on every call and check every claim, even
+        # after a rejection, so the report exposes errors in individual verdicts.
+        verdicts = [_verify_claim(judge, claim, expected) for claim in claims]
+    except Exception as error:
+        error.judge_calls = judge.requests
+        raise
+    passed = all(verdict.verdict == "yes" for verdict in verdicts)
+    reasons = [f"Claim {index} ({verdict.verdict}): {verdict.reason}"
+               for index, verdict in enumerate(verdicts, 1) if verdict.verdict != "yes"]
+    return {
+        "score": int(passed), "passed": passed,
+        "reason": "All extracted claims received yes verdicts." if passed else "\n".join(reasons),
+        "reference": expected, "claims": claims,
+        "verdicts": [verdict.model_dump() for verdict in verdicts],
+        "calls": judge.requests,
+    }
+
+
+def _verify_claim(judge, claim, expected):
+    prompt = FaithfulnessTemplate.generate_verdicts(
+        claims=[claim], retrieval_context=expected, multimodal=False,
+    )
+    result = judge.generate(prompt, schema=Verdicts)
+    if len(result.verdicts) != 1:
+        raise ValueError("Direct claim evaluation requires exactly one verdict")
+    verdict = result.verdicts[0]
+    if verdict.verdict != "yes" and (not isinstance(verdict.reason, str) or not verdict.reason.strip()):
+        raise ValueError("Rejected or ambiguous claims require an explanation")
+    return verdict
+
+
+def judge_direct_claim(question, claim, expected):
+    """Probe the stock claim using only DeepEval's verdict stage, without extraction."""
+    if not all(isinstance(value, str) and value.strip() for value in (question, claim, expected)):
+        raise ValueError("Question, claim and expected facts must be nonempty strings")
+    judge = LocalJudge()
+    try:
+        verdict = _verify_claim(judge, claim, expected)
+    except Exception as error:
+        error.judge_calls = judge.requests
+        raise
+    return {
+        "score": int(verdict.verdict == "yes"), "passed": verdict.verdict == "yes",
+        "reason": verdict.reason, "reference": expected, "claims": [claim],
+        "verdicts": [verdict.model_dump()], "calls": judge.requests,
+    }

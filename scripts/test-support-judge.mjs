@@ -25,13 +25,30 @@ try {
     options: {
       transcript: { type: 'string' },
       holdout: { type: 'boolean', default: false },
+      'claims-pilot': { type: 'boolean', default: false },
+      'direct-claim-pilot': { type: 'boolean', default: false },
     },
     allowPositionals: false,
   });
-  if (values.transcript && values.holdout)
-    throw new Error('Choose either --transcript or --holdout.');
+  if (
+    [
+      values.transcript,
+      values.holdout,
+      values['claims-pilot'],
+      values['direct-claim-pilot'],
+    ].filter(Boolean).length > 1
+  )
+    throw new Error(
+      'Choose only one of --transcript, --holdout, --claims-pilot, or --direct-claim-pilot.',
+    );
   const payload = {
-    mode: values.transcript ? 'transcript' : 'validation',
+    mode: values['direct-claim-pilot']
+      ? 'direct-claim-pilot'
+      : values['claims-pilot']
+        ? 'claims-pilot'
+        : values.transcript
+          ? 'transcript'
+          : 'validation',
     validationSet: values.holdout ? 'holdout' : 'all',
     batches: {},
   };

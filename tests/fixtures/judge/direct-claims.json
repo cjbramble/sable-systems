@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "referenceScenario": "case-pack",
+  "examples": [
+    {
+      "id": "available-312",
+      "text": "We can supply 312 Redline Power Cell R12 units entirely from current stock, with no stock shortfall.",
+      "correct": true,
+      "expectedVerdict": "yes"
+    },
+    {
+      "id": "unavailable-320",
+      "text": "We can supply 320 Redline Power Cell R12 units entirely from current stock, with no stock shortfall.",
+      "correct": false,
+      "expectedVerdict": "no"
+    },
+    {
+      "id": "unnamed-stock-overclaim",
+      "text": "A quantity of 320 units can be supplied entirely from the current stock with no shortfall.",
+      "correct": false,
+      "expectedVerdict": "no"
+    },
+    {
+      "id": "named-stock-overclaim",
+      "text": "A quantity of 320 Redline Power Cell R12 units can be supplied entirely from the current stock with no shortfall.",
+      "correct": false,
+      "expectedVerdict": "no"
+    }
+  ]
+}

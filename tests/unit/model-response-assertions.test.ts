@@ -5,6 +5,7 @@ import { expectClaimsToComeFromContext } from '../assertions/context-claims';
 import { comparisonContext } from '../fixtures/model-context';
 import comparison from '../fixtures/judge/comparison.json';
 import casePack from '../fixtures/judge/case-pack.json';
+import directClaims from '../fixtures/judge/direct-claims.json';
 import { distributorIdentities } from '../fixtures/users';
 
 // These preauthored examples now inform the factual checkers. Their old holdout
@@ -191,6 +192,22 @@ describe('live model response assertions', () => {
         () => expectClaimsToComeFromContext(claim, context),
         claim,
       ).toThrow();
+  });
+
+  it('rejects current-stock overclaims even after an otherwise correct case-pack answer', () => {
+    const answer = casePack.references[0];
+    for (const example of directClaims.examples) {
+      const verdict = expect(
+        () =>
+          expectCasePackResponse(
+            `${answer} ${example.text}`,
+            comparisonContext,
+          ),
+        example.id,
+      );
+      if (example.correct) verdict.not.toThrow();
+      else verdict.toThrow(/current stock/i);
+    }
   });
 
   it('retains case-pack shortfall, nearest-quantity, and fulfillment boundaries', () => {

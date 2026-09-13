@@ -186,6 +186,24 @@ Run only the eight additional holdout examples:
 npm run test:judge -- --holdout
 ```
 
+Run the optional two-answer, claim-by-claim faithfulness pilot:
+
+```sh
+npm run test:judge -- --claims-pilot
+```
+
+This diagnostic extracts answer claims, then checks each separately against the
+unchanged reference and retains per-claim verdicts. Its exit status checks overall
+label agreement; per-claim correctness requires review. It does not check whether
+an answer includes all requested information.
+
+To isolate the verdict stage, bypass extraction with paired stock-quantity and
+product-identity controls:
+
+```sh
+npm run test:judge -- --direct-claim-pilot
+```
+
 ### Organization and results
 
 Tests are grouped under `tests/unit/`, `tests/integration/`, `tests/model/`,

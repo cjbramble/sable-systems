@@ -28,7 +28,8 @@ def transport(monkeypatch):
             return self
 
         def read(self, limit):
-            return json.dumps({"choices": [{"finish_reason": state["finish"], "message": {"content": state["content"]}}]}).encode()
+            content = state["responses"].pop(0) if "responses" in state else state["content"]
+            return json.dumps({"choices": [{"finish_reason": state["finish"], "message": {"content": content}}]}).encode()
 
         def close(self):
             state["closed"] = True
@@ -98,3 +99,69 @@ def test_network_guard_blocks_external_dns_before_resolution():
 def test_blank_answers_are_rejected_before_calling_a_model():
     with pytest.raises(ValueError, match="nonempty"):
         local_judge.judge_answer("Question", " ", "Expected facts")
+
+
+@pytest.mark.parametrize("verdict", ["yes", "no", "idk", None])
+def test_claim_judging_retains_evidence_and_rejects_ambiguous_or_missing_verdicts(transport, verdict):
+    expected = "Available stock is 312 units."
+    answer = "320 units can be supplied from current stock."
+    claims = [answer, "A separate claim to verify after the first verdict."]
+    # Scripted responses test the metric wiring, not the model's factual judgment.
+    transport["responses"] = [json.dumps(value) for value in (
+        {"claims": claims},
+        {"verdicts": [] if verdict is None else [{"verdict": verdict, "reason": "Test evidence"}]},
+        {"verdicts": [{"verdict": "yes", "reason": None}]},
+    )]
+    if verdict is None:
+        with pytest.raises(ValueError, match="exactly one verdict") as caught:
+            local_judge.judge_claims("What can ship?", answer, expected)
+        assert len(caught.value.judge_calls) == 2
+        return
+    result = local_judge.judge_claims("What can ship?", answer, expected)
+    assert result["passed"] is (verdict == "yes")
+    assert result["reference"] == expected
+    assert result["claims"] == claims
+    assert result["verdicts"] == [{"verdict": verdict, "reason": "Test evidence"}, {"verdict": "yes", "reason": None}]
+    assert len(result["calls"]) == 3
+    extraction_prompt = result["calls"][0]["request"]["messages"][0]["content"]
+    assert answer in extraction_prompt
+    assert expected not in extraction_prompt
+    for index, call in enumerate(result["calls"][1:]):
+        prompt = call["request"]["messages"][0]["content"]
+        assert expected in prompt
+        assert claims[index] in prompt
+        assert claims[1 - index] not in prompt
+    assert not transport["responses"]
+
+
+@pytest.mark.parametrize("claims", [[], [" "]])
+def test_empty_claim_extraction_cannot_pass(transport, claims):
+    transport["content"] = json.dumps({"claims": claims})
+    with pytest.raises(ValueError, match="nonempty extracted claims") as caught:
+        local_judge.judge_claims("Question", "Answer", "Reference")
+    assert len(caught.value.judge_calls) == 1
+
+
+@pytest.mark.parametrize("verdict,reason,invalid", [
+    ("yes", None, False), ("no", "Stock is insufficient", False),
+    ("idk", "Not enough evidence", False), ("no", None, True),
+    (None, None, True),
+])
+def test_direct_claim_verification_uses_one_call_and_the_unmodified_reference(transport, verdict, reason, invalid):
+    reference = "Redline has 312 units available. Orders must be multiples of eight."
+    claim = "We can supply 320 Redline units from current stock."
+    transport["content"] = json.dumps({"verdicts": [] if verdict is None else [{"verdict": verdict, "reason": reason}]})
+    if invalid:
+        with pytest.raises(ValueError) as caught:
+            local_judge.judge_direct_claim("Stock question", claim, reference)
+        assert len(caught.value.judge_calls) == 1
+        return
+    result = local_judge.judge_direct_claim("Stock question", claim, reference)
+    assert result["passed"] is (verdict == "yes")
+    assert result["reference"] == reference
+    assert result["claims"] == [claim]
+    assert result["verdicts"] == [{"verdict": verdict, "reason": reason}]
+    assert len(result["calls"]) == 1
+    prompt = result["calls"][0]["request"]["messages"][0]["content"]
+    assert reference in prompt
+    assert claim in prompt

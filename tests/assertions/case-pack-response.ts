@@ -3,11 +3,16 @@ import { findIncorrectNearestCasePackClaims } from './nearest-case-pack';
 import { findPositiveStockShortfallClaims } from './stock-shortfall';
 import { findPartialFulfillmentPromises } from './partial-fulfillment';
 import { expectClaimsToComeFromContext } from './context-claims';
+import { findCurrentStockOverclaims } from './stock-availability';
 
 export function expectCasePackResponse(
   answer: string,
   authorizedContext: string,
 ) {
+  expect(
+    findCurrentStockOverclaims(answer, 312),
+    'A fulfillment promise must not exceed the 312 units in current stock',
+  ).toEqual([]);
   expect(
     findIncorrectNearestCasePackClaims(answer, 310, 8),
     'A nearest-quantity claim must use the closest valid case-pack multiple',
