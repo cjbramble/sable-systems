@@ -133,8 +133,26 @@ while the original named 320-unit control again received `no` for exceeding stoc
 Adding the product name did not correct this pair. The tested missing-identity
 hypothesis is unsupported; semantically equivalent stock claims still produced
 opposite verdicts under unchanged settings. The normal evaluator remains
-unchanged and advisory. Further wording-specific tuning is not recommended;
-deterministic validation of stock quantities is the proposed next step.
+unchanged and advisory. Deterministic stock-overclaim coverage was added in
+`5204698`, as described below.
 
 Evidence:
 `reports/judge-runs/direct-claim-pilot-2026-09-13T13-23-59-813Z-9131181a-bf33-4686-8a7c-3ce1359ccd52.json`.
+
+## Stock-overclaim verification
+
+The case-pack assertions use `tests/assertions/stock-availability.ts` to reject
+recognized single-product current-stock promises above the available quantity.
+Regression controls cover the observed active, passive, and alternative-quantity
+wording. Unrecognized wording remains outside this check's coverage.
+
+On 2026-09-13, the full `npm run test:model` run passed all 35 tests, including
+five case-pack and five comparison samples. The advisory judge accepted all ten
+samples without execution errors. One explanation incorrectly claimed the
+reference omitted the quantity-adjustment instruction. These results do not
+establish judge reliability; live verdicts remain advisory.
+
+Local, Git-ignored evidence:
+
+- Transcript: `reports/model-runs/2026-09-13T13-53-11-987Z-6d289aef-91d1-4e51-8196-8829c3d8e87a.log`
+- Judge report: `reports/judge-runs/transcript-2026-09-13T13-57-18-132Z-68e8545d-f322-4bd7-a4b5-d066fd1044ed.json`

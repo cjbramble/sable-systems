@@ -223,6 +223,10 @@ errors fail the run; they are never converted into successful judgments.
 See the [judge validation status](models/judge/README.md#validation-status)
 before interpreting live judge scores as evidence of correctness.
 
+Case-pack assertions include a deterministic stock-overclaim check for supported
+single-product wording, including the known 320-unit promise against 312 available.
+This check runs on repeated samples; it does not validate arbitrary prose.
+
 Model transcripts are saved in `reports/model-runs/`. Judge reports and
 incremental JSONL evidence are saved in `reports/judge-runs/`.
 Browser reports are saved in `playwright-report/`, with failure screenshots
