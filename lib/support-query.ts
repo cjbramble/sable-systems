@@ -115,15 +115,24 @@ export function classifySupportQuery(
       normalized,
     )
   ) {
+    let assistantItems: string[] | undefined;
     for (const message of messages.slice(0, -1).toReversed()) {
       const previousIdentifier = identifierFrom(message.content);
       if (previousIdentifier) return previousIdentifier;
       const previousItems = itemReferences(message.content);
-      if (previousItems.length)
+      if (!previousItems.length) continue;
+      // Line-item SKUs in a reply must not displace the customer's order.
+      // Retain them as a fallback when no explicit conversation target exists.
+      if (message.role === 'assistant') assistantItems ??= previousItems;
+      else
         return classifySupportQuery([
           { role: 'user', content: `${latest} ${previousItems.join(' ')}` },
         ]);
     }
+    if (assistantItems)
+      return classifySupportQuery([
+        { role: 'user', content: `${latest} ${assistantItems.join(' ')}` },
+      ]);
   }
 
   const includeCharges =

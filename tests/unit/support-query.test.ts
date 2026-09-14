@@ -87,6 +87,24 @@ it('prioritizes current targets and keeps genuinely referential follow-ups', () 
   ).toEqual({ kind: 'order', identifier: 'SBL-2026-000417-X' });
 });
 
+it('keeps an order follow-up anchored when the assistant mentions its line-item SKU', () => {
+  expect(
+    classifySupportQuery([
+      {
+        role: 'user',
+        content:
+          'Find order SBL-2026-848585. What did I order and what is the total?',
+      },
+      {
+        role: 'assistant',
+        content:
+          'You ordered 8 units of SBL-RPC-12 at $680.00 each. The total is $5,440.00.',
+      },
+      { role: 'user', content: 'What is its status, and has it shipped?' },
+    ]),
+  ).toEqual({ kind: 'order', identifier: 'SBL-2026-848585' });
+});
+
 it('ignores numeric item-number suffixes while retaining explicit catalog quantities', () => {
   const scenarios: [content: string, quantity: number | undefined][] = [
     ['How many SBL-RPC-12 units are available?', undefined],
