@@ -16,6 +16,8 @@
     "test:judge": "node scripts/test-support-judge.mjs",
     "test:python": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --project tools/evaluation --locked --offline python -m pytest -c tools/evaluation/pyproject.toml tests/unit/judge-python",
     "test:e2e": "npm run build && playwright test",
+    "demo:record": "npm run build && playwright test --config tools/demo/playwright.config.ts",
+    "demo:record:tests": "npm run build && playwright test --config tools/demo/playwright-checkout.config.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run lint && npm run typecheck && npm test && npm run validate:data && npm run build",
     "start": "wrangler dev --config dist/server/wrangler.json",
