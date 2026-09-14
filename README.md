@@ -7,6 +7,15 @@ history, and COV-E customer support powered by a local Qwen3 4B model.
 Built with React, Vinext, and Tailwind CSS, with a Cloudflare Workers backend
 and a D1/SQLite database.
 
+## Demos
+
+Select a thumbnail to open the video.
+
+| Order to support · 36 seconds | Playwright checkout test · 21 seconds |
+| --- | --- |
+| [![SABLE landing page](docs/media/app-demo.png)](docs/media/app-demo.mp4) | [![Playwright checkout recording](docs/media/checkout-test.png)](docs/media/checkout-test.mp4) |
+| Place an order, then ask COV-E for its details and shipment status. Responses come from the local Qwen model. | Watch the existing checkout test run and its passing report. Checks cover cart removal, account charges, inventory reservations, and persisted order history. |
+
 ## Setup
 
 Requirements:
@@ -216,3 +225,12 @@ incremental JSONL evidence are saved in `reports/judge-runs/`.
 Browser reports are saved in `playwright-report/`, with failure screenshots
 and traces in `test-results/`. These outputs are Git-ignored. View the browser
 report with `npx playwright show-report`.
+
+### Demo recordings
+
+`npm run demo:record` records the app workflow with the local model.
+`npm run demo:record:tests` records the existing checkout test and generates its
+report. Both commands build the app and use disposable databases. Recording
+configuration lives in `tools/demo/`; raw videos, traces, and reports are saved
+under the Git-ignored `reports/demo-recordings/`. Approved MP4s and thumbnails
+live in `docs/media/`.
