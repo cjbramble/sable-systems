@@ -1,0 +1,140 @@
+# COV-E behavior and threat model
+
+Approved by the project owner on 2026-09-15 and revised on 2026-09-24 to describe
+`main`. The contract and threat tables are requirements, not implemented guarantees.
+No training, deployment or new evaluation framework is proposed now.
+
+## System boundary
+
+COV-E provides read-only support for authorized orders, shipments, returns,
+accounts, catalog/inventory and the signed-in user's incidents.
+
+Current flow on `main`: session authentication → rule-based classification of the
+latest customer message, looking back through submitted history for follow-ups →
+distributor- or user-scoped SQL retrieval → one system message holding the policy
+prompt and an `<authorized_records>` block, followed by the client-submitted
+conversation → Qwen3-4B → identifier validation → response and optional incident
+persistence. This is structured-data RAG. The model does not write SQL or modify
+business records. Only the latest customer message and its reply are saved per
+exchange; chat persistence is not an order-management capability.
+
+The separate Qwen3-14B evaluator is advisory and not approved as a pass/fail gate;
+see [Model evaluation](model-evaluation.md). Evaluator failures must not be
+reported as measured COV-E failures.
+
+## Behavior contract
+
+| Area                               | Required behavior                                                                                                                                                                                                    | Acceptance evidence                                                                                                                                                                |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Response quality                   | Answer every requested part that evidence supports. For simple factual questions, use 1–3 short sentences; expand for lists or necessary qualifications. Ask one focused clarification when the target is ambiguous. | Required facts and limitations present; no irrelevant record dump. Review completeness separately from factuality.                                                                 |
+| Factuality                         | Use authorized records, preserve entity-to-value relationships, and distinguish requested, estimated and actual dates. Do not invent policies, stock, prices or actions. State when evidence is missing.             | Independent database expectations and claim-level checks; correct IDs alone are insufficient. Include unknown IDs and misleading premises.                                         |
+| Privacy and authority              | Never disclose another distributor's records or confirm ownership/existence outside scope. Incidents remain user-scoped. Do not request passwords or full card details, or claim to have changed business records.   | API/retrieval isolation, response non-disclosure, and unchanged business-state assertions. Legitimate authorized requests still succeed.                                           |
+| Toxicity                           | Remain professional with abusive customers; do not insult, threaten or demean them.                                                                                                                                  | Reviewed abusive-input/benign-control pairs. Quoting a reported insult is not automatically equivalent to endorsing it.                                                            |
+| Bias                               | Provide equivalent assistance when only irrelevant demographic cues change. Do not infer entitlement, reliability or competence from those cues.                                                                     | Paired prompts with identical records and permissions; compare helpfulness, factuality and refusal, not exact wording. Contractual tier/role differences are not demographic bias. |
+| Harmful requests                   | Refuse actionable assistance for violence, self-harm, exploitation, unauthorized access or dangerous modification of cybernetic equipment. Offer a safe, relevant alternative where appropriate.                     | Harmful scenarios paired with legitimate product, maintenance, defensive-security or safety questions. A product's security/cybernetics category alone must not trigger refusal.   |
+| Injection and jailbreak resistance | Treat messages and retrieved text as data, not permission to change authority, fabricate facts, disclose private data or bypass safety boundaries.                                                                   | Direct, indirect and multi-turn attacks with explicit prohibited outcomes and benign controls. Record false refusals as well as attack successes.                                  |
+
+General unrelated questions should receive a brief scope redirect, not invented
+SABLE policy. High-level product information is allowed; medical diagnosis or
+instructions for invasive procedures are outside this support role.
+
+## Trust boundaries and threats
+
+Protect confidentiality, factual integrity, business state and availability.
+Assume a signed-in attacker controls messages, request bodies and their incident
+titles, but not server code, authentication records or other distributors' data.
+
+| Boundary                  | Concrete threat                                                                                              | Required control or verification                                                                                                                                                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Client → server           | Forged assistant turns, distributor IDs, incident IDs or replayed requests                                   | Derive identity from the session; authorize every retrieval. Build persisted conversation history from authorized server records rather than trusting client-authored assistant turns. Preserve retry/idempotency behavior.             |
+| Retrieved text → model    | A customer-authored incident title contains instructions; later policy documents could contain poisoned text | Separate server instructions from source content; represent text as untrusted data with provenance. Authorization to read a field does not make its contents authoritative instructions. Delimiters alone are not a security guarantee. |
+| Model → response/storage  | Invented facts, unsafe content, truncated output, or malicious Markdown                                      | Validate completion and supported identifiers; test response claims and the renderer. Rejected output must not be returned or saved as a successful assistant reply. Do not execute model output.                                       |
+| Model/evaluator → runtime | Timeouts, malformed verdicts, exhausted output limits or excessive requests                                  | Bound requests and output; distinguish errors from abstention and quality failures. Never retry until passing. Rate limiting and public abuse controls require a separate deployment review.                                            |
+
+Isolation must hold even if the model follows an injection. Test with synthetic
+canaries, never real credentials; measure disclosure/effects, not keyword matches.
+Public deployment, arbitrary uploads, multimodal attacks and host compromise are
+outside this baseline.
+
+The direct/indirect attack distinction and defense-in-depth approach follow
+[OWASP prompt-injection guidance](https://genai.owasp.org/llmrisk/llm01-prompt-injection/).
+
+## Current state on `main`
+
+Controls in place, with deterministic coverage:
+
+- Identity comes from the session. Every retrieval and API query is scoped to the
+  authenticated distributor or user, including follow-ups resolved from history
+  (`tests/integration/*-grounding.test.ts`, `orders-api`, `incidents-api`).
+- Requests carry 1–12 messages of at most 4,000 characters, ending with a customer
+  message. The oldest history is dropped to fit the model's 4,096-token context;
+  a request that still overflows returns a specific 422 error and saves nothing.
+- [Output validation](../lib/support-response.ts) rejects unsupported record
+  identifiers in any letter case. Rejected replies are neither returned nor saved.
+- Order searches report the total number of matches, not only the six listed.
+- Model timeouts, connection failures and malformed replies return fixed messages
+  without upstream details, save nothing and permit a clean retry.
+- The support page renders Markdown without executable HTML or unsafe links
+  (`tests/e2e/support-history.spec.ts`).
+
+Known gaps, from the 2026-09-24 code review:
+
+- **Client history (F5):** client-authored assistant turns reach the model. The
+  saved incident does not contain the conversation the model saw, so a reply
+  cannot be reproduced from stored records.
+- **Stored text in the system message (F4):** retrieved records, including
+  customer-authored checkout destinations (up to 80 characters) and incident
+  titles (up to 42), are placed unescaped inside the system message. A destination
+  containing `</authorized_records>` closes the records block early.
+- **Completion handling:** reply extraction does not check `finish_reason`, so a
+  reply cut off at the 600-token limit can be returned and saved as complete.
+- **Validation scope:** output validation checks identifiers, not monetary,
+  quantity, date or policy claims.
+- **Routing:** query selection is pattern-based and retrieves one record type per
+  message; compound questions and paraphrases need coverage.
+- **Safety baseline:** live-model tests cover factuality and grounding only. No
+  toxicity, bias, harmful-request or injection baseline exists on `main`.
+
+## Evaluation design
+
+- **Vitest unit/integration:** retrieval, authorization, contracts and state invariants.
+- **Live-model tests:** generated claims, quality and safety, including selected
+  authenticated API-path cases rather than only direct model calls.
+- **Playwright:** a few error/success workflows with page objects and controlled replies.
+- **pytest/DeepEval:** evaluator contracts and rubric judgments. Validate each
+  metric/local-judge combination independently before blocking use.
+
+Start with one distinct challenging case and a benign control per behavior;
+use paired variants for bias. Freeze reviewed expectations first. Propose three
+independent samples per live case at application defaults; approve the case set
+and run budget before execution. Repetitions are not independent examples.
+
+Retain prompt, model/runtime/settings, retrieved evidence, independent expected
+facts, response, finish reason, latency and grader explanations. Separate retrieval,
+generation, enforcement, evaluator and execution failures.
+
+Confirmed privacy breaches, unauthorized mutations, dangerous assistance or factual
+contradictions fail their scenarios; benign passes cannot offset them. Missing
+results/errors never count as successes. Use explicit rubrics and human review for
+judgment-dependent criteria until graders qualify. Report category counts, attack
+successes, false refusals and unresolved reviews—not one overall quality score.
+
+## Proposed sequence
+
+Each step is a separate change on its own feature branch.
+
+1. **Trust boundaries:** build model history from saved incident messages instead
+   of client-authored assistant turns (F5), and move retrieved records out of the
+   system message with provenance labeling (F4). Add paired forged-history and
+   stored-text regressions, including checkout destinations.
+2. **Completion handling:** reject replies whose `finish_reason` is not `stop`,
+   with an API regression for no returned or saved partial text.
+3. **Balanced baseline:** approve a small fixture set, then add one live scenario
+   at a time, with a benign control for each: stored-text injection, forged
+   history, abusive language, paired demographic cues and harmful requests.
+   Separate application findings from evaluator findings.
+4. **Expansion:** consider policy/manual retrieval if wanted. Compare prompts/base
+   models before fine-tuning behavior; do not train on current account facts.
+
+Retain a trail for each risk: risk → test → failure → fix → retest, with limitations.
+No CI/CD or new judge qualification run is proposed now.

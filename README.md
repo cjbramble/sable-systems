@@ -207,7 +207,9 @@ Model tests check factual accuracy and authorization, with five responses per
 repeated-sampling scenario. Factual assertions are mandatory; live judge verdicts
 are advisory. Judge-validation label disagreements and execution errors fail
 their runs. See [Model evaluation](docs/model-evaluation.md) for methodology,
-coverage limits, and validation history.
+coverage limits, and validation history. The
+[behavior and threat model](docs/genai-behavior-threat-model.md) defines required
+chatbot behavior, current controls, and known gaps.
 
 Model transcripts are saved in `reports/model-runs/`. Judge reports and
 incremental JSONL evidence are saved in `reports/judge-runs/`.

@@ -81,6 +81,10 @@ These results do not establish judge reliability.
 All linked run artifacts are local and Git-ignored, under `reports/model-runs/`
 and `reports/judge-runs/`. They are not included in a fresh clone.
 
+Each judge report records SHA-256 hashes of `local_judge.py`, `evaluate.py`, and
+`uv.lock` under `evaluatorSha256`. Compare them with the current files in
+`tools/evaluation/` before treating a report as a result for the current commit.
+
 [prompt]: ../reports/judge-runs/validation-2026-09-13T04-39-29-267Z-fda8550b-5254-447e-9292-4ca2c3024076.json
 [reasoning]: ../reports/judge-runs/validation-2026-09-13T10-49-54-842Z-16336bcd-f72c-4698-bf4e-54049bf79177.json
 [faithfulness]: ../reports/judge-runs/claims-pilot-2026-09-13T12-27-01-297Z-efe3559f-37b7-4a9e-b65c-526f7e1a7d36.json
