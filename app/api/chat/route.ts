@@ -18,6 +18,7 @@ import { hasGroundedSupportIdentifiers } from '@/lib/support-response';
 import {
   createSupportModelRequest,
   extractSupportModelContent,
+  isContextOverflowResponse,
 } from '@/lib/support-model';
 
 const failureResponses = {
@@ -121,6 +122,15 @@ export async function POST(request: Request) {
     });
     const modelResponse = await fetch(modelUrl, modelRequest);
 
+    if (await isContextOverflowResponse(modelResponse)) {
+      return Response.json(
+        {
+          error:
+            'That message is too long for the local model. Shorten it and try again.',
+        },
+        { status: 422 },
+      );
+    }
     if (!modelResponse.ok) {
       return Response.json(
         {

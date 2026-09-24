@@ -1,5 +1,12 @@
-import type { ChatHistoryMessage } from './chat-history';
-import { SUPPORT_MODEL_ALIAS } from './model-readiness.mjs';
+import {
+  fitChatHistoryToBudget,
+  type ChatHistoryMessage,
+} from './chat-history';
+import {
+  SUPPORT_MODEL_ALIAS,
+  SUPPORT_MODEL_CONTEXT_TOKENS,
+  SUPPORT_MODEL_MAX_REPLY_TOKENS,
+} from './model-readiness.mjs';
 
 export { SUPPORT_MODEL_ALIAS } from './model-readiness.mjs';
 
@@ -24,8 +31,14 @@ type SupportModelRequest = {
 const defaultGeneration: SupportModelGeneration = {
   temperature: 0.35,
   topP: 0.9,
-  maxTokens: 600,
+  maxTokens: SUPPORT_MODEL_MAX_REPLY_TOKENS,
 };
+
+// Conservative estimate: Qwen tokenizes digits individually, so record IDs and
+// amounts use fewer characters per token than prose. The reserve covers the
+// chat template. llama-server still rejects any request that overflows.
+const ESTIMATED_CHARACTERS_PER_TOKEN = 2.5;
+const CHAT_TEMPLATE_TOKEN_RESERVE = 128;
 
 function systemPrompt(distributorName: string, distributorId: string) {
   return `You are COV-E, the Customer Operations and Verification Entity for SABLE Systems, a consumer and wholesale technology division of Morrow Vale Holdings.
@@ -51,6 +64,13 @@ export function createSupportModelRequest({
   generation,
 }: SupportModelRequest): [string, RequestInit] {
   const settings = { ...defaultGeneration, ...generation };
+  const systemContent = `${systemPrompt(distributorName, distributorId)}\n\n${authorizedContext}`;
+  const historyBudget =
+    (SUPPORT_MODEL_CONTEXT_TOKENS -
+      settings.maxTokens -
+      CHAT_TEMPLATE_TOKEN_RESERVE) *
+      ESTIMATED_CHARACTERS_PER_TOKEN -
+    systemContent.length;
   return [
     SUPPORT_MODEL_SERVER_URL,
     {
@@ -62,11 +82,8 @@ export function createSupportModelRequest({
       body: JSON.stringify({
         model: SUPPORT_MODEL_ALIAS,
         messages: [
-          {
-            role: 'system',
-            content: `${systemPrompt(distributorName, distributorId)}\n\n${authorizedContext}`,
-          },
-          ...messages,
+          { role: 'system', content: systemContent },
+          ...fitChatHistoryToBudget(messages, historyBudget),
         ],
         temperature: settings.temperature,
         top_p: settings.topP,
@@ -90,4 +107,22 @@ export function extractSupportModelContent(payload: unknown) {
   const content = (message as Record<string, unknown>).content;
   if (typeof content !== 'string' || !content.trim()) return null;
   return content.trim();
+}
+
+// llama-server rejects prompts beyond --ctx-size with a 400. History is already
+// trimmed, so this means the latest message and records alone do not fit.
+export async function isContextOverflowResponse(response: Response) {
+  if (response.status !== 400) return false;
+  try {
+    const error = ((await response.json()) as { error?: unknown })?.error;
+    if (!error || typeof error !== 'object') return false;
+    const { type, message } = error as Record<string, unknown>;
+    return (
+      type === 'exceed_context_size_error' ||
+      (typeof message === 'string' &&
+        message.includes('exceeds the available context size'))
+    );
+  } catch {
+    return false;
+  }
 }

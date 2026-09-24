@@ -3,6 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import {
   isSupportModelReady,
   SUPPORT_MODEL_ALIAS,
+  SUPPORT_MODEL_CONTEXT_TOKENS,
 } from '../../lib/model-readiness.mjs';
 
 export async function localModelIsReady(signal) {
@@ -32,7 +33,7 @@ export function modelLaunch() {
       '--port',
       '8017',
       '--ctx-size',
-      '4096',
+      String(SUPPORT_MODEL_CONTEXT_TOKENS),
       '--n-gpu-layers',
       '99',
       '--jinja',

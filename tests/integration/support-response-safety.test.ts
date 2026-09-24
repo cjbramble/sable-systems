@@ -727,6 +727,18 @@ describe('support response safety', () => {
         'The local model could not complete that request. Please try again.',
     },
     {
+      failure: 'context-overflow',
+      expectedStatus: 422,
+      expectedError:
+        'That message is too long for the local model. Shorten it and try again.',
+    },
+    {
+      failure: 'other-bad-request',
+      expectedStatus: 502,
+      expectedError:
+        'The local model could not complete that request. Please try again.',
+    },
+    {
       failure: 'malformed-JSON',
       expectedStatus: 502,
       expectedError:
@@ -931,6 +943,32 @@ describe('support response safety', () => {
               ],
             },
             { status: 503 },
+          );
+          fetchMock.mockResolvedValueOnce(modelResponse);
+        } else if (
+          failure === 'context-overflow' ||
+          failure === 'other-bad-request'
+        ) {
+          // llama-server's error shape for a prompt beyond --ctx-size.
+          modelResponse = Response.json(
+            {
+              error:
+                failure === 'context-overflow'
+                  ? {
+                      code: 400,
+                      message:
+                        'the request exceeds the available context size, try increasing it',
+                      type: 'exceed_context_size_error',
+                      n_prompt_tokens: 5120,
+                      n_ctx: 4096,
+                    }
+                  : {
+                      code: 400,
+                      message: 'test: private upstream diagnostics',
+                      type: 'invalid_request_error',
+                    },
+            },
+            { status: 400 },
           );
           fetchMock.mockResolvedValueOnce(modelResponse);
         } else if (failure === 'malformed-JSON') {
