@@ -319,14 +319,24 @@ async function orderSearchContext(
     )`);
     params.push(product.item_number);
   }
-  const rows = await db
-    .prepare(`SELECT o.order_id, o.customer_po_number, o.created_on,
+  const where = clauses.join(' AND ');
+  const [countResult, rowResult] = await db.batch([
+    // Report every match so count questions are not answered from listed rows.
+    db
+      .prepare(`SELECT COUNT(*) AS total FROM orders o WHERE ${where}`)
+      .bind(...params),
+    db
+      .prepare(`SELECT o.order_id, o.customer_po_number, o.created_on,
       o.requested_ship_date, o.status, o.order_total_cents, o.currency
       FROM orders o
-      WHERE ${clauses.join(' AND ')}
+      WHERE ${where}
       ORDER BY o.created_on DESC, o.order_id DESC LIMIT 6`)
-    .bind(...params)
-    .all<Record<string, string | number>>();
+      .bind(...params),
+  ]);
+  const total = Number(
+    (countResult.results[0] as { total: number } | undefined)?.total ?? 0,
+  );
+  const rows = rowResult as D1Result<Record<string, string | number>>;
   const criteria = [
     status ? `status ${status.replaceAll('_', ' ')}` : null,
     year
@@ -338,7 +348,7 @@ async function orderSearchContext(
   ].filter(Boolean);
   return `<authorized_records>
 Authorization: ${user.distributorDisplayName} (${user.distributorId}) only.
-Order search${criteria.length ? ` for ${criteria.join(', ')}` : ''}; showing up to 6 most recent matches.
+Order search${criteria.length ? ` for ${criteria.join(', ')}` : ''}: ${total} matching ${total === 1 ? 'order' : 'orders'}${total === 0 ? '.' : rows.results.length < total ? `; listing the ${rows.results.length} most recent.` : `; listing all ${total}.`}
 ${rows.results.map((row) => `- ${row.order_id} / ${row.customer_po_number}: ${row.status}; created ${row.created_on}; requested ${row.requested_ship_date}; ${formatCurrency(Number(row.order_total_cents), String(row.currency))}.`).join('\n') || '- No matching orders.'}
 </authorized_records>`;
 }

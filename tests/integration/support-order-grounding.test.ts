@@ -6,6 +6,21 @@ import { classifySupportQuery } from '@/lib/support-query';
 import { parseCheckoutInput } from '@/db/shop';
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
+// Count independently: the context must report every match, not only listed rows.
+async function countCalderPikeOrders(
+  database: Awaited<ReturnType<typeof getDatabase>>,
+  condition: string,
+  ...params: unknown[]
+) {
+  const total = await database
+    .prepare(
+      `SELECT COUNT(*) AS total FROM orders o WHERE o.customer_id = ? AND ${condition}`,
+    )
+    .bind(calderPikeUser.distributorId, ...params)
+    .first<number>('total');
+  return Number(total);
+}
+
 describe('support order grounding', () => {
   it('supplies the same historical delivery date in shipment and event records', async () => {
     const context = await buildAuthorizedContext(
@@ -571,8 +586,14 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     expect(context).toContain(
       'Authorization: Calder Pike Distribution (WHS-0427) only.',
     );
+    const total = await countCalderPikeOrders(
+      database,
+      'o.status = ?',
+      'partially_shipped',
+    );
+    expect(total).toBeGreaterThan(6);
     expect(context).toContain(
-      'Order search for status partially shipped; showing up to 6 most recent matches.',
+      `Order search for status partially shipped: ${total} matching orders; listing the 6 most recent.`,
     );
     expect(contextOrderIds).toEqual(
       expectedRows.results.slice(0, 6).map((row) => row.order_id),
@@ -640,8 +661,15 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     );
     const contextOrderIds = context.match(/\bSBL-\d{4}-\d{6}\b/g) ?? [];
 
+    const total = await countCalderPikeOrders(
+      database,
+      "o.status = 'scheduled' AND o.requested_ship_date >= ? AND o.requested_ship_date < ?",
+      '2030-01-01',
+      '2031-01-01',
+    );
+    expect(total).toBeGreaterThan(6);
     expect(context).toContain(
-      'Order search for status scheduled, requested in 2030; showing up to 6 most recent matches.',
+      `Order search for status scheduled, requested in 2030: ${total} matching orders; listing the 6 most recent.`,
     );
     expect(contextOrderIds).toEqual(
       expectedRows.results.slice(0, 6).map((row) => row.order_id),
@@ -704,8 +732,14 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     );
     const contextOrderIds = context.match(/\bSBL-\d{4}-\d{6}\b/g) ?? [];
 
+    const total = await countCalderPikeOrders(
+      database,
+      'EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.order_id AND oi.item_number = ?)',
+      'SBL-RPC-12',
+    );
+    expect(total).toBeGreaterThan(6);
     expect(context).toContain(
-      'Order search for containing product Redline Power Cell R12 (SBL-RPC-12); showing up to 6 most recent matches.',
+      `Order search for containing product Redline Power Cell R12 (SBL-RPC-12): ${total} matching orders; listing the 6 most recent.`,
     );
     expect(contextOrderIds).toEqual(
       expectedRows.results.slice(0, 6).map((row) => row.order_id),
@@ -713,5 +747,58 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     expect(context).not.toContain(expectedRows.results[6].order_id);
     expect(context.match(/\bWHS-\d{4}\b/g)).toEqual(['WHS-0427']);
     expect(context.match(/\bSBL-RPC-12\b/g)).toEqual(['SBL-RPC-12']);
+  });
+
+  it('reports the total number of matching orders beyond the listed rows', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content: 'How many delivered orders do I have?',
+      },
+    ];
+    expect(classifySupportQuery(messages)).toMatchObject({
+      kind: 'orders',
+      status: 'delivered',
+    });
+
+    const database = await getDatabase();
+    const total = await countCalderPikeOrders(
+      database,
+      'o.status = ?',
+      'delivered',
+    );
+    expect(total).toBeGreaterThan(6);
+
+    const context = await buildAuthorizedContext(
+      database,
+      messages,
+      calderPikeUser,
+    );
+    expect(context).toContain(
+      `Order search for status delivered: ${total} matching orders; listing the 6 most recent.`,
+    );
+    expect(context.match(/: delivered;/g)).toHaveLength(6);
+  });
+
+  it('states when every matching order is listed', async () => {
+    const database = await getDatabase();
+    const total = await countCalderPikeOrders(
+      database,
+      "o.status = 'cancelled' AND o.created_on >= ? AND o.created_on < ?",
+      '2022-01-01',
+      '2023-01-01',
+    );
+    expect(total).toBeGreaterThan(0);
+    expect(total).toBeLessThanOrEqual(6);
+
+    const context = await buildAuthorizedContext(
+      database,
+      [{ role: 'user', content: 'Show my cancelled orders from 2022.' }],
+      calderPikeUser,
+    );
+    expect(context).toContain(
+      `Order search for status cancelled, created in 2022: ${total} matching ${total === 1 ? 'order' : 'orders'}; listing all ${total}.`,
+    );
+    expect(context.match(/: cancelled;/g)).toHaveLength(total);
   });
 });
