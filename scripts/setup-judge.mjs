@@ -36,11 +36,14 @@ if (!existsSync(destination)) {
     );
 }
 const path = existsSync(destination) ? destination : partial;
+// Resuming cannot repair a full-size bad file, so name the file to remove.
+const rejected = (reason) =>
+  new Error(`${reason} Delete ${path} and rerun npm run setup:judge.`);
 if (statSync(path).size !== manifest.bytes)
-  throw new Error('Judge file size does not match the pinned model.');
+  throw rejected('Judge file size does not match the pinned model.');
 const hash = createHash('sha256');
 for await (const chunk of createReadStream(path)) hash.update(chunk);
 if (hash.digest('hex') !== manifest.sha256)
-  throw new Error('Judge checksum mismatch; the file has not been accepted.');
+  throw rejected('Judge checksum mismatch; the file has not been accepted.');
 if (path === partial) renameSync(partial, destination);
 console.info(`Verified local judge: ${destination}`);
