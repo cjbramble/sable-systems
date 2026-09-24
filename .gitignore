@@ -81,6 +81,7 @@ next-env.d.ts
 /reports/server-logs/
 /reports/model-runs/
 /reports/judge-runs/
+/reports/demo-recordings/
 .deepeval/
 .deepeval*
 /tmp/
