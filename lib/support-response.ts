@@ -10,9 +10,8 @@ export function hasGroundedSupportIdentifiers(
   authorizedContext: string,
 ): boolean {
   const authorizedIdentifiers = new Set(
-    Array.from(
-      authorizedContext.matchAll(SUPPORT_IDENTIFIER_PATTERN),
-      ([id]) => id,
+    Array.from(authorizedContext.matchAll(SUPPORT_IDENTIFIER_PATTERN), ([id]) =>
+      id.toUpperCase(),
     ),
   );
   // Plain-word POs must be present as references, not merely as prose somewhere
@@ -33,7 +32,8 @@ export function hasGroundedSupportIdentifiers(
     explicitCustomerPos(content).every((po) => authorizedReferences.has(po)) &&
     Array.from(
       content.matchAll(SUPPORT_IDENTIFIER_PATTERN),
-      ([id]) => id,
+      // Record IDs are uppercase; a model may echo a customer's lowercase form.
+      ([id]) => id.toUpperCase(),
     ).every((id) => authorizedIdentifiers.has(id))
   );
 }

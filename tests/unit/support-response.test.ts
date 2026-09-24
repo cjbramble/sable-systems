@@ -61,6 +61,12 @@ describe('support response identifier validation', () => {
       true,
     ],
     ['no record claims', 'Which order would you like me to look up?', true],
+    [
+      'authorized identifiers in lowercase',
+      'Return rtn-2022-000014 links to sbl-2022-000118 via shp-2022-000012.',
+      true,
+    ],
+    ['altered identifier in lowercase', 'Linked order: sbl-2022-000119', false],
   ])('%s', (_label, answer, expected) => {
     expect(hasGroundedSupportIdentifiers(answer, context)).toBe(expected);
   });
