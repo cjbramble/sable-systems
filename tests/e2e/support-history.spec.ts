@@ -326,10 +326,12 @@ test.describe('model failure recovery', () => {
     expect(recoveryRequest.incidentId).toBe(incidentId);
     expect(recoveryRequest.messages).toEqual(expectedHistory);
     expect(app.modelRequests).toHaveLength(2);
+    // The failed first message was never saved, so the model sees only saved
+    // incident history (none yet) and the current customer message.
     expect(app.modelRequests[1]).toMatchObject({
       messages: [
         expect.objectContaining({ role: 'system' }),
-        ...expectedHistory,
+        { role: 'user', content: followUpMessage },
       ],
     });
     expect(JSON.stringify(app.modelRequests)).not.toContain(errorMessage);

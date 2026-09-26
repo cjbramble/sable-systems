@@ -1,5 +1,10 @@
 import type { AuthenticatedUser } from './auth';
 import {
+  buildChatRequestHistory,
+  MAX_CHAT_REQUEST_MESSAGES,
+  type ChatHistoryMessage,
+} from '../lib/chat-history.ts';
+import {
   createIncidentTitle,
   type SupportIncident,
   type SupportReply,
@@ -142,6 +147,41 @@ export async function hasSupportMessageIdConflict(
       !customer ||
       assistant.sequence_number !== customer.sequence_number + 1),
   );
+}
+
+// Build model history from the user's saved incident, never from client-authored
+// turns. A retry of a saved customer message uses only the messages before it.
+export async function getSupportConversationHistory(
+  db: D1Database,
+  user: AuthenticatedUser,
+  incidentId: string,
+  messageId: string,
+  customerMessage: string,
+): Promise<ChatHistoryMessage[]> {
+  const rows = await db
+    .prepare(`SELECT m.role, m.content
+      FROM support_messages m
+      JOIN support_incidents i ON i.incident_id = m.incident_id
+      WHERE i.user_id = ? AND m.incident_id = ?
+        AND m.sequence_number < COALESCE(
+          (SELECT sequence_number FROM support_messages
+            WHERE incident_id = ? AND message_id = ?),
+          9223372036854775807)
+      ORDER BY m.sequence_number DESC LIMIT ?`)
+    .bind(
+      user.userId,
+      incidentId,
+      incidentId,
+      messageId,
+      MAX_CHAT_REQUEST_MESSAGES - 1,
+    )
+    .all<ChatHistoryMessage>();
+  return buildChatRequestHistory([
+    ...rows.results
+      .toReversed()
+      .map(({ role, content }) => ({ role, content })),
+    { role: 'user', content: customerMessage },
+  ]);
 }
 
 type SavedSupportExchange = {

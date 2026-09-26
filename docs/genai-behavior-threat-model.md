@@ -10,10 +10,10 @@ COV-E provides read-only support for authorized orders, shipments, returns,
 accounts, catalog/inventory and the signed-in user's incidents.
 
 Current flow on `main`: session authentication → rule-based classification of the
-latest customer message, looking back through submitted history for follow-ups →
-distributor- or user-scoped SQL retrieval → one system message holding the policy
-prompt and an `<authorized_records>` block, followed by the client-submitted
-conversation → Qwen3-4B → identifier validation → response and optional incident
+latest customer message, looking back through saved incident history for
+follow-ups → distributor- or user-scoped SQL retrieval → one system message holding
+the policy prompt and an `<authorized_records>` block, followed by up to 11 saved
+incident messages and the current customer message → Qwen3-4B → identifier validation → response and optional incident
 persistence. This is structured-data RAG. The model does not write SQL or modify
 business records. Only the latest customer message and its reply are saved per
 exchange; chat persistence is not an order-management capability.
@@ -66,6 +66,10 @@ Controls in place, with deterministic coverage:
 - Identity comes from the session. Every retrieval and API query is scoped to the
   authenticated distributor or user, including follow-ups resolved from history
   (`tests/integration/*-grounding.test.ts`, `orders-api`, `incidents-api`).
+- Model history comes from the user's saved incident messages, not from the
+  request. Client-authored assistant turns, failed unsaved exchanges and history
+  sent for a new incident never reach the model. A retried reply uses only the
+  messages saved before it (`tests/integration/support-saved-history.test.ts`).
 - Requests carry 1–12 messages of at most 4,000 characters, ending with a customer
   message. The oldest history is dropped to fit the model's 4,096-token context;
   a request that still overflows returns a specific 422 error and saves nothing.
@@ -79,9 +83,6 @@ Controls in place, with deterministic coverage:
 
 Known gaps, from the 2026-09-24 code review:
 
-- **Client history (F5):** client-authored assistant turns reach the model. The
-  saved incident does not contain the conversation the model saw, so a reply
-  cannot be reproduced from stored records.
 - **Stored text in the system message (F4):** retrieved records, including
   customer-authored checkout destinations (up to 80 characters) and incident
   titles (up to 42), are placed unescaped inside the system message. A destination
@@ -123,10 +124,10 @@ successes, false refusals and unresolved reviews—not one overall quality score
 
 Each step is a separate change on its own feature branch.
 
-1. **Trust boundaries:** build model history from saved incident messages instead
-   of client-authored assistant turns (F5), and move retrieved records out of the
-   system message with provenance labeling (F4). Add paired forged-history and
-   stored-text regressions, including checkout destinations.
+1. **Trust boundaries:** move retrieved records out of the system message with
+   provenance labeling (F4). Add paired stored-text regressions for incident
+   titles and checkout destinations. Model history already comes from saved
+   incident messages (F5).
 2. **Completion handling:** reject replies whose `finish_reason` is not `stop`,
    with an API regression for no returned or saved partial text.
 3. **Balanced baseline:** approve a small fixture set, then add one live scenario

@@ -3,6 +3,7 @@ import { getDatabase } from '@/db/database';
 import {
   canAccessSupportIncident,
   getSavedSupportExchange,
+  getSupportConversationHistory,
   hasSupportMessageIdConflict,
   IncidentAccessDeniedError,
   parseIncidentId,
@@ -112,13 +113,25 @@ export async function POST(request: Request) {
       }
     }
 
-    const authorizedContext = await buildAuthorizedContext(db, messages, user);
+    // Client history is validated for the request contract but never trusted:
+    // the model sees saved incident messages plus the current customer message.
+    const history =
+      incidentId && messageId
+        ? await getSupportConversationHistory(
+            db,
+            user,
+            incidentId,
+            messageId,
+            customerMessage,
+          )
+        : [{ role: 'user' as const, content: customerMessage }];
+    const authorizedContext = await buildAuthorizedContext(db, history, user);
     phase = 'model';
     const [modelUrl, modelRequest] = createSupportModelRequest({
       distributorName: user.distributorDisplayName,
       distributorId: user.distributorId,
       authorizedContext,
-      messages,
+      messages: history,
     });
     const modelResponse = await fetch(modelUrl, modelRequest);
 

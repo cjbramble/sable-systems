@@ -209,10 +209,12 @@ describe('support response safety', () => {
       if (typeof modelBody !== 'string')
         throw new Error('Expected a JSON model request body');
       const modelRequest = JSON.parse(modelBody);
-      // The server adds one system message and preserves every submitted entry.
-      expect(modelRequest.messages).toHaveLength(validCount + 1);
+      // A valid history is accepted, but only saved messages reach the model.
+      // This incident is new, so the model sees the current customer message.
       expect(modelRequest.messages[0]).toMatchObject({ role: 'system' });
-      expect(modelRequest.messages.slice(1)).toEqual(allowedHistory);
+      expect(modelRequest.messages.slice(1)).toEqual([
+        { role: 'user', content: customerMessage },
+      ]);
       expect(await fixture.findIncident(incidentId)).toMatchObject({
         user_id: calderPikeUser.userId,
       });
