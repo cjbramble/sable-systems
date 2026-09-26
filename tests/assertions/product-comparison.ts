@@ -112,8 +112,9 @@ export function expectProductComparisonResponse(
           break;
         }
         default: {
+          // A comma may separate fields on one line, but not digit groups.
           const units =
-            /^(\d+(?:\.\d+)?)(?:\s+(units?|controllers?|cells?|arrays?))?(?=\s*(?:[;|.()]|for\b|$))/i.exec(
+            /^(\d+(?:\.\d+)?)(?:\s+(units?|controllers?|cells?|arrays?))?(?=\s*(?:[;|.()]|,(?!\d)|for\b|$))/i.exec(
               value,
             );
           const expected =

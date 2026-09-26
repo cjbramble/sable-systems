@@ -120,6 +120,32 @@ describe('live model response assertions', () => {
       ).toThrow();
   });
 
+  it('accepts comma-separated fields on one product line and still checks each value', () => {
+    // Observed in the 2026-09-26 live run after the concise-response prompt.
+    const answer = [
+      '- item number: SBL-CSR-R2, price: $2,250.00, case pack: 4, lead time: 90 days, available units: 0  ',
+      '- item number: SBL-RPC-12, price: $680.00, case pack: 8, lead time: 18 days, available units: 312',
+    ].join('\n');
+    expect(() =>
+      expectOverlappingComparisonResponse(answer, comparisonContext),
+    ).not.toThrow();
+    for (const [before, after] of [
+      ['case pack: 4,', 'case pack: 8,'],
+      ['case pack: 8,', 'case pack: 4,'],
+      ['available units: 0 ', 'available units: 312 '],
+      ['case pack: 4,', 'case pack: 4,000,'],
+      ['case pack: 8,', 'case pack: 8 cases,'],
+      ['lead time: 90 days,', 'lead time: 18 days,'],
+    ]) {
+      const changed = answer.replace(before, after);
+      expect(changed).not.toBe(answer);
+      expect(
+        () => expectOverlappingComparisonResponse(changed, comparisonContext),
+        changed,
+      ).toThrow();
+    }
+  });
+
   it('checks every labeled value on its product line, including units and repeats', () => {
     const answer = comparison.references[0];
     for (const [field, correct, wrong] of [
