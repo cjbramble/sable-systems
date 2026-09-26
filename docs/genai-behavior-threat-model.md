@@ -83,6 +83,9 @@ Controls in place, with deterministic coverage:
 - [Output validation](../lib/support-response.ts) rejects unsupported record
   identifiers in any letter case. Rejected replies are neither returned nor saved.
 - Order searches report the total number of matches, not only the six listed.
+- Only replies with `finish_reason: stop` are used. A reply cut off at the
+  600-token limit, or without a finish reason, returns a 502, is not saved and
+  permits a clean retry.
 - Model timeouts, connection failures and malformed replies return fixed messages
   without upstream details, save nothing and permit a clean retry.
 - The support page renders Markdown without executable HTML or unsafe links
@@ -90,8 +93,6 @@ Controls in place, with deterministic coverage:
 
 Known gaps, from the 2026-09-24 code review:
 
-- **Completion handling:** reply extraction does not check `finish_reason`, so a
-  reply cut off at the 600-token limit can be returned and saved as complete.
 - **Validation scope:** output validation checks identifiers, not monetary,
   quantity, date or policy claims.
 - **Routing:** query selection is pattern-based and retrieves one record type per
@@ -127,13 +128,11 @@ successes, false refusals and unresolved reviews—not one overall quality score
 
 Each step is a separate change on its own feature branch.
 
-1. **Completion handling:** reject replies whose `finish_reason` is not `stop`,
-   with an API regression for no returned or saved partial text.
-2. **Balanced baseline:** approve a small fixture set, then add one live scenario
+1. **Balanced baseline:** approve a small fixture set, then add one live scenario
    at a time, with a benign control for each: stored-text injection, forged
    history, abusive language, paired demographic cues and harmful requests.
    Separate application findings from evaluator findings.
-3. **Expansion:** consider policy/manual retrieval if wanted. Compare prompts/base
+2. **Expansion:** consider policy/manual retrieval if wanted. Compare prompts/base
    models before fine-tuning behavior; do not train on current account facts.
 
 Retain a trail for each risk: risk → test → failure → fix → retest, with limitations.

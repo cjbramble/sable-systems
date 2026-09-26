@@ -794,6 +794,29 @@ describe('support response safety', () => {
         'The local model returned an empty response. Please try again.',
     },
     {
+      failure: 'truncated-reply',
+      replyPayload: {
+        choices: [
+          {
+            finish_reason: 'length',
+            message: { content: 'Your order SBL-2022-000118 shipped on' },
+          },
+        ],
+      },
+      expectedStatus: 502,
+      expectedError:
+        "The local model's reply was incomplete. Please try again.",
+    },
+    {
+      failure: 'missing-finish-reason',
+      replyPayload: {
+        choices: [{ message: { content: 'Which shipment do you mean?' } }],
+      },
+      expectedStatus: 502,
+      expectedError:
+        "The local model's reply was incomplete. Please try again.",
+    },
+    {
       failure: 'missing-content',
       replyPayload: { choices: [{ message: { role: 'assistant' } }] },
       expectedStatus: 502,
@@ -985,7 +1008,9 @@ describe('support response safety', () => {
         } else {
           modelResponse = Response.json(
             replyPayload ?? {
-              choices: [{ message: { content: replyContent } }],
+              choices: [
+                { finish_reason: 'stop', message: { content: replyContent } },
+              ],
             },
           );
           fetchMock.mockResolvedValueOnce(modelResponse);

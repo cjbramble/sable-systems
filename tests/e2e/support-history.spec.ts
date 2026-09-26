@@ -256,7 +256,11 @@ test.describe('model failure recovery', () => {
         { status: 503, body: { error: upstreamError } },
         {
           status: 200,
-          body: { choices: [{ message: { content: recoveredReply } }] },
+          body: {
+            choices: [
+              { finish_reason: 'stop', message: { content: recoveredReply } },
+            ],
+          },
         },
       ],
       { scope: 'test' },

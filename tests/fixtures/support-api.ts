@@ -88,6 +88,7 @@ export function createSupportApiFixture(database: D1Database) {
           Response.json({
             choices: [
               {
+                finish_reason: 'stop',
                 message: {
                   content: replies[Math.min(call++, replies.length - 1)],
                 },

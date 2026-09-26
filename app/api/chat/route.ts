@@ -19,6 +19,7 @@ import { hasGroundedSupportIdentifiers } from '@/lib/support-response';
 import {
   createSupportModelRequest,
   extractSupportModelContent,
+  isIncompleteSupportModelReply,
   isContextOverflowResponse,
 } from '@/lib/support-model';
 
@@ -164,6 +165,14 @@ export async function POST(request: Request) {
         {
           error:
             'The local model returned an invalid response. Please try again.',
+        },
+        { status: 502 },
+      );
+    }
+    if (isIncompleteSupportModelReply(modelPayload)) {
+      return Response.json(
+        {
+          error: "The local model's reply was incomplete. Please try again.",
         },
         { status: 502 },
       );

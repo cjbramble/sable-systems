@@ -1,5 +1,9 @@
 import { expect, it } from 'vitest';
-import { createSupportModelRequest } from '@/lib/support-model';
+import {
+  createSupportModelRequest,
+  extractSupportModelContent,
+  isIncompleteSupportModelReply,
+} from '@/lib/support-model';
 import { calderPikeUser } from '../fixtures/users';
 
 it('sets the concise response policy server-side without rewriting customer messages', () => {
@@ -47,4 +51,30 @@ it('sends retrieved records as a labeled data message, not system instructions',
     records: authorizedContext,
   });
   expect(history).toEqual(messages);
+});
+
+it('accepts model content only from a reply that finished normally', () => {
+  const reply = (finishReason?: string) => ({
+    choices: [
+      {
+        ...(finishReason === undefined ? {} : { finish_reason: finishReason }),
+        message: { content: '  Order SBL-2022-000118 was delivered.  ' },
+      },
+    ],
+  });
+
+  expect(extractSupportModelContent(reply('stop'))).toBe(
+    'Order SBL-2022-000118 was delivered.',
+  );
+  expect(extractSupportModelContent(reply('length'))).toBeNull();
+  expect(extractSupportModelContent(reply())).toBeNull();
+  expect(isIncompleteSupportModelReply(reply('length'))).toBe(true);
+  expect(isIncompleteSupportModelReply(reply())).toBe(true);
+  expect(isIncompleteSupportModelReply(reply('stop'))).toBe(false);
+  // An empty reply is reported as empty, not as incomplete.
+  expect(
+    isIncompleteSupportModelReply({
+      choices: [{ finish_reason: 'length', message: { content: ' ' } }],
+    }),
+  ).toBe(false);
 });

@@ -29,7 +29,9 @@ export function createConcurrentSupportFixture(
       const reply = replyForRequest(prompt, arrivals);
       if (++arrivals === 2) releaseModels();
       await modelGate;
-      return Response.json({ choices: [{ message: { content: reply } }] });
+      return Response.json({
+        choices: [{ finish_reason: 'stop', message: { content: reply } }],
+      });
     });
 
   return {

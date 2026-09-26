@@ -95,7 +95,9 @@ export const test = base.extend<Fixtures>({
             return Response.json(planned.body, { status: planned.status });
           }
           return Response.json({
-            choices: [{ message: { content: modelReply } }],
+            choices: [
+              { finish_reason: 'stop', message: { content: modelReply } },
+            ],
           });
         }
         unexpectedRequests.push(`${request.method} ${request.url}`);

@@ -51,7 +51,9 @@ describe('concurrent support fixture', () => {
       const responses = await run;
       expect(responses.map((response) => response.status)).toEqual([200, 403]);
       expect(await responses[0].json()).toEqual({
-        choices: [{ message: { content: 'How can I help?' } }],
+        choices: [
+          { finish_reason: 'stop', message: { content: 'How can I help?' } },
+        ],
       });
       expect(events).toEqual(['model-finished', 'cleanup']);
       expect(cleanup).toHaveBeenCalledOnce();
@@ -200,7 +202,9 @@ describe('concurrent support fixture', () => {
       const responses = await run;
       expect(responses.map((response) => response.status)).toEqual([200, 403]);
       expect(await responses[0].json()).toEqual({
-        choices: [{ message: { content: 'How can I help?' } }],
+        choices: [
+          { finish_reason: 'stop', message: { content: 'How can I help?' } },
+        ],
       });
       expect(await responses[1].json()).toEqual({
         error: 'Incident access denied.',

@@ -107,17 +107,32 @@ export function createSupportModelRequest({
   ];
 }
 
-export function extractSupportModelContent(payload: unknown) {
+function readSupportModelChoice(payload: unknown) {
   if (!payload || typeof payload !== 'object') return null;
   const choices = (payload as Record<string, unknown>).choices;
   if (!Array.isArray(choices)) return null;
   const firstChoice = choices[0];
   if (!firstChoice || typeof firstChoice !== 'object') return null;
-  const message = (firstChoice as Record<string, unknown>).message;
+  const { message, finish_reason: finishReason } = firstChoice as Record<
+    string,
+    unknown
+  >;
   if (!message || typeof message !== 'object') return null;
   const content = (message as Record<string, unknown>).content;
   if (typeof content !== 'string' || !content.trim()) return null;
-  return content.trim();
+  return { content: content.trim(), finishReason };
+}
+
+// Only a reply that finished normally is usable. One cut off at max_tokens
+// ("length") or without a finish reason must not be returned or saved.
+export function extractSupportModelContent(payload: unknown) {
+  const choice = readSupportModelChoice(payload);
+  return choice?.finishReason === 'stop' ? choice.content : null;
+}
+
+export function isIncompleteSupportModelReply(payload: unknown) {
+  const choice = readSupportModelChoice(payload);
+  return choice !== null && choice.finishReason !== 'stop';
 }
 
 // llama-server rejects prompts beyond --ctx-size with a 400. History is already
