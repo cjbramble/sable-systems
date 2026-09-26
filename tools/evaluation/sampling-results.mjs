@@ -9,6 +9,23 @@ function readTranscriptRows(text, prefix) {
     .map((line) => JSON.parse(line.slice(prefix.length)));
 }
 
+// Current requests carry records in a labeled data message after the system
+// message; archived two-message runs carried them inside the system message.
+function isSupportRecordsMessage(message) {
+  if (message?.role !== 'user' || typeof message.content !== 'string')
+    return false;
+  try {
+    const data = JSON.parse(message.content);
+    return (
+      data?.source === 'authorized_support_records' &&
+      typeof data.records === 'string' &&
+      data.records.trim() !== ''
+    );
+  } catch {
+    return false;
+  }
+}
+
 function parseSamplingScenario(text, { label, question, testName }) {
   // Normalize reporter styling before matching records; JSON-escaped answer
   // content and the original saved transcript remain unchanged.
@@ -48,11 +65,13 @@ function parseSamplingScenario(text, { label, question, testName }) {
     request.max_tokens !== 600 ||
     request.stream !== false ||
     Object.hasOwn(request, 'seed') ||
-    request.messages.length !== 2 ||
+    ![2, 3].includes(request.messages.length) ||
     request.messages[0]?.role !== 'system' ||
     typeof request.messages[0].content !== 'string' ||
     !request.messages[0].content.trim() ||
-    request.messages[1]?.role !== 'user'
+    (request.messages.length === 3 &&
+      !isSupportRecordsMessage(request.messages[1])) ||
+    request.messages.at(-1)?.role !== 'user'
   )
     throw new Error(
       `${label} request must use normal settings and independent messages`,

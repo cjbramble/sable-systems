@@ -7,6 +7,14 @@ import {
 import fixture from '../fixtures/judge/case-pack.json';
 import comparisonFixture from '../fixtures/judge/comparison.json';
 
+const recordsMessage = {
+  role: 'user',
+  content: JSON.stringify({
+    source: 'authorized_support_records',
+    records: 'Authorized scenario context',
+  }),
+};
+
 // Independent contract controls: do not build these through the fixture helper
 // or import the producer's generation defaults to define expected evidence.
 const parserCases = [
@@ -176,6 +184,24 @@ it.each(parserCases)(
       { top_p: undefined },
       { max_tokens: undefined },
       { stream: undefined },
+      ...[
+        'Authorized scenario context',
+        JSON.stringify({ source: 'other_source', records: 'Records' }),
+        JSON.stringify({ source: 'authorized_support_records', records: ' ' }),
+      ].map((content) => ({
+        messages: [
+          request.requestBody.messages[0],
+          { role: 'user', content },
+          request.requestBody.messages[1],
+        ],
+      })),
+      {
+        messages: [
+          request.requestBody.messages[0],
+          { role: 'assistant', content: recordsMessage.content },
+          request.requestBody.messages[1],
+        ],
+      },
     ]) {
       expect(() =>
         parseLines([
@@ -187,6 +213,23 @@ it.each(parserCases)(
         ]),
       ).toThrow();
     }
+
+    // Current requests send retrieved records as a labeled data message;
+    // archived runs with records in the system message remain readable.
+    const currentRequest = {
+      ...request,
+      requestBody: {
+        ...request.requestBody,
+        messages: [
+          { role: 'system', content: 'Server policy' },
+          recordsMessage,
+          request.requestBody.messages[1],
+        ],
+      },
+    };
+    expect(
+      parseLines([row('sampling request', currentRequest), ...lines.slice(1)]),
+    ).toEqual({ ...expected, request: currentRequest.requestBody });
     for (const invalid of [
       null,
       { ...summary, samples: 4 },

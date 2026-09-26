@@ -11,12 +11,13 @@ accounts, catalog/inventory and the signed-in user's incidents.
 
 Current flow on `main`: session authentication → rule-based classification of the
 latest customer message, looking back through saved incident history for
-follow-ups → distributor- or user-scoped SQL retrieval → one system message holding
-the policy prompt and an `<authorized_records>` block, followed by up to 11 saved
-incident messages and the current customer message → Qwen3-4B → identifier validation → response and optional incident
-persistence. This is structured-data RAG. The model does not write SQL or modify
-business records. Only the latest customer message and its reply are saved per
-exchange; chat persistence is not an order-management capability.
+follow-ups → distributor- or user-scoped SQL retrieval → a system message with the
+policy prompt, then a JSON data message labeled `authorized_support_records`, then
+up to 11 saved incident messages and the current customer message → Qwen3-4B →
+identifier validation → response and optional incident persistence. This is
+structured-data RAG. The model does not write SQL or modify business records. Only
+the latest customer message and its reply are saved per exchange; chat
+persistence is not an order-management capability.
 
 The separate Qwen3-14B evaluator is advisory and not approved as a pass/fail gate;
 see [Model evaluation](model-evaluation.md). Evaluator failures must not be
@@ -70,6 +71,12 @@ Controls in place, with deterministic coverage:
   request. Client-authored assistant turns, failed unsaved exchanges and history
   sent for a new incident never reach the model. A retried reply uses only the
   messages saved before it (`tests/integration/support-saved-history.test.ts`).
+- Retrieved records, including customer-authored incident titles and checkout
+  destinations, reach the model only in a separate JSON data message, never in
+  the system message. The policy treats them as evidence, not instructions
+  (`tests/integration/support-stored-text.test.ts`). This is a structural control:
+  JSON and role separation do not guarantee injection resistance, and the changed
+  prompt has not yet been evaluated with the live model.
 - Requests carry 1–12 messages of at most 4,000 characters, ending with a customer
   message. The oldest history is dropped to fit the model's 4,096-token context;
   a request that still overflows returns a specific 422 error and saves nothing.
@@ -83,10 +90,6 @@ Controls in place, with deterministic coverage:
 
 Known gaps, from the 2026-09-24 code review:
 
-- **Stored text in the system message (F4):** retrieved records, including
-  customer-authored checkout destinations (up to 80 characters) and incident
-  titles (up to 42), are placed unescaped inside the system message. A destination
-  containing `</authorized_records>` closes the records block early.
 - **Completion handling:** reply extraction does not check `finish_reason`, so a
   reply cut off at the 600-token limit can be returned and saved as complete.
 - **Validation scope:** output validation checks identifiers, not monetary,
@@ -124,17 +127,13 @@ successes, false refusals and unresolved reviews—not one overall quality score
 
 Each step is a separate change on its own feature branch.
 
-1. **Trust boundaries:** move retrieved records out of the system message with
-   provenance labeling (F4). Add paired stored-text regressions for incident
-   titles and checkout destinations. Model history already comes from saved
-   incident messages (F5).
-2. **Completion handling:** reject replies whose `finish_reason` is not `stop`,
+1. **Completion handling:** reject replies whose `finish_reason` is not `stop`,
    with an API regression for no returned or saved partial text.
-3. **Balanced baseline:** approve a small fixture set, then add one live scenario
+2. **Balanced baseline:** approve a small fixture set, then add one live scenario
    at a time, with a benign control for each: stored-text injection, forged
    history, abusive language, paired demographic cues and harmful requests.
    Separate application findings from evaluator findings.
-4. **Expansion:** consider policy/manual retrieval if wanted. Compare prompts/base
+3. **Expansion:** consider policy/manual retrieval if wanted. Compare prompts/base
    models before fine-tuning behavior; do not train on current account facts.
 
 Retain a trail for each risk: risk → test → failure → fix → retest, with limitations.

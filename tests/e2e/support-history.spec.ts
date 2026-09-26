@@ -236,6 +236,12 @@ test('cancels and confirms incident deletion with the remaining conversation pre
   expect(app.modelRequests).toHaveLength(0);
 });
 
+// Retrieved records follow the system message as a labeled data message.
+const supportRecordsMessage = expect.objectContaining({
+  role: 'user',
+  content: expect.stringContaining('"source":"authorized_support_records"'),
+});
+
 test.describe('model failure recovery', () => {
   const firstMessage = 'Help trace my shipment.';
   const followUpMessage = 'Which order details do you need?';
@@ -293,6 +299,7 @@ test.describe('model failure recovery', () => {
     expect(app.modelRequests[0]).toMatchObject({
       messages: [
         expect.objectContaining({ role: 'system' }),
+        supportRecordsMessage,
         { role: 'user', content: firstMessage },
       ],
     });
@@ -331,6 +338,7 @@ test.describe('model failure recovery', () => {
     expect(app.modelRequests[1]).toMatchObject({
       messages: [
         expect.objectContaining({ role: 'system' }),
+        supportRecordsMessage,
         { role: 'user', content: followUpMessage },
       ],
     });

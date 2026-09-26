@@ -212,7 +212,10 @@ describe('support response safety', () => {
       // A valid history is accepted, but only saved messages reach the model.
       // This incident is new, so the model sees the current customer message.
       expect(modelRequest.messages[0]).toMatchObject({ role: 'system' });
-      expect(modelRequest.messages.slice(1)).toEqual([
+      expect(JSON.parse(modelRequest.messages[1].content)).toMatchObject({
+        source: 'authorized_support_records',
+      });
+      expect(modelRequest.messages.slice(2)).toEqual([
         { role: 'user', content: customerMessage },
       ]);
       expect(await fixture.findIncident(incidentId)).toMatchObject({
@@ -3068,8 +3071,10 @@ describe('support response safety', () => {
     if (typeof body !== 'string')
       throw new Error('Expected a JSON model request');
     const requestBody = JSON.parse(body);
-    expect(requestBody.messages[0].content).toContain('SBL-2022-000118');
-    expect(requestBody.messages[0].content).not.toContain('SBL-2022-0000118');
+    // Retrieved records follow the system message as a labeled data message.
+    const { records } = JSON.parse(requestBody.messages[1].content);
+    expect(records).toContain('SBL-2022-000118');
+    expect(records).not.toContain('SBL-2022-0000118');
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({
       error:

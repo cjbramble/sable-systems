@@ -15,8 +15,14 @@ function modelBody(model: { mock: { calls: unknown[][] } }, call = 0) {
   return JSON.parse(init.body) as ModelBody;
 }
 
-// Everything after the server's system message.
-const conversation = (body: ModelBody) => body.messages.slice(1);
+// Everything after the system message and the retrieved-records message.
+function conversation(body: ModelBody) {
+  expect(body.messages[0].role).toBe('system');
+  expect(JSON.parse(body.messages[1].content)).toMatchObject({
+    source: 'authorized_support_records',
+  });
+  return body.messages.slice(2);
+}
 
 describe('support model history', () => {
   test('uses saved incident messages instead of client-authored assistant turns', async ({
@@ -204,7 +210,9 @@ describe('support model history', () => {
     );
 
     expect(response.status).toBe(200);
-    const [system] = modelBody(model).messages;
-    expect(system.content).toContain('Order: SBL-2022-000118;');
+    const [, data] = modelBody(model).messages;
+    expect(JSON.parse(data.content).records).toContain(
+      'Order: SBL-2022-000118;',
+    );
   });
 });
