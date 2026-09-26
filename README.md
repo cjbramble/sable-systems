@@ -189,6 +189,12 @@ npm run test:e2e -- tests/e2e/checkout.spec.ts
 npm run test:model -- -t 'across five samples'
 ```
 
+Run only the live behavior baseline (attack/control pairs through the chat API):
+
+```sh
+npm run test:model -- tests/model/support-behavior-baseline.test.ts
+```
+
 Optional evaluation diagnostics:
 
 | Command | Purpose |
