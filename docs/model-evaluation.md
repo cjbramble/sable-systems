@@ -64,7 +64,8 @@ This is a factuality failure, not a harness error, and the test stays strict.
 The per-location list now states that each figure is part of the total and
 that the total is the answer unless the customer names a location. This
 reduces the ambiguity but cannot remove run-to-run variation; repeated live
-runs are the evidence.
+runs are the evidence. Five consecutive full runs on 2026-09-27 after the change
+answered the total each time.
 
 ## Validation history
 
