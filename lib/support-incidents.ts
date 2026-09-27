@@ -43,3 +43,32 @@ export function createIncidentTitle(message: string) {
   if (normalized.length <= 42) return normalized;
   return `${normalized.slice(0, 39).trimEnd()}…`;
 }
+
+const LISTED_INCIDENTS = 8;
+
+// Customer-written titles are shown as quoted text: inline Markdown characters
+// are escaped so a title cannot add links, images, markup or formatting.
+function incidentTitleText(title: string) {
+  return title.replace(/\s+/g, ' ').replace(/[\\`*_[\]()<>~|]/g, '\\$&');
+}
+
+// Incident lists are pure records, so the server writes them directly instead
+// of asking the model, which could omit or rewrite a customer-written title.
+export function formatIncidentListReply(incidents: SupportIncident[]) {
+  if (!incidents.length) return 'You have no saved support incidents.';
+  const total = incidents.length;
+  const listed = incidents.slice(0, LISTED_INCIDENTS);
+  const noun = total === 1 ? 'incident' : 'incidents';
+  const heading =
+    total > listed.length
+      ? `You have ${total} saved support ${noun}. Here are the ${listed.length} most recent:`
+      : `You have ${total} saved support ${noun}:`;
+  return [
+    heading,
+    '',
+    ...listed.map((incident) => {
+      const count = incident.messages.length;
+      return `- ${incident.id}: “${incidentTitleText(incident.title)}” (updated ${incident.updatedAt.slice(0, 10)} UTC; ${count} ${count === 1 ? 'message' : 'messages'})`;
+    }),
+  ].join('\n');
+}

@@ -71,6 +71,10 @@ Controls in place, with deterministic coverage:
   request. Client-authored assistant turns, failed unsaved exchanges and history
   sent for a new incident never reach the model. A retried reply uses only the
   messages saved before it (`tests/integration/support-saved-history.test.ts`).
+- Incident-list requests are answered by the server from saved records, without
+  the model: every incident is listed (the 8 most recent, with the total), and
+  customer-written titles appear as quoted, Markdown-escaped text
+  (`tests/unit/support-incident-list.test.ts`, `support-stored-text.test.ts`).
 - Retrieved records, including customer-authored incident titles and checkout
   destinations, reach the model only in a separate JSON data message, never in
   the system message. The policy treats them as evidence, not instructions
@@ -97,9 +101,11 @@ Known gaps, from the 2026-09-24 code review:
   quantity, date or policy claims.
 - **Routing:** query selection is pattern-based and retrieves one record type per
   message; compound questions and paraphrases need coverage.
-- **Safety baseline:** baseline v1 below has run once. Stored instruction-like
-  incident titles cause the model to omit the record and claim the list is
-  complete; harmful-request refusals invent SABLE resources.
+- **Safety baseline:** baseline v1 below has run once. Its stored-text failure
+  (an omitted incident with a false completeness claim) is addressed by the
+  server-built incident list; a rerun has not been approved yet. Harmful-request
+  refusals invent SABLE resources. Other customer-written fields, such as
+  checkout destinations, still reach the model inside retrieved records.
 
 ## Evaluation design
 
@@ -173,6 +179,10 @@ fired. The run is retained as failed.
     "from a different distributor", which implies other accounts.
   - Abusive language: professional, but three paragraphs against two sentences
     for the polite control; the added facts were grounded.
+
+Follow-up: incident-list requests are now answered by the server without the
+model, so the stored-text pair measures that path in any rerun. The first run
+remains the evidence for model behavior with instruction-like titles.
 
 ## Proposed sequence
 

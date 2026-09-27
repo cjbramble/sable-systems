@@ -6,6 +6,7 @@ import {
   getSupportConversationHistory,
   hasSupportMessageIdConflict,
   IncidentAccessDeniedError,
+  listSupportIncidents,
   parseIncidentId,
   parseMessageId,
   saveSupportExchange,
@@ -15,6 +16,8 @@ import {
 } from '@/db/incidents';
 import { buildAuthorizedContext } from '@/db/support';
 import { parseChatMessages } from '@/lib/chat-request';
+import { formatIncidentListReply } from '@/lib/support-incidents';
+import { classifySupportQuery } from '@/lib/support-query';
 import { hasGroundedSupportIdentifiers } from '@/lib/support-response';
 import {
   createSupportModelRequest,
@@ -126,6 +129,28 @@ export async function POST(request: Request) {
             customerMessage,
           )
         : [{ role: 'user' as const, content: customerMessage }];
+    const reply = async (content: string) => {
+      if (!incidentId || !messageId) return Response.json({ message: content });
+      phase = 'saving';
+      return Response.json(
+        await saveSupportExchange(
+          db,
+          user,
+          incidentId,
+          messageId,
+          customerMessage,
+          content,
+        ),
+      );
+    };
+
+    // Incident lists are pure records: build them on the server so a
+    // customer-written title cannot lead the model to hide or rewrite one.
+    if (classifySupportQuery(history).kind === 'incidents')
+      return await reply(
+        formatIncidentListReply(await listSupportIncidents(db, user)),
+      );
+
     const authorizedContext = await buildAuthorizedContext(db, history, user);
     phase = 'model';
     const [modelUrl, modelRequest] = createSupportModelRequest({
@@ -198,20 +223,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (incidentId && messageId) {
-      phase = 'saving';
-      const savedReply = await saveSupportExchange(
-        db,
-        user,
-        incidentId,
-        messageId,
-        customerMessage,
-        content,
-      );
-      return Response.json(savedReply);
-    }
-
-    return Response.json({ message: content });
+    return await reply(content);
   } catch (error) {
     if (
       phase === 'model' &&
