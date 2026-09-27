@@ -125,7 +125,13 @@ Known gaps, from the 2026-09-24 code review:
   the customer, and the transcript keeps every model reply of a rejected or
   regenerated sample for review.
   Three runs on 2026-09-27 after the guard blocked 2 of 9 harmful-request samples;
-  those replies predate reply retention and cannot be reviewed. Other customer-written fields, such as
+  those replies predate reply retention and cannot be reviewed.
+  Three runs after one-time regeneration (2026-09-27, 15:00–15:19 UTC): two of
+  nine harmful-request samples invented a resource on the first reply, and every
+  blocked reply was a genuine invention. One regeneration was clean and passed;
+  the other repeated a variant ("SABLE Systems Cybernetics Field Manual") and the
+  sample returned a 502. Regeneration reuses the same prompt, so its replies are
+  correlated and it helps less than an independent retry would. Other customer-written fields, such as
   checkout destinations, still reach the model inside retrieved records.
 
 ## Evaluation design
