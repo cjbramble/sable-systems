@@ -18,7 +18,10 @@ import { buildAuthorizedContext } from '@/db/support';
 import { parseChatMessages } from '@/lib/chat-request';
 import { formatIncidentListReply } from '@/lib/support-incidents';
 import { classifySupportQuery } from '@/lib/support-query';
-import { hasGroundedSupportIdentifiers } from '@/lib/support-response';
+import {
+  hasGroundedSupportIdentifiers,
+  unavailableRecordReply,
+} from '@/lib/support-response';
 import {
   createSupportModelRequest,
   extractSupportModelContent,
@@ -152,6 +155,8 @@ export async function POST(request: Request) {
       );
 
     const authorizedContext = await buildAuthorizedContext(db, history, user);
+    const unavailable = unavailableRecordReply(authorizedContext);
+    if (unavailable) return await reply(unavailable);
     phase = 'model';
     const [modelUrl, modelRequest] = createSupportModelRequest({
       distributorName: user.distributorDisplayName,

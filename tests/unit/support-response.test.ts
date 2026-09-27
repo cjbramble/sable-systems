@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { hasGroundedSupportIdentifiers } from '@/lib/support-response';
+import {
+  hasGroundedSupportIdentifiers,
+  unavailableRecordReply,
+} from '@/lib/support-response';
 
 const context = `<authorized_records>
 Return: RTN-2022-000014; order: SBL-2022-000118; customer PO: CPD-PO-220118.
@@ -69,5 +72,47 @@ describe('support response identifier validation', () => {
     ['altered identifier in lowercase', 'Linked order: sbl-2022-000119', false],
   ])('%s', (_label, answer, expected) => {
     expect(hasGroundedSupportIdentifiers(answer, context)).toBe(expected);
+  });
+});
+
+describe('unavailable record replies', () => {
+  const scope = "within Calder Pike Distribution's authorization scope.";
+  it.each([
+    [
+      'order',
+      'SBL-2027-500023',
+      'Please verify the order ID or provide an account PO number.',
+    ],
+    [
+      'shipment',
+      'SHP-2099-000001',
+      'Please verify the shipment ID or tracking reference.',
+    ],
+    ['return', 'RTN-2099-000001', 'Please verify the return ID.'],
+  ])(
+    'answers a missing %s without mentioning other accounts',
+    (kind, id, next) => {
+      const context = `<authorized_records>
+No ${kind} matching ${id} is available ${scope} Do not confirm or deny whether it belongs to another customer.
+</authorized_records>`;
+      const reply = unavailableRecordReply(context);
+      expect(reply).toBe(`I cannot locate ${id} ${scope} ${next}`);
+      expect(reply).not.toMatch(/another|other|different/i);
+    },
+  );
+
+  it('leaves found records and other no-match contexts to the model', () => {
+    expect(unavailableRecordReply(context)).toBeNull();
+    expect(
+      unavailableRecordReply(`<authorized_records>
+Order search for status delivered: 0 matching orders.
+- No matching orders.
+</authorized_records>`),
+    ).toBeNull();
+    expect(
+      unavailableRecordReply(`<authorized_records>
+No catalog item matching SBL-XYZ was found. Ask the customer to verify the complete item number.
+</authorized_records>`),
+    ).toBeNull();
   });
 });

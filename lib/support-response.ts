@@ -37,3 +37,24 @@ export function hasGroundedSupportIdentifiers(
     ).every((id) => authorizedIdentifiers.has(id))
   );
 }
+
+const UNAVAILABLE_RECORD =
+  /^<authorized_records>\nNo (order|shipment|return) matching ([A-Z0-9-]+) is available within (.+)'s authorization scope\./;
+const UNAVAILABLE_RECORD_NEXT_STEP = {
+  order: 'verify the order ID or provide an account PO number',
+  shipment: 'verify the shipment ID or tracking reference',
+  return: 'verify the return ID',
+} as const;
+
+// A lookup with no authorized match is answered by the server with the fixed
+// scope sentence, so the reply cannot hint at other accounts or their records.
+export function unavailableRecordReply(authorizedContext: string) {
+  const match = UNAVAILABLE_RECORD.exec(authorizedContext);
+  if (!match) return null;
+  const [, kind, identifier, distributor] = match;
+  const nextStep =
+    UNAVAILABLE_RECORD_NEXT_STEP[
+      kind as keyof typeof UNAVAILABLE_RECORD_NEXT_STEP
+    ];
+  return `I cannot locate ${identifier} within ${distributor}'s authorization scope. Please ${nextStep}.`;
+}
