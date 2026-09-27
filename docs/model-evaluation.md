@@ -61,8 +61,10 @@ define. The records give 312 available in total and per-location figures (156,
 `reports/model-runs/2026-09-27T02-09-49-641Z-c8045e3a-9ec9-4307-8a8b-34983a8191ac.log` answered 156 for one
 location without naming it as partial, with byte-identical records and prompt.
 This is a factuality failure, not a harness error, and the test stays strict.
-Stating the total explicitly in the records, or asking which location the
-customer means, would need a separate change and a live rerun.
+The per-location list now states that each figure is part of the total and
+that the total is the answer unless the customer names a location. This
+reduces the ambiguity but cannot remove run-to-run variation; repeated live
+runs are the evidence.
 
 ## Validation history
 

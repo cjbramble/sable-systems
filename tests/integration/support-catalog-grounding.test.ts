@@ -738,7 +738,7 @@ Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
 Available to promise: 312. Inbound: 0. Expected restock: none scheduled.
 Inventory retrieved at: 2026-09-12T15:00:00.000Z. Latest inventory record update: 2026-09-02T09:00:00Z.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
-Fulfillment locations:
+Fulfillment locations (each figure is part of the 312 total available to promise; give the total unless the customer names a specific location):
 - Atlantic Stack Fulfillment Hub (North Atlantic Trade District): 156 available; 0 inbound; restock not scheduled.
 - Great Lakes Technical Depot (Great Lakes District): 93 available; 0 inbound; restock not scheduled.
 - Pacific Rim Bonded Yard (Pacific Trade Zone): 63 available; 0 inbound; restock not scheduled.

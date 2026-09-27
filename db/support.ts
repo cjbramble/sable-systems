@@ -524,7 +524,9 @@ ${quantityNote}This is a digitally allocated license and does not have a physica
         WHERE i.item_number = ? ORDER BY available DESC, l.location_name`)
       .bind(product.item_number)
       .all<Record<string, string | number | null>>();
-    locationNote = `\nFulfillment locations:\n${locations.results.map((location) => `- ${location.location_name} (${location.service_region}): ${location.available} available; ${location.inbound_quantity} inbound; restock ${location.expected_restock_date ?? 'not scheduled'}.`).join('\n') || '- No physical fulfillment locations recorded.'}`;
+    // Per-location figures are parts of the total; a customer asking about
+    // "this warehouse" without naming one must still get the total.
+    locationNote = `\nFulfillment locations (each figure is part of the ${available} total available to promise; give the total unless the customer names a specific location):\n${locations.results.map((location) => `- ${location.location_name} (${location.service_region}): ${location.available} available; ${location.inbound_quantity} inbound; restock ${location.expected_restock_date ?? 'not scheduled'}.`).join('\n') || '- No physical fulfillment locations recorded.'}`;
   }
   return `Product: ${product.item_number} — ${product.product_name}; category ${product.category}.
 Wholesale price: ${formatCurrency(product.unit_price_cents)} per ${product.unit_label}; case pack ${product.case_pack}; standard lead time ${product.lead_time_days} days.
