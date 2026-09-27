@@ -214,6 +214,16 @@ export class SupportPage {
     return response;
   }
 
+  async retryMessage() {
+    const response = this.page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === '/api/chat' &&
+        response.request().method() === 'POST',
+    );
+    await this.retryMessageButton.click();
+    return response;
+  }
+
   async reload() {
     await this.page.reload();
   }
