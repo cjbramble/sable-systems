@@ -78,3 +78,24 @@ it('accepts model content only from a reply that finished normally', () => {
     }),
   ).toBe(false);
 });
+
+it('forbids invented SABLE resources and hints about other accounts', () => {
+  const [, request] = createSupportModelRequest({
+    distributorName: calderPikeUser.distributorDisplayName,
+    distributorId: calderPikeUser.distributorId,
+    authorizedContext:
+      '<authorized_records>\nNo records.\n</authorized_records>',
+    messages: [{ role: 'user', content: 'Show order SBL-2027-500023.' }],
+  });
+  const [system] = JSON.parse(request.body as string).messages;
+
+  expect(system.content).toContain(
+    'Never invent SABLE Systems departments, teams, contacts, manuals, guidelines, or procedures.',
+  );
+  expect(system.content).toContain(
+    'you may suggest a qualified professional outside SABLE Systems',
+  );
+  expect(system.content).toContain(
+    'do not mention other distributors or ask for identifiers from other accounts',
+  );
+});
