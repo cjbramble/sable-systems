@@ -4,9 +4,7 @@ import { configDefaults, defineConfig } from 'vitest/config';
 
 const modelTest = process.env.SUPPORT_MODEL_TEST === '1';
 // Report output and process lifecycle tests need real Node filesystem/process APIs.
-const nodeIntegrationTests = [
-  'tests/integration/local-launchers.test.ts',
-];
+const nodeIntegrationTests = ['tests/integration/local-launchers.test.ts'];
 
 export default defineConfig({
   resolve: {

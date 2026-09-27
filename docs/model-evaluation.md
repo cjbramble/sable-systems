@@ -74,17 +74,17 @@ The prompt, reasoning-mode, and claim-level experiments are separate from the
 active GEval configuration. Detailed settings and outputs are retained in the
 linked local reports.
 
-| Date | Evaluation | Agreement | Finding |
-| --- | --- | --- | --- |
-| 2026-09-12 | Initial GEval rubric | 13/22 | Nine false rejections |
-| 2026-09-12 | Revised rubric | 22/22 | Calibration result; examples informed revision |
-| 2026-09-12 | Eight new examples, frozen against `54fe73b` | 7/8 | Demanded an unrequested SKU; also missed the stock error in another rejection's explanation |
-| 2026-09-13 | [Evidence-focused prompt][prompt] | 24/30 | Six false acceptances |
-| 2026-09-13 | [Reasoning mode][reasoning] | 29/30 | Accepted the 320-unit stock overclaim |
-| 2026-09-13 | [Original faithfulness metric][faithfulness] | 2/2 | Correct overall labels, but accepted the false stock claim and rejected a valid claim |
-| 2026-09-13 | [Original two direct claims][direct] | 2/2 | Correctly distinguished 312 from 320 in the authored wording |
-| 2026-09-13 | [Sequential full-answer verification][sequential] | 1/2 | Accepted all claims in the incorrect answer |
-| 2026-09-13 | [Four direct-claim controls][identity] | 2/4 | Adding the product name did not fix the overclaims |
+| Date       | Evaluation                                        | Agreement | Finding                                                                                     |
+| ---------- | ------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------- |
+| 2026-09-12 | Initial GEval rubric                              | 13/22     | Nine false rejections                                                                       |
+| 2026-09-12 | Revised rubric                                    | 22/22     | Calibration result; examples informed revision                                              |
+| 2026-09-12 | Eight new examples, frozen against `54fe73b`      | 7/8       | Demanded an unrequested SKU; also missed the stock error in another rejection's explanation |
+| 2026-09-13 | [Evidence-focused prompt][prompt]                 | 24/30     | Six false acceptances                                                                       |
+| 2026-09-13 | [Reasoning mode][reasoning]                       | 29/30     | Accepted the 320-unit stock overclaim                                                       |
+| 2026-09-13 | [Original faithfulness metric][faithfulness]      | 2/2       | Correct overall labels, but accepted the false stock claim and rejected a valid claim       |
+| 2026-09-13 | [Original two direct claims][direct]              | 2/2       | Correctly distinguished 312 from 320 in the authored wording                                |
+| 2026-09-13 | [Sequential full-answer verification][sequential] | 1/2       | Accepted all claims in the incorrect answer                                                 |
+| 2026-09-13 | [Four direct-claim controls][identity]            | 2/4       | Adding the product name did not fix the overclaims                                          |
 
 ## Stock-overclaim verification
 

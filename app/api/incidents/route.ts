@@ -13,7 +13,10 @@ export async function GET(request: Request) {
     const db = await getDatabase();
     const user = await getAuthenticatedUser(db, request);
     if (!user)
-      return Response.json({ error: 'Authentication required.' }, { status: 401 });
+      return Response.json(
+        { error: 'Authentication required.' },
+        { status: 401 },
+      );
     return Response.json({ incidents: await listSupportIncidents(db, user) });
   } catch {
     return Response.json(
@@ -25,12 +28,18 @@ export async function GET(request: Request) {
 
 export async function DELETE(request: Request) {
   if (!isTrustedMutation(request))
-    return Response.json({ error: 'Cross-origin access denied.' }, { status: 403 });
+    return Response.json(
+      { error: 'Cross-origin access denied.' },
+      { status: 403 },
+    );
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return Response.json({ error: 'The request was not valid JSON.' }, { status: 400 });
+    return Response.json(
+      { error: 'The request was not valid JSON.' },
+      { status: 400 },
+    );
   }
   const incidentId = parseIncidentId(
     body && typeof body === 'object'
@@ -38,13 +47,19 @@ export async function DELETE(request: Request) {
       : null,
   );
   if (!incidentId)
-    return Response.json({ error: 'Enter a valid incident ID.' }, { status: 400 });
+    return Response.json(
+      { error: 'Enter a valid incident ID.' },
+      { status: 400 },
+    );
 
   try {
     const db = await getDatabase();
     const user = await getAuthenticatedUser(db, request);
     if (!user)
-      return Response.json({ error: 'Authentication required.' }, { status: 401 });
+      return Response.json(
+        { error: 'Authentication required.' },
+        { status: 401 },
+      );
     await deleteSupportIncident(db, user, incidentId);
     return new Response(null, { status: 204 });
   } catch {

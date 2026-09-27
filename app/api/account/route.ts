@@ -9,7 +9,10 @@ export async function GET(request: Request) {
     const db = await getDatabase();
     const user = await getAuthenticatedUser(db, request);
     if (!user)
-      return Response.json({ error: 'Authentication required.' }, { status: 401 });
+      return Response.json(
+        { error: 'Authentication required.' },
+        { status: 401 },
+      );
     return Response.json(await getAccountSummary(db, user));
   } catch {
     return Response.json(

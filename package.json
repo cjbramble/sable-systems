@@ -19,10 +19,11 @@
     "demo:record": "npm run build && playwright test --config tools/demo/playwright.config.ts",
     "demo:record:tests": "npm run build && playwright test --config tools/demo/playwright-checkout.config.ts",
     "typecheck": "tsc --noEmit",
-    "check": "npm run lint && npm run typecheck && npm test && npm run validate:data && npm run build",
+    "check": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run validate:data && npm run build",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
-    "format": "oxfmt"
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

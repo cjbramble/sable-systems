@@ -8,9 +8,15 @@ export async function GET(request: Request) {
   try {
     const db = await getDatabase();
     if (!(await getAuthenticatedUser(db, request)))
-      return Response.json({ error: 'Authentication required.' }, { status: 401 });
+      return Response.json(
+        { error: 'Authentication required.' },
+        { status: 401 },
+      );
     return Response.json({ products: await getCatalog(db) });
   } catch {
-    return Response.json({ error: 'Live inventory is unavailable.' }, { status: 503 });
+    return Response.json(
+      { error: 'Live inventory is unavailable.' },
+      { status: 503 },
+    );
   }
 }

@@ -3,9 +3,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    process.env.SITE_URL ?? 'http://127.0.0.1:8016',
-  ),
+  metadataBase: new URL(process.env.SITE_URL ?? 'http://127.0.0.1:8016'),
   title: {
     default: 'SABLE Systems — Infrastructure for the Post-Human Century',
     template: '%s — SABLE Systems',
@@ -16,7 +14,14 @@ export const metadata: Metadata = {
     type: 'website',
     title: 'SABLE Systems',
     description: 'Infrastructure for the post-human century.',
-    images: [{ url: '/og.png', width: 1672, height: 941, alt: 'SABLE Systems dimensional signal-grid mark' }],
+    images: [
+      {
+        url: '/og.png',
+        width: 1672,
+        height: 941,
+        alt: 'SABLE Systems dimensional signal-grid mark',
+      },
+    ],
   },
   twitter: {
     card: 'summary_large_image',

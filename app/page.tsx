@@ -1,10 +1,6 @@
 import Link from 'next/link';
 import { headers } from 'next/headers';
-import {
-  ArrowRight,
-  Boxes,
-  MoveUpRight,
-} from 'lucide-react';
+import { ArrowRight, Boxes, MoveUpRight } from 'lucide-react';
 
 import { BrandWordmark } from '@/components/brand-wordmark';
 import { CategoryOrbitGlyph } from '@/components/category-orbit-glyph';
@@ -41,9 +37,7 @@ export default async function Home() {
   const ordersHref = authenticated ? '/orders' : loginHref('/orders');
   const categoryHref = (category: CatalogCategory) => {
     const destination = `/shop?category=${encodeURIComponent(category)}`;
-    return authenticated
-      ? destination
-      : loginHref(destination);
+    return authenticated ? destination : loginHref(destination);
   };
 
   return (
@@ -71,9 +65,9 @@ export default async function Home() {
             <em> post-human century.</em>
           </h1>
           <p className="brand-lede">
-            Compute, interface, and augmentation systems engineered for the
-            hard edge of tomorrow. Purpose-built for verified distribution
-            partners across every trade district.
+            Compute, interface, and augmentation systems engineered for the hard
+            edge of tomorrow. Purpose-built for verified distribution partners
+            across every trade district.
           </p>
           <div className="brand-actions">
             <Link className="brand-primary" href={shopHref}>
@@ -84,13 +78,25 @@ export default async function Home() {
             </Link>
           </div>
           <div className="brand-proof">
-            <div><strong>17</strong><span>Active systems</span></div>
-            <div><strong>04</strong><span>Fulfillment nodes</span></div>
-            <div><strong>99.98</strong><span>Chain integrity</span></div>
+            <div>
+              <strong>17</strong>
+              <span>Active systems</span>
+            </div>
+            <div>
+              <strong>04</strong>
+              <span>Fulfillment nodes</span>
+            </div>
+            <div>
+              <strong>99.98</strong>
+              <span>Chain integrity</span>
+            </div>
           </div>
         </div>
 
-        <div className="sigil-stage" aria-label="SABLE three-dimensional brand mark">
+        <div
+          className="sigil-stage"
+          aria-label="SABLE three-dimensional brand mark"
+        >
           <div className="sigil-orbit sigil-orbit--one" />
           <div className="sigil-orbit sigil-orbit--two" />
           <div className="sigil-core">
@@ -105,10 +111,14 @@ export default async function Home() {
       </section>
 
       <section className="brand-ticker" aria-label="SABLE capabilities">
-        <span>NEURAL I/O</span><i />
-        <span>WAFER COMPUTE</span><i />
-        <span>HAPTIC CONTROL</span><i />
-        <span>SYNTHETIC TENDONS</span><i />
+        <span>NEURAL I/O</span>
+        <i />
+        <span>WAFER COMPUTE</span>
+        <i />
+        <span>HAPTIC CONTROL</span>
+        <i />
+        <span>SYNTHETIC TENDONS</span>
+        <i />
         <span>ZERO-TRUST MESH</span>
       </section>
 
@@ -116,7 +126,9 @@ export default async function Home() {
         <div className="section-heading">
           <p>Catalog architecture</p>
           <h2>Systems that move civilization forward.</h2>
-          <span>Designed in the North Atlantic Trade District. Deployed everywhere.</span>
+          <span>
+            Designed in the North Atlantic Trade District. Deployed everywhere.
+          </span>
         </div>
         <div className="division-grid">
           {divisions.map(({ code, label }) => (
@@ -132,7 +144,9 @@ export default async function Home() {
 
       <section className="mandate-section" id="mandate">
         <div>
-          <p className="brand-kicker"><span /> THE SABLE MANDATE</p>
+          <p className="brand-kicker">
+            <span /> THE SABLE MANDATE
+          </p>
           <h2>Tomorrow is a supply chain.</h2>
         </div>
         <p>
@@ -140,7 +154,9 @@ export default async function Home() {
           Every SABLE component is serialized, traceable, and routed through
           verified wholesale channels.
         </p>
-        <Link href={shopHref}><Boxes /> Access live inventory <ArrowRight /></Link>
+        <Link href={shopHref}>
+          <Boxes /> Access live inventory <ArrowRight />
+        </Link>
       </section>
     </main>
   );

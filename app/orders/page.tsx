@@ -354,7 +354,11 @@ export default function OrdersPage() {
                         </span>
                       </TableCell>
                       <TableCell className="orders-money">
-                        {formatCurrency(order.orderTotalCents, order.currency, 0)}
+                        {formatCurrency(
+                          order.orderTotalCents,
+                          order.currency,
+                          0,
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

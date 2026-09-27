@@ -11,9 +11,9 @@ and a D1/SQLite database.
 
 Select a thumbnail to open the video.
 
-| Order to support · 36 seconds | Playwright checkout test · 21 seconds |
-| --- | --- |
-| [![SABLE landing page](docs/media/app-demo.png)](docs/media/app-demo.mp4) | [![Playwright checkout recording](docs/media/checkout-test.png)](docs/media/checkout-test.mp4) |
+| Order to support · 36 seconds                                                                                 | Playwright checkout test · 21 seconds                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![SABLE landing page](docs/media/app-demo.png)](docs/media/app-demo.mp4)                                     | [![Playwright checkout recording](docs/media/checkout-test.png)](docs/media/checkout-test.mp4)                                                                |
 | Place an order, then ask COV-E for its details and shipment status. Responses come from the local Qwen model. | Watch the existing checkout test run and its passing report. Checks cover cart removal, account charges, inventory reservations, and persisted order history. |
 
 ## Setup
@@ -122,7 +122,7 @@ dataset requires a separate, explicit reset.
 | Miniflare                | Local Workers runtime setup and disposable D1 databases               |
 | Playwright               | Chromium browser workflows using page objects                         |
 | pytest                   | Python judge-adapter and local-only transport tests                   |
-| DeepEval                 | Rubric-based response judging with a local Qwen3-14B model             |
+| DeepEval                 | Rubric-based response judging with a local Qwen3-14B model            |
 
 Oxlint provides lint checks, TypeScript checks types, and a custom validator checks
 the seed dataset.
@@ -160,15 +160,15 @@ judge startup. Interrupted runs retain partial evidence.
 
 ### Commands
 
-| Command                 | Runs                                                                          |
-| ----------------------- | ----------------------------------------------------------------------------- |
-| `npm test`              | Deterministic unit and integration tests                                      |
-| `npm run test:e2e`      | Production build and browser tests                                            |
-| `npm run test:model`    | Live chatbot factuality tests, repeated sampling, then local judging          |
-| `npm run test:judge`    | Local judge validation against 30 labeled examples                            |
-| `npm run test:python`   | Judge-adapter unit tests; no model server required                              |
-| `npm run validate:data` | Seed-data validation                                                          |
-| `npm run check`         | Lint, type checks, deterministic tests, seed validation, and production build |
+| Command                 | Runs                                                                             |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| `npm test`              | Deterministic unit and integration tests                                         |
+| `npm run test:e2e`      | Production build and browser tests                                               |
+| `npm run test:model`    | Live chatbot factuality tests, repeated sampling, then local judging             |
+| `npm run test:judge`    | Local judge validation against 30 labeled examples                               |
+| `npm run test:python`   | Judge-adapter unit tests; no model server required                               |
+| `npm run validate:data` | Seed-data validation                                                             |
+| `npm run check`         | Lint, format check, type checks, deterministic tests, seed validation, and build |
 
 Browser, Python evaluator, and live-model suites run separately from `npm test`
 and `npm run check`.
@@ -197,12 +197,12 @@ npm run test:model -- tests/model/support-behavior-baseline.test.ts
 
 Optional evaluation diagnostics:
 
-| Command | Purpose |
-| --- | --- |
+| Command                                                           | Purpose                                          |
+| ----------------------------------------------------------------- | ------------------------------------------------ |
 | `npm run test:judge -- --transcript reports/model-runs/<run>.log` | Judge saved samples without regenerating answers |
-| `npm run test:judge -- --holdout` | Run the eight originally held-out examples |
-| `npm run test:judge -- --claims-pilot` | Check extracted claims from two labeled answers |
-| `npm run test:judge -- --direct-claim-pilot` | Check four authored claims without extraction |
+| `npm run test:judge -- --holdout`                                 | Run the eight originally held-out examples       |
+| `npm run test:judge -- --claims-pilot`                            | Check extracted claims from two labeled answers  |
+| `npm run test:judge -- --direct-claim-pilot`                      | Check four authored claims without extraction    |
 
 ### Organization and results
 
