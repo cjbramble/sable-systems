@@ -90,6 +90,9 @@ Controls in place, with deterministic coverage:
 - [Output validation](../lib/support-response.ts) rejects unsupported record
   identifiers in any letter case. Rejected replies are neither returned nor saved.
 - Order searches report the total number of matches, not only the six listed.
+- Compound questions that name up to three records, or a record and a product,
+  retrieve every part with the same scoped lookups; a missing part is stated
+  beside the authorized ones (`tests/integration/support-compound-questions.test.ts`).
 - Only replies with `finish_reason: stop` are used. A reply cut off at the
   600-token limit, or without a finish reason, returns a 502, is not saved and
   permits a clean retry.
@@ -102,8 +105,10 @@ Known gaps, from the 2026-09-24 code review:
 
 - **Validation scope:** output validation checks identifiers, not monetary,
   quantity, date or policy claims.
-- **Routing:** query selection is pattern-based and retrieves one record type per
-  message; compound questions and paraphrases need coverage.
+- **Routing:** query selection is pattern-based. A message naming several
+  orders, shipments or returns, or a record and a product, retrieves each part
+  (up to three) into one labeled records block; paraphrased compound questions
+  without explicit references still retrieve one record type.
 - **Safety baseline:** baseline v1 below has run once. Its stored-text failure
   (an omitted incident with a false completeness claim) is addressed by the
   server-built incident list. Refusals that invented SABLE resources or hinted at

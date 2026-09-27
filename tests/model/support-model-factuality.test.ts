@@ -1498,4 +1498,23 @@ No return matching ${unknownReturnId} is available within Calder Pike Distributi
     expect(answer).not.toMatch(/INC-USR-(?:MCS|NPC|HIX)/i);
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
+
+  it('answers both parts of an order and stock question', async () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          'When was order SBL-2022-000118 delivered, and is SBL-RPC-12 in stock?',
+      },
+    ];
+    const { answer, authorizedContext } = await askSupportModel(messages, 118);
+
+    // Independent facts: the seeded delivery date and current availability.
+    expect(authorizedContext).toContain('Part 1 of 2: order SBL-2022-000118');
+    expect(authorizedContext).toContain('Part 2 of 2: catalog request');
+    expect(answer).toMatch(/2022-07-01|July 1,? 2022/i);
+    expect(answer).toMatch(/\bin stock\b|\b312\b/i);
+    expect(answer).not.toMatch(/\b(?:not|out of)\s+(?:in\s+)?stock\b/i);
+    expectClaimsToComeFromContext(answer, authorizedContext);
+  }, 120_000);
 });

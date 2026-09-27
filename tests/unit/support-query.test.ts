@@ -1,5 +1,9 @@
-import { expect, it } from 'vitest';
-import { classifySupportQuery } from '@/lib/support-query';
+import { describe, expect, it } from 'vitest';
+import type { ChatHistoryMessage } from '@/lib/chat-history';
+import {
+  classifySupportQueries,
+  classifySupportQuery,
+} from '@/lib/support-query';
 import { parseCustomerPo } from '@/lib/support-references';
 
 it('shares the checkout PO contract and recognizes explicitly supplied references', () => {
@@ -136,4 +140,59 @@ it('ignores numeric item-number suffixes while retaining explicit catalog quanti
         quantity,
       });
   }
+});
+
+describe('compound support questions', () => {
+  const ask = (content: string) =>
+    classifySupportQueries([{ role: 'user', content }]);
+
+  it('keeps single-target and follow-up questions to one intent', () => {
+    for (const content of [
+      'Where is order SBL-2022-000118?',
+      'Is SBL-RPC-12 in stock?',
+      'Show my delivered orders.',
+      'What is the status of SBL-2022-000118 and when was SBL-2022-000118 delivered?',
+    ])
+      expect(ask(content), content).toEqual([
+        classifySupportQuery([{ role: 'user', content }]),
+      ]);
+    const followUp: ChatHistoryMessage[] = [
+      { role: 'user', content: 'Show order SBL-2022-000118.' },
+      { role: 'assistant', content: 'It was delivered.' },
+      { role: 'user', content: 'When was that order delivered?' },
+    ];
+    expect(classifySupportQueries(followUp)).toEqual([
+      classifySupportQuery(followUp),
+    ]);
+  });
+
+  it('retrieves every explicit record and a product in one question', () => {
+    expect(
+      ask('Where is SBL-2022-000118, and is SBL-RPC-12 in stock?'),
+    ).toMatchObject([
+      { kind: 'order', identifier: 'SBL-2022-000118' },
+      { kind: 'catalog' },
+    ]);
+    expect(
+      ask(
+        'Compare order SBL-2022-000118 with order SBL-2026-000417 and shipment SHP-2022-000012.',
+      ),
+    ).toEqual([
+      { kind: 'order', identifier: 'SBL-2022-000118' },
+      { kind: 'order', identifier: 'SBL-2026-000417' },
+      { kind: 'shipment', identifier: 'SHP-2022-000012' },
+    ]);
+  });
+
+  it('caps a compound question at three records in order of appearance', () => {
+    expect(
+      ask(
+        'Check RTN-2022-000014, SBL-2022-000118, SBL-2026-000417 and SBL-2031-000124.',
+      ),
+    ).toEqual([
+      { kind: 'return', identifier: 'RTN-2022-000014' },
+      { kind: 'order', identifier: 'SBL-2022-000118' },
+      { kind: 'order', identifier: 'SBL-2026-000417' },
+    ]);
+  });
 });

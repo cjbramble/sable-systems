@@ -1,6 +1,7 @@
 import type { ChatHistoryMessage } from './chat-history.ts';
 import type { OrderStatus } from './contracts.ts';
 import {
+  explicitCustomerPos,
   explicitOrderPo,
   itemReferences,
   referenceTokens,
@@ -192,4 +193,54 @@ export function classifySupportQuery(
   }
 
   return { kind: 'summary', message: normalized };
+}
+
+const MAX_COMPOUND_REQUESTS = 3;
+
+type RecordIntent = Extract<
+  SupportQueryIntent,
+  { kind: 'order' | 'shipment' | 'return' }
+>;
+
+// Every explicit order, shipment or return reference, in order of appearance.
+function recordIdentifiers(message: string): RecordIntent[] {
+  const records: RecordIntent[] = [];
+  const add = (kind: RecordIntent['kind'], identifier: string) => {
+    const normalized = identifier.toUpperCase();
+    if (!records.some((record) => record.identifier === normalized))
+      records.push({ kind, identifier: normalized });
+  };
+  for (const token of referenceTokens(message)) {
+    if (RETURN_PATTERN.test(token)) add('return', token);
+    else if (SHIPMENT_PATTERN.test(token)) add('shipment', token);
+    else if (ORDER_PATTERN.test(token)) add('order', token);
+  }
+  for (const po of explicitCustomerPos(message)) add('order', po);
+  return records;
+}
+
+// A question that names more than one record, or a record and a product, gets
+// one intent per part (up to three) so each part is retrieved. Everything else,
+// including follow-ups, keeps the single intent from classifySupportQuery.
+export function classifySupportQueries(
+  messages: ChatHistoryMessage[],
+): SupportQueryIntent[] {
+  const primary = classifySupportQuery(messages);
+  const latest = messages.at(-1)?.content.trim() ?? '';
+  const records = recordIdentifiers(latest);
+  if (!records.length) return [primary];
+  const intents: SupportQueryIntent[] = [...records];
+  const remainder = records.reduce(
+    (text, record) =>
+      text.replace(
+        new RegExp(record.identifier.replace(/[-]/g, '\\-'), 'gi'),
+        ' ',
+      ),
+    latest,
+  );
+  const rest = classifySupportQuery([{ role: 'user', content: remainder }]);
+  if (rest.kind === 'catalog') intents.push(rest);
+  return intents.length > 1
+    ? intents.slice(0, MAX_COMPOUND_REQUESTS)
+    : [primary];
 }

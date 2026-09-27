@@ -6,8 +6,9 @@ import type { AccountSummary } from '@/lib/contracts';
 import { formatCurrency } from '@/lib/format';
 import { itemReferences } from '@/lib/support-references';
 import {
-  classifySupportQuery,
+  classifySupportQueries,
   type SupportOrderStatus,
+  type SupportQueryIntent,
 } from '@/lib/support-query';
 
 type ProductRow = {
@@ -69,12 +70,45 @@ export async function getAccountSummary(
   };
 }
 
+function compoundPartLabel(intent: SupportQueryIntent) {
+  return 'identifier' in intent
+    ? `${intent.kind} ${intent.identifier}`
+    : 'catalog request';
+}
+
+// Each part of a compound question is retrieved with the same scoped lookups
+// and combined into one records block, so every part is evidence and a missing
+// record is stated alongside the authorized ones.
 export async function buildAuthorizedContext(
   db: D1Database,
   messages: ChatHistoryMessage[],
   user: AuthenticatedUser,
 ) {
-  const intent = classifySupportQuery(messages);
+  const intents = classifySupportQueries(messages);
+  if (intents.length === 1)
+    return authorizedContextForIntent(db, intents[0], user);
+  const parts: string[] = [];
+  for (const [index, intent] of intents.entries()) {
+    const context = await authorizedContextForIntent(db, intent, user);
+    const records = context
+      .replace(/^<authorized_records>\n/, '')
+      .replace(/\n<\/authorized_records>$/, '');
+    parts.push(
+      `Part ${index + 1} of ${intents.length}: ${compoundPartLabel(intent)}\n${records}`,
+    );
+  }
+  return `<authorized_records>
+The customer asked about ${intents.length} things in one message. Answer each part from its own records.
+
+${parts.join('\n\n')}
+</authorized_records>`;
+}
+
+async function authorizedContextForIntent(
+  db: D1Database,
+  intent: SupportQueryIntent,
+  user: AuthenticatedUser,
+) {
   const products =
     'message' in intent ? await matchProducts(db, intent.message) : [];
   if (
