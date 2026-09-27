@@ -39,11 +39,13 @@ export function expectCasePackResponse(
     findPartialFulfillmentPromises(answer),
     `Unsupported partial-unit fulfillment promise: ${answer}`,
   ).toEqual([]);
+  // Accept explicit restriction wording, not a bare mention of restrictions:
+  // "there is no ordering restriction" must still fail.
   expect(
     normalizedAnswer,
     `Expected an ordering restriction or required quantity adjustment: ${answer}`,
   ).toMatch(
-    /\b(?:must|needs? to|has to)\b[^.!?\n]{0,80}\b(?:adjust(?:ed|ment)?|chang(?:e|ed)|round(?:ed)?|multiples?|full[- ]case|whole[- ]case)\b|\b(?:adjust|change|round|revise|select)\b[^.!?\n]{0,60}\b(?:quantity|order|amount|multiple|full[- ]case|whole[- ]case|whole[- ]pack)\b|\b(?:cannot|can't|can not)\b[^.!?\n]{0,60}\b(?:ordered|fulfilled|shipped|processed|accepted)\b/i,
+    /\b(?:must|needs? to|has to)\b[^.!?\n]{0,80}\b(?:adjust(?:ed|ment)?|chang(?:e|ed)|round(?:ed)?|multiples?|full[- ]case|whole[- ]case)\b|\b(?:adjust|change|round|revise|select)\b[^.!?\n]{0,60}\b(?:quantity|order|amount|multiple|full[- ]case|whole[- ]case|whole[- ]pack)\b|\b(?:cannot|can't|can not)\b[^.!?\n]{0,60}\b(?:ordered|fulfilled|shipped|processed|accepted)\b|\bonly (?:full|whole)[- ](?:case[- ]pack|case|pack) multiples (?:are|is) (?:valid|allowed|accepted|orderable)\b|\bnot available (?:for|to) order as requested\b|\binvalid due to (?:an? )?ordering restriction\b/i,
   );
   expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
   expectClaimsToComeFromContext(answer, authorizedContext);

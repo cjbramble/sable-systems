@@ -236,6 +236,34 @@ describe('live model response assertions', () => {
     }
   });
 
+  it('accepts an ordering restriction stated as valid multiples or an invalid order', () => {
+    // Observed in the 2026-09-27 live run (sample 5); facts are all correct.
+    const answer = [
+      'No, 310 units of the Redline Power Cell R12 are not available for order as requested.',
+      '',
+      'Available quantity: 312 units (within available-to-promise stock).',
+      'Case-pack validity: The requested quantity (310) is not a multiple of the case pack (8). Only full case-pack multiples are valid.',
+      'Stock shortfall: 0 units (312 available, 310 requested); however, the quantity is invalid due to ordering restriction, not stock shortage.',
+      '',
+      'The nearest valid quantity is 312 units (39 cases), which is 2 units above the requested amount. A valid alternative is 304 units (38 cases), 6 units below the request.',
+    ].join('\n');
+    expect(() =>
+      expectCasePackResponse(answer, comparisonContext),
+    ).not.toThrow();
+    // Without any restriction or adjustment statement, the answer still fails.
+    const unrestricted = answer
+      .replace(' are not available for order as requested', ' were checked')
+      .replace(' Only full case-pack multiples are valid.', '')
+      .replace(
+        'the quantity is invalid due to ordering restriction, not stock shortage',
+        'there is no ordering restriction',
+      );
+    expect(unrestricted).not.toBe(answer);
+    expect(() =>
+      expectCasePackResponse(unrestricted, comparisonContext),
+    ).toThrow('Expected an ordering restriction');
+  });
+
   it('retains case-pack shortfall, nearest-quantity, and fulfillment boundaries', () => {
     const answer = casePack.references[0];
     expect(() =>
