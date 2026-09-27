@@ -20,6 +20,7 @@ import { formatIncidentListReply } from '@/lib/support-incidents';
 import { classifySupportQuery } from '@/lib/support-query';
 import {
   hasGroundedSupportIdentifiers,
+  hasUnsupportedSableResource,
   unavailableRecordReply,
 } from '@/lib/support-response';
 import {
@@ -223,6 +224,16 @@ export async function POST(request: Request) {
         {
           error:
             'The response contained an unverified record reference. Please try again.',
+        },
+        { status: 502 },
+      );
+    }
+
+    if (hasUnsupportedSableResource(content, authorizedContext)) {
+      return Response.json(
+        {
+          error:
+            'The response referred to an unverified SABLE resource. Please try again.',
         },
         { status: 502 },
       );

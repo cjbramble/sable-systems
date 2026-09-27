@@ -817,6 +817,23 @@ describe('support response safety', () => {
         "The local model's reply was incomplete. Please try again.",
     },
     {
+      failure: 'invented-sable-resource',
+      replyPayload: {
+        choices: [
+          {
+            finish_reason: 'stop',
+            message: {
+              content:
+                'I cannot help with that. Please contact SABLE Systems’ Medical Operations Division directly.',
+            },
+          },
+        ],
+      },
+      expectedStatus: 502,
+      expectedError:
+        'The response referred to an unverified SABLE resource. Please try again.',
+    },
+    {
       failure: 'missing-content',
       replyPayload: { choices: [{ message: { role: 'assistant' } }] },
       expectedStatus: 502,

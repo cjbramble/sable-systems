@@ -58,3 +58,30 @@ export function unavailableRecordReply(authorizedContext: string) {
     ];
   return `I cannot locate ${identifier} within ${distributor}'s authorization scope. Please ${nextStep}.`;
 }
+
+const SABLE_RESOURCE_WORD =
+  '(divisions?|departments?|teams?|manuals?|handbooks?|guidelines?|hotlines?|help ?desks?)';
+// A resource attributed to SABLE or COV-E ("SABLE Systems' Medical Operations
+// Division"), or claimed to be in the records. Outside references such as a
+// qualified professional or medical guidelines are not attributed this way.
+const SABLE_RESOURCE_CLAIMS = [
+  new RegExp(
+    `\\b(?:SABLE(?:\\s+Systems)?|COV-E)(?:['’]s?)?(?:\\s+[\\w-]+){0,4}?\\s+${SABLE_RESOURCE_WORD}\\b`,
+    'gi',
+  ),
+  new RegExp(`\\brecords\\b[^.!?\\n]{0,60}\\b${SABLE_RESOURCE_WORD}\\b`, 'gi'),
+];
+
+// Like unverified identifiers, a SABLE resource the records do not name is
+// invented, so the reply must not be returned or saved.
+export function hasUnsupportedSableResource(
+  content: string,
+  authorizedContext: string,
+) {
+  const records = authorizedContext.toLowerCase();
+  return SABLE_RESOURCE_CLAIMS.some((pattern) =>
+    Array.from(content.matchAll(pattern), (match) => match[1]).some(
+      (resource) => !records.includes(resource.toLowerCase().replace(/s$/, '')),
+    ),
+  );
+}
