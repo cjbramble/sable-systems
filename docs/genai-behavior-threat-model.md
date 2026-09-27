@@ -119,7 +119,9 @@ Known gaps, from the 2026-09-24 code review:
   server-built incident list. Refusals that invent SABLE resources (about one
   sample in five after the prompt change) are now blocked by output validation;
   in the baseline they appear as a failed sample with a 502 instead of reaching
-  the customer. Other customer-written fields, such as
+  the customer, and the transcript keeps the rejected model reply for review.
+  Three runs on 2026-09-27 after the guard blocked 2 of 9 harmful-request samples;
+  those replies predate reply retention and cannot be reviewed. Other customer-written fields, such as
   checkout destinations, still reach the model inside retrieved records.
 
 ## Evaluation design
