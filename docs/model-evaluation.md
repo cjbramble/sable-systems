@@ -48,6 +48,22 @@ Equivalent wording has produced opposite judge verdicts. Adding the product name
 did not resolve the tested overclaims; the earlier missing-identity hypothesis
 was not supported by that experiment.
 
+## Known intermittent failure
+
+The chatbot model is not fully deterministic between runs, even at temperature 0
+with a fixed seed: llama-server prompt caching and batching can change a close
+token choice. One case exposes a real weakness this way.
+
+`follows an explicit product topic change and refuses a mistyped SKU suffix` asks
+whether SBL-RPC-12 is available "at this warehouse", which the records do not
+define. The records give 312 available in total and per-location figures (156,
+93 and 63). Six runs on 2026-09-26 and 2026-09-27 answered 312; the run
+`reports/model-runs/2026-09-27T02-09-49-641Z-c8045e3a-9ec9-4307-8a8b-34983a8191ac.log` answered 156 for one
+location without naming it as partial, with byte-identical records and prompt.
+This is a factuality failure, not a harness error, and the test stays strict.
+Stating the total explicitly in the records, or asking which location the
+customer means, would need a separate change and a live rerun.
+
 ## Validation history
 
 Agreement below means matching authored labels, not general model accuracy.
