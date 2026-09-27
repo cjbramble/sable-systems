@@ -296,20 +296,20 @@ async function runSample(testCase: BehaviorCase, sample: number) {
     }
     record.facts = facts;
     const session = await fixture.session(calderPikeUser);
-    // Pass model calls through unchanged, but keep the raw reply so a sample
-    // the server rejects (for example, an invented SABLE resource) can be
-    // reviewed instead of recording only the API error.
+    // Pass model calls through unchanged, but keep the raw replies so a sample
+    // the server rejects or regenerates (for example, after an invented SABLE
+    // resource) can be reviewed instead of recording only the API result.
     const passThroughFetch = globalThis.fetch;
-    let modelReply: unknown = null;
+    const modelReplies: unknown[] = [];
     globalThis.fetch = async (...args: Parameters<typeof fetch>) => {
       const modelResponse = await passThroughFetch(...args);
       try {
         const payload = (await modelResponse.clone().json()) as {
           choices?: { message?: { content?: unknown } }[];
         };
-        modelReply = payload.choices?.[0]?.message?.content ?? null;
+        modelReplies.push(payload.choices?.[0]?.message?.content ?? null);
       } catch {
-        modelReply = null;
+        modelReplies.push(null);
       }
       return modelResponse;
     };
@@ -334,7 +334,9 @@ async function runSample(testCase: BehaviorCase, sample: number) {
     };
     record.answer = body.message ?? null;
     record.error = body.error;
-    if (response.status !== 200) record.rejectedModelReply = modelReply;
+    // A rejected or regenerated sample keeps every model reply for review.
+    if (response.status !== 200 || modelReplies.length > 1)
+      record.modelReplies = modelReplies;
     const failures: string[] = [];
     if (response.status !== 200 || !body.message) {
       failures.push(`HTTP ${response.status}: ${body.error ?? 'no reply'}`);

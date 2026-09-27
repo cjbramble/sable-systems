@@ -30,6 +30,8 @@ import {
   isContextOverflowResponse,
 } from '@/lib/support-model';
 
+const MAX_RESOURCE_ATTEMPTS = 2;
+
 const failureResponses = {
   loading: {
     error: 'Support records could not be loaded. Please try again.',
@@ -159,87 +161,93 @@ export async function POST(request: Request) {
     const unavailable = unavailableRecordReply(authorizedContext);
     if (unavailable) return await reply(unavailable);
     phase = 'model';
-    const [modelUrl, modelRequest] = createSupportModelRequest({
-      distributorName: user.distributorDisplayName,
-      distributorId: user.distributorId,
-      authorizedContext,
-      messages: history,
-    });
-    const modelResponse = await fetch(modelUrl, modelRequest);
+    for (let attempt = 1; ; attempt += 1) {
+      const [modelUrl, modelRequest] = createSupportModelRequest({
+        distributorName: user.distributorDisplayName,
+        distributorId: user.distributorId,
+        authorizedContext,
+        messages: history,
+      });
+      const modelResponse = await fetch(modelUrl, modelRequest);
 
-    if (await isContextOverflowResponse(modelResponse)) {
-      return Response.json(
-        {
-          error:
-            'That message is too long for the local model. Shorten it and try again.',
-        },
-        { status: 422 },
-      );
-    }
-    if (!modelResponse.ok) {
-      return Response.json(
-        {
-          error:
-            'The local model could not complete that request. Please try again.',
-        },
-        { status: 502 },
-      );
-    }
+      if (await isContextOverflowResponse(modelResponse)) {
+        return Response.json(
+          {
+            error:
+              'That message is too long for the local model. Shorten it and try again.',
+          },
+          { status: 422 },
+        );
+      }
+      if (!modelResponse.ok) {
+        return Response.json(
+          {
+            error:
+              'The local model could not complete that request. Please try again.',
+          },
+          { status: 502 },
+        );
+      }
 
-    let modelPayload: unknown;
-    try {
-      modelPayload = await modelResponse.json();
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'TimeoutError')
-        throw error;
-      return Response.json(
-        {
-          error:
-            'The local model returned an invalid response. Please try again.',
-        },
-        { status: 502 },
-      );
-    }
-    if (isIncompleteSupportModelReply(modelPayload)) {
-      return Response.json(
-        {
-          error: "The local model's reply was incomplete. Please try again.",
-        },
-        { status: 502 },
-      );
-    }
-    const content = extractSupportModelContent(modelPayload);
-    if (!content) {
-      return Response.json(
-        {
-          error:
-            'The local model returned an empty response. Please try again.',
-        },
-        { status: 502 },
-      );
-    }
+      let modelPayload: unknown;
+      try {
+        modelPayload = await modelResponse.json();
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'TimeoutError')
+          throw error;
+        return Response.json(
+          {
+            error:
+              'The local model returned an invalid response. Please try again.',
+          },
+          { status: 502 },
+        );
+      }
+      if (isIncompleteSupportModelReply(modelPayload)) {
+        return Response.json(
+          {
+            error: "The local model's reply was incomplete. Please try again.",
+          },
+          { status: 502 },
+        );
+      }
+      const content = extractSupportModelContent(modelPayload);
+      if (!content) {
+        return Response.json(
+          {
+            error:
+              'The local model returned an empty response. Please try again.',
+          },
+          { status: 502 },
+        );
+      }
 
-    if (!hasGroundedSupportIdentifiers(content, authorizedContext)) {
-      return Response.json(
-        {
-          error:
-            'The response contained an unverified record reference. Please try again.',
-        },
-        { status: 502 },
-      );
-    }
+      if (!hasGroundedSupportIdentifiers(content, authorizedContext)) {
+        return Response.json(
+          {
+            error:
+              'The response contained an unverified record reference. Please try again.',
+          },
+          { status: 502 },
+        );
+      }
 
-    if (hasUnsupportedSableResource(content, authorizedContext)) {
-      return Response.json(
-        {
-          error:
-            'The response referred to an unverified SABLE resource. Please try again.',
-        },
-        { status: 502 },
-      );
-    }
+      if (hasUnsupportedSableResource(content, authorizedContext)) {
+        // Invented SABLE resources are intermittent: ask the model once more with
+        // a fresh request before returning a retryable error. Nothing invented
+        // is returned or saved.
+        if (attempt < MAX_RESOURCE_ATTEMPTS) continue;
+        return Response.json(
+          {
+            error:
+              'The response referred to an unverified SABLE resource. Please try again.',
+          },
+          { status: 502 },
+        );
+      }
 
-    return await reply(content);
+      return await reply(content);
+    }
   } catch (error) {
     if (
       phase === 'model' &&

@@ -93,7 +93,9 @@ Controls in place, with deterministic coverage:
   team, manual, handbook, guidelines, hotline or help desk to SABLE or COV-E, or
   claims one is in the records, unless the retrieved records name it. Over 628
   retained live answers this flags only nine harmful-request refusals, all
-  invented; the customer gets a retryable 502 and nothing is saved.
+  invented. The server regenerates once after such a rejection; if the second
+  reply is also rejected, the customer gets a retryable 502. Nothing invented is
+  returned or saved, and no other rejection is regenerated.
 - Order searches report the total number of matches, not only the six listed.
 - Compound questions that name up to three records, or a record and a product,
   retrieve every part with the same scoped lookups; a missing part is stated
@@ -117,9 +119,11 @@ Known gaps, from the 2026-09-24 code review:
 - **Safety baseline:** baseline v1 below has run once. Its stored-text failure
   (an omitted incident with a false completeness claim) is addressed by the
   server-built incident list. Refusals that invent SABLE resources (about one
-  sample in five after the prompt change) are now blocked by output validation;
-  in the baseline they appear as a failed sample with a 502 instead of reaching
-  the customer, and the transcript keeps the rejected model reply for review.
+  sample in five after the prompt change) are now blocked by output validation
+  and regenerated once; a sample fails only if both replies invent, appearing as
+  a 502 instead of reaching
+  the customer, and the transcript keeps every model reply of a rejected or
+  regenerated sample for review.
   Three runs on 2026-09-27 after the guard blocked 2 of 9 harmful-request samples;
   those replies predate reply retention and cannot be reviewed. Other customer-written fields, such as
   checkout destinations, still reach the model inside retrieved records.
