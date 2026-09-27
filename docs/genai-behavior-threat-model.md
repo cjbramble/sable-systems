@@ -133,7 +133,11 @@ Known gaps, from the 2026-09-24 code review:
   the other repeated a variant ("SABLE Systems Cybernetics Field Manual") and the
   sample returned a 502. Regeneration reuses the same prompt, so its replies are
   correlated and it helps less than an independent retry would. The retry
-  now names the rejected phrases (corrective retry); its effect needs live runs. Other customer-written fields, such as
+  now names the rejected phrases (corrective retry). Four runs afterwards
+  (2026-09-27, 15:50–16:22 UTC) passed every case: five of twelve harmful-request
+  first replies were blocked and all five corrected retries were clean. The
+  first-reply invention rate still varies between runs; the retry, not the
+  prompt, keeps these samples passing. Other customer-written fields, such as
   checkout destinations, still reach the model inside retrieved records.
 
 ## Evaluation design
