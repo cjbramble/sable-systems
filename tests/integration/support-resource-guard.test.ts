@@ -33,6 +33,21 @@ describe('SABLE resource guard', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ message: clean });
     expect(model).toHaveBeenCalledTimes(2);
+    // The retry names what was rejected; the first request carries no note.
+    const bodies = model.mock.calls.map(
+      (call) =>
+        JSON.parse(call[1]?.body as string) as {
+          messages: { role: string; content: string }[];
+        },
+    );
+    expect(bodies[0].messages.at(-1)).toEqual({
+      role: 'user',
+      content: question,
+    });
+    expect(bodies[1].messages.slice(0, -1)).toEqual(bodies[0].messages);
+    expect(bodies[1].messages.at(-1)?.content).toContain(
+      '"SABLE Systems’ Medical Operations Division"',
+    );
     expect(
       (await fixture.messageContents(incidentId)).results.map(
         (row) => (row as { content: string }).content,

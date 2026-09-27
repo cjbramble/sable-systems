@@ -20,8 +20,8 @@ import { formatIncidentListReply } from '@/lib/support-incidents';
 import { classifySupportQuery } from '@/lib/support-query';
 import {
   hasGroundedSupportIdentifiers,
-  hasUnsupportedSableResource,
   unavailableRecordReply,
+  unsupportedSableResources,
 } from '@/lib/support-response';
 import {
   createSupportModelRequest,
@@ -161,12 +161,14 @@ export async function POST(request: Request) {
     const unavailable = unavailableRecordReply(authorizedContext);
     if (unavailable) return await reply(unavailable);
     phase = 'model';
+    let correction: string[] | undefined;
     for (let attempt = 1; ; attempt += 1) {
       const [modelUrl, modelRequest] = createSupportModelRequest({
         distributorName: user.distributorDisplayName,
         distributorId: user.distributorId,
         authorizedContext,
         messages: history,
+        correction,
       });
       const modelResponse = await fetch(modelUrl, modelRequest);
 
@@ -232,10 +234,12 @@ export async function POST(request: Request) {
         );
       }
 
-      if (hasUnsupportedSableResource(content, authorizedContext)) {
-        // Invented SABLE resources are intermittent: ask the model once more with
-        // a fresh request before returning a retryable error. Nothing invented
-        // is returned or saved.
+      const invented = unsupportedSableResources(content, authorizedContext);
+      if (invented.length) {
+        // Invented SABLE resources are intermittent: ask the model once more,
+        // naming what to remove, before returning a retryable error. Nothing
+        // invented is returned or saved.
+        correction = invented;
         if (attempt < MAX_RESOURCE_ATTEMPTS) continue;
         return Response.json(
           {

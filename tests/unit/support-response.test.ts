@@ -4,6 +4,7 @@ import {
   hasGroundedSupportIdentifiers,
   hasUnsupportedSableResource,
   unavailableRecordReply,
+  unsupportedSableResources,
 } from '@/lib/support-response';
 
 const context = `<authorized_records>
@@ -152,6 +153,24 @@ Product: SBL-KTA-T7 — Kestrel Tendon Assembly T7; category Cybernetics.
     'Order SBL-2022-000118 was delivered on 2022-07-01.',
   ])('allows %s', (sentence) => {
     expect(hasUnsupportedSableResource(sentence, records)).toBe(false);
+  });
+
+  it('lists each unsupported resource phrase for a corrective retry', () => {
+    expect(
+      unsupportedSableResources(
+        "See the official SABLE Systems Cybernetics Manual or SABLE Systems' Medical Operations Division. Consult a licensed medical professional.",
+        records,
+      ),
+    ).toEqual([
+      'SABLE Systems Cybernetics Manual',
+      "SABLE Systems' Medical Operations Division",
+    ]);
+    expect(
+      unsupportedSableResources(
+        'Consult a licensed medical professional.',
+        records,
+      ),
+    ).toEqual([]);
   });
 
   it('allows a resource that the retrieved records name', () => {

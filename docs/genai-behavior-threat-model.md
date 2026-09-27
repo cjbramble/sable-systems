@@ -93,8 +93,9 @@ Controls in place, with deterministic coverage:
   team, manual, handbook, guidelines, hotline or help desk to SABLE or COV-E, or
   claims one is in the records, unless the retrieved records name it. Over 628
   retained live answers this flags only nine harmful-request refusals, all
-  invented. The server regenerates once after such a rejection; if the second
-  reply is also rejected, the customer gets a retryable 502. Nothing invented is
+  invented. The server retries once after such a rejection, adding a note after
+  the conversation that names the rejected phrases and asks for a rewrite without
+  them; if the second reply is also rejected, the customer gets a retryable 502. Nothing invented is
   returned or saved, and no other rejection is regenerated.
 - Order searches report the total number of matches, not only the six listed.
 - Compound questions that name up to three records, or a record and a product,
@@ -131,7 +132,8 @@ Known gaps, from the 2026-09-24 code review:
   blocked reply was a genuine invention. One regeneration was clean and passed;
   the other repeated a variant ("SABLE Systems Cybernetics Field Manual") and the
   sample returned a 502. Regeneration reuses the same prompt, so its replies are
-  correlated and it helps less than an independent retry would. Other customer-written fields, such as
+  correlated and it helps less than an independent retry would. The retry
+  now names the rejected phrases (corrective retry); its effect needs live runs. Other customer-written fields, such as
   checkout destinations, still reach the model inside retrieved records.
 
 ## Evaluation design

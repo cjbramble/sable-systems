@@ -27,7 +27,13 @@ type SupportModelRequest = {
   authorizedContext: string;
   messages: ChatHistoryMessage[];
   generation?: Partial<SupportModelGeneration>;
+  // Unsupported SABLE resources from a rejected reply, for a corrective retry.
+  correction?: string[];
 };
+
+function resourceCorrection(phrases: string[]) {
+  return `Server check: your previous reply to the customer's last message named SABLE Systems resources that are not in the authorized records: ${phrases.map((phrase) => JSON.stringify(phrase)).join(', ')}. Rewrite your reply to the customer's last message without naming any SABLE Systems division, department, team, manual, handbook, guidelines, hotline or help desk. You may suggest a qualified professional outside SABLE Systems.`;
+}
 
 const defaultGeneration: SupportModelGeneration = {
   temperature: 0.35,
@@ -66,6 +72,7 @@ export function createSupportModelRequest({
   authorizedContext,
   messages,
   generation,
+  correction,
 }: SupportModelRequest): [string, RequestInit] {
   const settings = { ...defaultGeneration, ...generation };
   const systemContent = systemPrompt(distributorName, distributorId);
@@ -82,6 +89,9 @@ export function createSupportModelRequest({
       ESTIMATED_CHARACTERS_PER_TOKEN -
     systemContent.length -
     recordsContent.length;
+  const correctionMessages: ChatHistoryMessage[] = correction?.length
+    ? [{ role: 'user', content: resourceCorrection(correction) }]
+    : [];
   return [
     SUPPORT_MODEL_SERVER_URL,
     {
@@ -95,7 +105,15 @@ export function createSupportModelRequest({
         messages: [
           { role: 'system', content: systemContent },
           { role: 'user', content: recordsContent },
-          ...fitChatHistoryToBudget(messages, historyBudget),
+          ...fitChatHistoryToBudget(
+            messages,
+            historyBudget -
+              correctionMessages.reduce(
+                (total, message) => total + message.content.length,
+                0,
+              ),
+          ),
+          ...correctionMessages,
         ],
         temperature: settings.temperature,
         top_p: settings.topP,

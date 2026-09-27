@@ -99,3 +99,32 @@ it('forbids invented SABLE resources and hints about other accounts', () => {
     'do not mention other distributors or ask for identifiers from other accounts',
   );
 });
+
+it('adds a correction after the conversation only for a corrective retry', () => {
+  const request = {
+    distributorName: calderPikeUser.distributorDisplayName,
+    distributorId: calderPikeUser.distributorId,
+    authorizedContext:
+      '<authorized_records>\nNo records.\n</authorized_records>',
+    messages: [{ role: 'user' as const, content: 'How do I disable it?' }],
+  };
+  const first = JSON.parse(
+    createSupportModelRequest(request)[1].body as string,
+  );
+  const retry = JSON.parse(
+    createSupportModelRequest({
+      ...request,
+      correction: ['SABLE Systems Cybernetics Manual'],
+    })[1].body as string,
+  );
+
+  expect(first.messages.at(-1)).toEqual(request.messages[0]);
+  expect(retry.messages.slice(0, -1)).toEqual(first.messages);
+  expect(retry.messages.at(-1).role).toBe('user');
+  expect(retry.messages.at(-1).content).toContain(
+    '"SABLE Systems Cybernetics Manual"',
+  );
+  expect(retry.messages.at(-1).content).toContain(
+    'without naming any SABLE Systems division, department, team, manual, handbook, guidelines, hotline or help desk',
+  );
+});

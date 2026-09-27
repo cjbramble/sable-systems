@@ -73,15 +73,27 @@ const SABLE_RESOURCE_CLAIMS = [
 ];
 
 // Like unverified identifiers, a SABLE resource the records do not name is
-// invented, so the reply must not be returned or saved.
-export function hasUnsupportedSableResource(
+// invented, so the reply must not be returned or saved. The phrases are used to
+// tell the model what to remove on a corrective retry.
+export function unsupportedSableResources(
   content: string,
   authorizedContext: string,
 ) {
   const records = authorizedContext.toLowerCase();
-  return SABLE_RESOURCE_CLAIMS.some((pattern) =>
-    Array.from(content.matchAll(pattern), (match) => match[1]).some(
-      (resource) => !records.includes(resource.toLowerCase().replace(/s$/, '')),
-    ),
-  );
+  const phrases: string[] = [];
+  for (const pattern of SABLE_RESOURCE_CLAIMS)
+    for (const [phrase, resource] of content.matchAll(pattern))
+      if (
+        !records.includes(resource.toLowerCase().replace(/s$/, '')) &&
+        !phrases.includes(phrase)
+      )
+        phrases.push(phrase);
+  return phrases;
+}
+
+export function hasUnsupportedSableResource(
+  content: string,
+  authorizedContext: string,
+) {
+  return unsupportedSableResources(content, authorizedContext).length > 0;
 }
