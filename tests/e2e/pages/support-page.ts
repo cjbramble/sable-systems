@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 import { SupportMessage } from './support-message';
 import { SessionControls } from './session-controls';
@@ -224,7 +224,23 @@ export class SupportPage {
     return response;
   }
 
+  // The composer renders only after account details and incidents load (in
+  // both desktop and mobile layouts), and the model badge reads ONLINE or
+  // OFFLINE after the first status check; the mobile layout hides the badge,
+  // so include hidden elements. Waiting for both keeps a reload from
+  // cancelling requests the server is still answering.
+  async waitUntilSettled() {
+    await expect(this.messageInput).toBeVisible();
+    await expect(
+      this.page.getByRole('status', {
+        name: 'Model connection',
+        includeHidden: true,
+      }),
+    ).toHaveText(/\/\/ (?:ONLINE|OFFLINE)$/);
+  }
+
   async reload() {
+    await this.waitUntilSettled();
     await this.page.reload();
   }
 
