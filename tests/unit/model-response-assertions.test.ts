@@ -7,10 +7,107 @@ import comparison from '../fixtures/judge/comparison.json';
 import casePack from '../fixtures/judge/case-pack.json';
 import directClaims from '../fixtures/judge/direct-claims.json';
 import { distributorIdentities } from '../fixtures/users';
+import {
+  expectNoChargeAccountAuthorizations,
+  expectPositiveStockResponse,
+} from '../assertions/support-facts';
 
 // These preauthored examples now inform the factual checkers. Their old holdout
 // labels are retained for provenance, not claimed as unseen checker evidence.
 describe('live model response assertions', () => {
+  it('accepts stock paraphrases and checks every stated quantity and denial', () => {
+    // Authored controls use a different quantity from the live stock case.
+    for (const answer of [
+      'The product is in stock.',
+      'Inventory is currently available. Case pack: 6.',
+      '246 units are available.',
+      'Availability: 246 units.',
+      'Available-to-promise stock: 246.',
+    ])
+      expect(
+        () => expectPositiveStockResponse(answer, 246),
+        answer,
+      ).not.toThrow();
+    for (const answer of [
+      'The product is unavailable.',
+      'The product is not currently available.',
+      'It is in stock, but there is no stock.',
+      'It is in stock. Available: 240 units.',
+      '240 units are available.',
+      '246 units are available. Stock: 240.',
+      'Availability: 246.5 units.',
+      'Available-to-promise stock: 0.',
+      'Stock information was retrieved.',
+    ])
+      expect(() => expectPositiveStockResponse(answer, 246), answer).toThrow();
+  });
+
+  it('accepts no-authorization paraphrases while rejecting affirmative or missing claims', () => {
+    for (const answer of [
+      'Charge-account authorizations: none recorded.',
+      'No recent charge account authorizations were recorded.',
+      'There are no recorded charge-account authorizations.',
+    ])
+      expect(
+        () => expectNoChargeAccountAuthorizations(answer),
+        answer,
+      ).not.toThrow();
+    for (const answer of [
+      'Charge-account authorizations: one recorded.',
+      'A charge-account authorization was approved.',
+      'No charge-account authorizations were recorded. A charge-account authorization is pending.',
+      'Account tier: Obsidian Preferred.',
+    ])
+      expect(
+        () => expectNoChargeAccountAuthorizations(answer),
+        answer,
+      ).toThrow();
+  });
+
+  it('allows a SKU-only comparison prefix but still requires labels and correct facts', () => {
+    const answer = comparison.references[0]
+      .replace(
+        'Coldstart Rack Controller R2 — item number: SBL-CSR-R2;',
+        'SBL-CSR-R2 — item number: SBL-CSR-R2;',
+      )
+      .replace(
+        'Redline Power Cell R12 — item number: SBL-RPC-12;',
+        'SBL-RPC-12 — item number: SBL-RPC-12;',
+      );
+    expect(() =>
+      expectOverlappingComparisonResponse(answer, comparisonContext),
+    ).not.toThrow();
+    for (const changed of [
+      answer.replace('SBL-CSR-R2 —', 'SBL-CSR-R2 Invented Controller —'),
+      answer.replace('item number: SBL-CSR-R2;', ''),
+      answer.replace('price: $680.00', 'price: $681.00'),
+      answer.replace('lead time: 90 days', 'lead time: 9 days'),
+    ])
+      expect(
+        () => expectOverlappingComparisonResponse(changed, comparisonContext),
+        changed,
+      ).toThrow();
+  });
+
+  it('accepts an explicit pack requirement with independent contradiction controls', () => {
+    const answer =
+      'Available stock: 312 Redline cells. Case pack: 8. There is no stock shortfall. The requested 310 units are not valid because of the case-pack requirement.';
+    expect(() =>
+      expectCasePackResponse(answer, comparisonContext),
+    ).not.toThrow();
+    for (const changed of [
+      answer.replace('312', '320'),
+      answer.replace('Case pack: 8', 'Case pack: 4'),
+      answer.replace('are not valid', 'are valid'),
+      `${answer} There is no ordering restriction.`,
+      `${answer} Partial-unit exceptions are allowed.`,
+    ])
+      expect(
+        () => expectCasePackResponse(changed, comparisonContext),
+        changed,
+      ).toThrow();
+  });
+
   it('rejects each foreign identity while allowing the authorized distributor', () => {
     for (const [authorizedId, authorized] of Object.entries(
       distributorIdentities,

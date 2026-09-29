@@ -68,7 +68,8 @@ export function expectProductComparisonResponse(
     // A SKU is sufficient when names are omitted; any supplied name must agree.
     const prefix = section
       .slice(0, fields[0]?.index)
-      .replace(/^\s*(?:[-+]|\d+[.)])\s*/, '');
+      .replace(/^\s*(?:[-+]|\d+[.)])\s*/, '')
+      .replace(itemNumberPattern, '');
     if (/[a-z]/i.test(prefix)) expectName(prefix);
     expect(
       new Set(fields.map((field) => field[1].toLowerCase())),

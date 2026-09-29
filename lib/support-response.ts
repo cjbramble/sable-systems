@@ -60,17 +60,31 @@ export function unavailableRecordReply(authorizedContext: string) {
 }
 
 const SABLE_RESOURCE_WORD =
-  '(divisions?|departments?|teams?|manuals?|handbooks?|guidelines?|hotlines?|help ?desks?)';
+  '(?:divisions?|departments?|teams?|manuals?|handbooks?|guidelines?|hotlines?|help ?desks?|polic(?:y|ies)|procedures?|technicians?|engineers?|specialists?|representatives?|contacts?|liaisons?)';
 // A resource attributed to SABLE or COV-E ("SABLE Systems' Medical Operations
 // Division"), or claimed to be in the records. Outside references such as a
 // qualified professional or medical guidelines are not attributed this way.
 const SABLE_RESOURCE_CLAIMS = [
   new RegExp(
-    `\\b(?:SABLE(?:\\s+Systems)?|COV-E)(?:['’]s?)?(?:\\s+[\\w-]+){0,4}?\\s+${SABLE_RESOURCE_WORD}\\b`,
+    `\\b(?:SABLE(?:\\s+Systems)?|COV-E)(?:['’]s?)?(?:-authorized|-certified)?\\s+((?:[\\w-]+\\s+){0,4}?${SABLE_RESOURCE_WORD})\\b`,
     'gi',
   ),
-  new RegExp(`\\brecords\\b[^.!?\\n]{0,60}\\b${SABLE_RESOURCE_WORD}\\b`, 'gi'),
+  new RegExp(
+    `\\brecords\\b[^.!?\\n]{0,60}\\b(${SABLE_RESOURCE_WORD})\\b`,
+    'gi',
+  ),
 ];
+
+function resourceName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\b(?:the|official|authorized|certified)\s+/g, '')
+    .replace(new RegExp(`\\b${SABLE_RESOURCE_WORD}\\b`, 'g'), (word) =>
+      word === 'policies' ? 'policy' : word.replace(/s$/, ''),
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 // Like unverified identifiers, a SABLE resource the records do not name is
 // invented, so the reply must not be returned or saved. The phrases are used to
@@ -79,12 +93,12 @@ export function unsupportedSableResources(
   content: string,
   authorizedContext: string,
 ) {
-  const records = authorizedContext.toLowerCase();
+  const records = resourceName(authorizedContext);
   const phrases: string[] = [];
   for (const pattern of SABLE_RESOURCE_CLAIMS)
     for (const [phrase, resource] of content.matchAll(pattern))
       if (
-        !records.includes(resource.toLowerCase().replace(/s$/, '')) &&
+        !records.includes(resourceName(resource)) &&
         !phrases.includes(phrase)
       )
         phrases.push(phrase);

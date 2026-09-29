@@ -1,7 +1,7 @@
 # COV-E behavior and threat model
 
-Approved by the project owner on 2026-09-15 and revised on 2026-09-24 to describe
-`main`. The contract and threat tables are requirements, not implemented guarantees.
+Approved by the project owner on 2026-09-15 and revised on 2026-09-29 to describe
+the current implementation. The contract and threat tables are requirements, not implemented guarantees.
 No training, deployment or new evaluation framework is proposed now.
 
 ## System boundary
@@ -9,7 +9,7 @@ No training, deployment or new evaluation framework is proposed now.
 COV-E provides read-only support for authorized orders, shipments, returns,
 accounts, catalog/inventory and the signed-in user's incidents.
 
-Current flow on `main`: session authentication → rule-based classification of the
+Current flow: session authentication → rule-based classification of the
 latest customer message, looking back through saved incident history for
 follow-ups → distributor- or user-scoped SQL retrieval → a system message with the
 policy prompt, then a JSON data message labeled `authorized_support_records`, then
@@ -60,7 +60,7 @@ outside this baseline.
 The direct/indirect attack distinction and defense-in-depth approach follow
 [OWASP prompt-injection guidance](https://genai.owasp.org/llmrisk/llm01-prompt-injection/).
 
-## Current state on `main`
+## Current implementation
 
 Controls in place, with deterministic coverage:
 
@@ -82,21 +82,25 @@ Controls in place, with deterministic coverage:
   destinations, reach the model only in a separate JSON data message, never in
   the system message. The policy treats them as evidence, not instructions
   (`tests/integration/support-stored-text.test.ts`). This is a structural control:
-  JSON and role separation do not guarantee injection resistance, and the changed
-  prompt has not yet been evaluated with the live model.
+  JSON and role separation do not guarantee injection resistance. The
+  incident-list baseline bypasses inference; other customer-written fields need
+  their own model-path coverage.
 - Requests carry 1–12 messages of at most 4,000 characters, ending with a customer
   message. The oldest history is dropped to fit the model's 4,096-token context;
   a request that still overflows returns a specific 422 error and saves nothing.
 - [Output validation](../lib/support-response.ts) rejects unsupported record
   identifiers in any letter case. Rejected replies are neither returned nor saved.
 - Output validation also rejects a reply that attributes a division, department,
-  team, manual, handbook, guidelines, hotline or help desk to SABLE or COV-E, or
-  claims one is in the records, unless the retrieved records name it. Over 628
-  retained live answers this flags only nine harmful-request refusals, all
-  invented. The server retries once after such a rejection, adding a note after
+  team, manual, handbook, guidelines, hotline, help desk, policy, procedure, technician, engineer,
+  specialist, representative, contact or liaison to SABLE or COV-E, or claims
+  one is in the records, unless the retrieved records name it. Attributed names
+  must match the named resource; an unrelated handbook or technician in the
+  records does not authorize a different one. The earlier guard flagged nine
+  invented harmful-request refusals among 628 retained live answers. The server
+  retries once after such a rejection, adding a note after
   the conversation that names the rejected phrases and asks for a rewrite without
-  them; if the second reply is also rejected, the customer gets a retryable 502. Nothing invented is
-  returned or saved, and no other rejection is regenerated.
+  them; if the second reply is also rejected, the customer gets a retryable 502.
+  Rejected resource claims are not returned or saved, and no other rejection is regenerated.
 - Order searches report the total number of matches, not only the six listed.
 - Compound questions that name up to three records, or a record and a product,
   retrieve every part with the same scoped lookups; a missing part is stated
@@ -112,7 +116,9 @@ Controls in place, with deterministic coverage:
 Known gaps, from the 2026-09-24 code review:
 
 - **Validation scope:** output validation checks identifiers, not monetary,
-  quantity, date or policy claims.
+  quantity, date or policy claims. Resource detection covers explicit tested
+  names and roles, not every way of implying an internal SABLE procedure or
+  contact.
 - **Routing:** query selection is pattern-based. A message naming several
   orders, shipments or returns, or a record and a product, retrieves each part
   (up to three) into one labeled records block; paraphrased compound questions

@@ -181,4 +181,54 @@ Product: SBL-KTA-T7 — Kestrel Tendon Assembly T7; category Cybernetics.
       ),
     ).toBe(false);
   });
+
+  it('rejects unverified staff roles while allowing an explicitly named role', () => {
+    for (const answer of [
+      'Ask a SABLE Systems certified repair technician.',
+      'Consult a SABLE-authorized specialist.',
+      'Contact the COV-E service representative.',
+      "Speak to SABLE Systems' clinical engineer.",
+      "Ask SABLE Systems' returns liaison.",
+      "Consult SABLE Systems' return policy.",
+      'Follow the COV-E returns procedures.',
+    ])
+      expect(hasUnsupportedSableResource(answer, records), answer).toBe(true);
+    expect(
+      hasUnsupportedSableResource(
+        'Consult a certified repair technician outside SABLE Systems.',
+        records,
+      ),
+    ).toBe(false);
+    const withRole = `${records}\nService technician: account repairs contact.`;
+    expect(
+      hasUnsupportedSableResource(
+        'Contact the SABLE Systems service technician.',
+        withRole,
+      ),
+    ).toBe(false);
+    expect(
+      hasUnsupportedSableResource(
+        'Contact the SABLE Systems clinical technician.',
+        withRole,
+      ),
+    ).toBe(true);
+    expect(
+      hasUnsupportedSableResource(
+        'See the SABLE Systems medical handbook.',
+        `${records}\nReturns handbook: packing instructions.`,
+      ),
+    ).toBe(true);
+    expect(
+      hasUnsupportedSableResource(
+        'See the SABLE Systems return policies.',
+        `${records}\nReturn policy: returns stay closed.`,
+      ),
+    ).toBe(false);
+    expect(
+      hasUnsupportedSableResource(
+        'See the SABLE Systems medical policy.',
+        `${records}\nReturn policy: returns stay closed.`,
+      ),
+    ).toBe(true);
+  });
 });

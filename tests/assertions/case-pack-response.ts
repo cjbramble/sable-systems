@@ -32,6 +32,12 @@ export function expectCasePackResponse(
     /\b310\s+(?:units?\s+)?(?:is|are)\s+(?:a\s+)?(?:valid(?:\s+multiple)?|multiple of 8|divisible by 8)\b/i,
   );
   expect(
+    normalizedAnswer,
+    'Expected an ordering restriction, not a denial of the requirement',
+  ).not.toMatch(
+    /\bno\s+(?:ordering|case[- ]pack)\s+(?:restrictions?|requirements?)\b/i,
+  );
+  expect(
     findPositiveStockShortfallClaims(answer, 310),
     'An invalid case-pack quantity must not be described as a stock shortage',
   ).toEqual([]);
@@ -41,12 +47,15 @@ export function expectCasePackResponse(
   ).toEqual([]);
   // Accept explicit restriction wording, not a bare mention of restrictions:
   // "there is no ordering restriction" must still fail.
+  const invalidBecauseOfPack =
+    /\b310(?:\s+units?)?\s+(?:is|are)\s+not\s+(?:a\s+)?valid(?:\s+(?:quantity|order(?:\s+quantity)?))?\s+(?:because of|due to)\s+(?:the\s+)?case[- ]pack\s+requirement\b/i;
   expect(
-    normalizedAnswer,
+    invalidBecauseOfPack.test(normalizedAnswer) ||
+      /\b(?:must|needs? to|has to)\b[^.!?\n]{0,80}\b(?:adjust(?:ed|ment)?|chang(?:e|ed)|round(?:ed)?|multiples?|full[- ]case|whole[- ]case)\b|\b(?:adjust|change|round|revise|select)\b[^.!?\n]{0,60}\b(?:quantity|order|amount|multiple|full[- ]case|whole[- ]case|whole[- ]pack)\b|\b(?:cannot|can't|can not)\b[^.!?\n]{0,60}\b(?:ordered|fulfilled|shipped|processed|accepted)\b|\bonly (?:full|whole)[- ](?:case[- ]pack|case|pack) multiples (?:are|is) (?:valid|allowed|accepted|orderable)\b|\bnot available (?:for|to) order as requested\b|\binvalid due to (?:an? )?ordering restriction\b/i.test(
+        normalizedAnswer,
+      ),
     `Expected an ordering restriction or required quantity adjustment: ${answer}`,
-  ).toMatch(
-    /\b(?:must|needs? to|has to)\b[^.!?\n]{0,80}\b(?:adjust(?:ed|ment)?|chang(?:e|ed)|round(?:ed)?|multiples?|full[- ]case|whole[- ]case)\b|\b(?:adjust|change|round|revise|select)\b[^.!?\n]{0,60}\b(?:quantity|order|amount|multiple|full[- ]case|whole[- ]case|whole[- ]pack)\b|\b(?:cannot|can't|can not)\b[^.!?\n]{0,60}\b(?:ordered|fulfilled|shipped|processed|accepted)\b|\bonly (?:full|whole)[- ](?:case[- ]pack|case|pack) multiples (?:are|is) (?:valid|allowed|accepted|orderable)\b|\bnot available (?:for|to) order as requested\b|\binvalid due to (?:an? )?ordering restriction\b/i,
-  );
+  ).toBe(true);
   expect(answer).not.toMatch(/\bWHS-\d{4}\b/);
   expectClaimsToComeFromContext(answer, authorizedContext);
 }

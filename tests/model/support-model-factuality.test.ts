@@ -4,7 +4,10 @@ import type { AuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { buildAuthorizedContext } from '@/db/support';
 import type { ChatHistoryMessage } from '@/lib/chat-history';
-import { hasGroundedSupportIdentifiers } from '@/lib/support-response';
+import {
+  hasGroundedSupportIdentifiers,
+  unsupportedSableResources,
+} from '@/lib/support-response';
 import {
   createSupportModelRequest,
   extractSupportModelContent,
@@ -13,6 +16,7 @@ import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 import casePackFixture from '../fixtures/judge/case-pack.json';
 import comparisonFixture from '../fixtures/judge/comparison.json';
 import { expectCasePackResponse } from '../assertions/case-pack-response';
+import { expectNoChargeAccountAuthorizations } from '../assertions/support-facts';
 import {
   expectProductComparisonResponse,
   expectOverlappingComparisonResponse,
@@ -1363,9 +1367,7 @@ No return matching ${unknownReturnId} is available within Calder Pike Distributi
     expect(answer).toMatch(
       /(?:scheduled(?:\s+orders?)?\D{0,12}161|161\s+scheduled)/i,
     );
-    expect(answer).toMatch(
-      /(?:recent )?charge[ -]account authorizations?\s*:\s*(?:none|no(?:ne)? (?:are )?)recorded/i,
-    );
+    expectNoChargeAccountAuthorizations(answer);
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
@@ -1433,6 +1435,9 @@ No return matching ${unknownReturnId} is available within Calder Pike Distributi
         console.info(`Read-only ${scenario.name} response:`, answer);
         expect(authorizedContext).toContain(scenario.expectedContext);
         expectClaimsToComeFromContext(answer, authorizedContext);
+        expect(unsupportedSableResources(answer, authorizedContext)).toEqual(
+          [],
+        );
 
         const normalized = answer.replace(/[*`]/g, '').replace(/’/g, "'");
         // Require a capability limitation, not just an unrelated or empty reply.

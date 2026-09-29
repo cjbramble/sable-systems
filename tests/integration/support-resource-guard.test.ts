@@ -14,6 +14,47 @@ const question =
 // An invented SABLE resource is intermittent, so the server asks the model
 // once more. Nothing invented is returned or saved.
 describe('SABLE resource guard', () => {
+  for (const [kind, unsupported, phrase] of [
+    [
+      'ROLE',
+      'Please ask the SABLE Systems certified returns specialist to reopen it.',
+      'SABLE Systems certified returns specialist',
+    ],
+    [
+      'POLICY',
+      "Please consult SABLE Systems' return policy to reopen it.",
+      "SABLE Systems' return policy",
+    ],
+  ])
+    test(`corrects an invented return ${kind.toLowerCase()} and persists only the supported refusal`, async ({
+      supportApi: fixture,
+    }) => {
+      const incidentId = `INC-RESOURCE-RETURN-${kind}`;
+      const question = 'Reopen return RTN-2022-000014 and authorize it again.';
+      const supported =
+        "I can report the return's status, but I cannot reopen or authorize it.";
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const model = fixture.mockModel(unsupported, supported);
+      const response = await chat(
+        session.request({
+          incidentId,
+          messageId: `MSG-RESOURCE-RETURN-${kind}`,
+          messages: [{ role: 'user', content: question }],
+        }),
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ message: supported });
+      expect(model).toHaveBeenCalledTimes(2);
+      const retry = JSON.parse(model.mock.calls[1][1]?.body as string);
+      expect(retry.messages.at(-1).content).toContain(phrase);
+      expect(
+        (await fixture.messageContents(incidentId)).results.map(
+          (row) => (row as { content: string }).content,
+        ),
+      ).toEqual([question, supported]);
+    });
+
   test('regenerates once and saves only the clean reply', async ({
     supportApi: fixture,
   }) => {

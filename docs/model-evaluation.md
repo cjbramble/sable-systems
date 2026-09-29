@@ -43,6 +43,20 @@ recognized single-product stock promises above the available quantity, including
 the observed 320-unit promise against 312 available. It covers the tested active,
 passive, and alternative-quantity wording, not arbitrary prose.
 
+Stock-status and empty charge-authorization checks accept tested equivalent
+wording while rejecting contradictory or incorrect facts. Independent authored
+positive and negative controls live in
+`tests/unit/model-response-assertions.test.ts`. Product comparisons still require
+all requested field labels and correct values; a SKU's letters do not count as
+a supplied product name. The case-pack check accepts an explicit invalidity due
+to the pack requirement and rejects claims that the restriction does not exist.
+
+`tests/model/support-response-fixes.test.ts` adds three independent authenticated
+API samples each for a conversation topic switch and a return-reopening refusal.
+It retains raw model replies, requires every sample to pass, and checks that
+the return record stays unchanged. These scenarios are regression coverage,
+not an independently human-labeled benchmark.
+
 Matching an overall label does not establish correct claim verification.
 Equivalent wording has produced opposite judge verdicts. Adding the product name
 did not resolve the tested overclaims; the earlier missing-identity hypothesis
@@ -97,6 +111,40 @@ the quantity-adjustment instruction.
 Evidence: [model transcript][full-transcript] and [judge report][full-judge].
 These results do not establish judge reliability.
 
+## 4B response fixes (2026-09-29)
+
+The first patched run passed 47 of 48 tests, but the direct foreign-shipment
+case speculated about another customer's ownership. The production API already
+uses a fixed server-built reply for this unavailable-record case. Manual review
+also found an invented SABLE return policy that escaped the resource detector.
+The patch now gives a shorter missing-record instruction and checks attributed
+policies and procedures as well as staff roles. The privacy assertion stays
+unchanged. Evidence: [initial patched transcript][response-fixes-initial].
+
+An intermediate factuality run also caught a comparison formatted as JSON
+despite requested prose labels, and an order-cancellation refusal referring to
+an invented operations team. Its failures are retained in the
+[intermediate transcript][response-fixes-intermediate]. The final prompt
+explicitly preserves label spaces, layout and currency, and ends action refusals
+after the limitation and requested facts when no contact or procedure is
+provided. The final verification below starts after these prompt edits.
+
+The final 4B run passed all 48 tests, including five case-pack samples, five
+comparison samples, all 30 behavior API samples, and all six new topic-switch
+and return-refusal API samples. Each new API sample used one model call; the
+return record remained unchanged. One harmful-request first reply still
+invented a SABLE clinical liaison; the server blocked it and its single
+corrective retry passed. The prompt does not eliminate resource invention, so
+the API guard remains necessary. Evidence: [final model transcript][response-fixes-final].
+
+`npm run check` passed lint, formatting, type checking, all 296 application tests,
+seed validation and the production build. The unchanged 14B advisory judge
+accepted all ten case-pack/comparison answers without execution errors; this
+does not qualify it as a gate. Evidence: [final judge report][response-fixes-judge].
+
+The model configuration stays 4B for COV-E and 14B for the advisory judge.
+These are local regression results, not a general accuracy measurement.
+
 All linked run artifacts are local and Git-ignored, under `reports/model-runs/`
 and `reports/judge-runs/`. They are not included in a fresh clone.
 
@@ -112,3 +160,7 @@ Each judge report records SHA-256 hashes of `local_judge.py`, `evaluate.py`, and
 [identity]: ../reports/judge-runs/direct-claim-pilot-2026-09-13T13-23-59-813Z-9131181a-bf33-4686-8a7c-3ce1359ccd52.json
 [full-transcript]: ../reports/model-runs/2026-09-13T13-53-11-987Z-6d289aef-91d1-4e51-8196-8829c3d8e87a.log
 [full-judge]: ../reports/judge-runs/transcript-2026-09-13T13-57-18-132Z-68e8545d-f322-4bd7-a4b5-d066fd1044ed.json
+[response-fixes-initial]: ../reports/model-runs/2026-09-29T22-17-10-112Z-8f1e65cd-5b4d-4abf-821a-8a41fa1c5637.log
+[response-fixes-intermediate]: ../reports/model-runs/2026-09-29T22-25-14-841Z-c9843a66-68dc-49e0-ac6a-20fe66bfa39b.log
+[response-fixes-final]: ../reports/model-runs/2026-09-29T22-31-48-366Z-f8780ddb-068a-4f37-a5b1-5f7a9703292f.log
+[response-fixes-judge]: ../reports/judge-runs/transcript-2026-09-29T22-36-12-457Z-703e0ad7-798c-4e22-8915-a332335f6599.json
