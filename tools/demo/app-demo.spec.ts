@@ -4,7 +4,12 @@ import {
   type BrowserContext,
   type Video,
 } from '@playwright/test';
-import { Miniflare, Response as WorkerResponse } from 'miniflare';
+import {
+  Miniflare,
+  convertV4MiniflareOptions,
+  Response as WorkerResponse,
+  type Request as WorkerRequest,
+} from 'miniflare';
 import { mkdir, open, readdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -54,54 +59,65 @@ test('landing to checkout to live COV-E order lookup', async ({
     const serverPath = resolve('dist/server');
     const files = await readdir(serverPath, { recursive: true });
     // A disposable production-build instance. No working database is read or written.
-    runtime = new Miniflare({
-      host: '127.0.0.1',
-      port: 0,
-      cf: false,
-      modulesRoot: serverPath,
-      modules: [
-        'index.js',
-        ...files.filter((file) => file !== 'index.js' && /\.m?js$/.test(file)),
-      ].map((file) => ({
-        type: 'ESModule' as const,
-        path: resolve(serverPath, file),
-      })),
-      compatibilityDate: '2026-05-15',
-      compatibilityFlags: ['nodejs_compat'],
-      d1Databases: ['DB'],
-      d1Persist: false,
-      assets: {
-        directory: resolve('dist/client'),
-        binding: 'ASSETS',
-        routerConfig: { has_user_worker: true },
-      },
-      outboundService: async (request) => {
-        const allowed =
-          (request.method === 'GET' &&
-            request.url === 'http://127.0.0.1:8017/v1/models') ||
-          (request.method === 'POST' &&
-            request.url === 'http://127.0.0.1:8017/v1/chat/completions');
-        if (!allowed)
-          throw new Error(
-            `Unexpected outbound request: ${request.method} ${request.url}`,
-          );
-        const body =
-          request.method === 'POST' ? await request.text() : undefined;
-        const response = await fetch(request.url, {
-          method: request.method,
-          body,
-          headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.any([scope.signal, AbortSignal.timeout(90_000)]),
-        });
-        const text = await response.text();
-        if (body)
-          calls.push({ request: JSON.parse(body), response: JSON.parse(text) });
-        return new WorkerResponse(text, {
-          status: response.status,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      },
-    });
+    runtime = new Miniflare(
+      convertV4MiniflareOptions({
+        host: '127.0.0.1',
+        port: 0,
+        cf: false,
+        modulesRoot: serverPath,
+        modules: [
+          'index.js',
+          ...files.filter(
+            (file) => file !== 'index.js' && /\.m?js$/.test(file),
+          ),
+        ].map((file) => ({
+          type: 'ESModule' as const,
+          path: resolve(serverPath, file),
+        })),
+        compatibilityDate: '2026-05-15',
+        compatibilityFlags: ['nodejs_compat'],
+        d1Databases: ['DB'],
+        d1Persist: false,
+        bindings: { SABLE_LOCAL_DEMO: 'true' },
+        assets: {
+          directory: resolve('dist/client'),
+          binding: 'ASSETS',
+          routerConfig: { has_user_worker: true },
+        },
+        outboundService: async (request: WorkerRequest) => {
+          const allowed =
+            (request.method === 'GET' &&
+              request.url === 'http://127.0.0.1:8017/v1/models') ||
+            (request.method === 'POST' &&
+              request.url === 'http://127.0.0.1:8017/v1/chat/completions');
+          if (!allowed)
+            throw new Error(
+              `Unexpected outbound request: ${request.method} ${request.url}`,
+            );
+          const body =
+            request.method === 'POST' ? await request.text() : undefined;
+          const response = await fetch(request.url, {
+            method: request.method,
+            body,
+            headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.any([
+              scope.signal,
+              AbortSignal.timeout(90_000),
+            ]),
+          });
+          const text = await response.text();
+          if (body)
+            calls.push({
+              request: JSON.parse(body),
+              response: JSON.parse(text),
+            });
+          return new WorkerResponse(text, {
+            status: response.status,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        },
+      }),
+    );
     const baseURL = (await runtime.ready).origin;
     const auth = await playwright.request.newContext({ baseURL });
     let storageState;

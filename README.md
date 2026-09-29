@@ -103,13 +103,41 @@ interrupted initialization resumes from the last committed batch.
 
 ### Data maintenance
 
-Schema versions 6 and 7 upgrade to 8 with the current `SEED_VERSION`. Unsupported
+Schema versions 6, 7, and 8 upgrade to 9 with the current `SEED_VERSION`. Unsupported
 versions or populated databases without version metadata stop startup without
 modifying records. Preserve the database and inspect its metadata before migration.
 
 Seed changes must update `SEED_VERSION` to prevent resuming initialization with a
 different dataset. A version change does not reset existing data; rebuilding the
 dataset requires a separate, explicit reset.
+
+## Security boundaries
+
+This is a local demo with synthetic data and published demo credentials.
+`npm run dev` and `npm start` bind to loopback and explicitly enable the
+`SABLE_LOCAL_DEMO=true` Worker binding. Authentication requires both that binding
+and a loopback request hostname. `npm run build` emits a configuration with the
+binding disabled, so accidentally deploying the build does not enable the demo
+accounts or accept their existing sessions. A hostname check is not a network
+firewall: do not expose the opted-in local runtime through a proxy or tunnel.
+Public hosting requires replacing demo provisioning with private accounts and a
+deployment-specific access policy.
+
+Login permits 10 attempts per normalized email and 60 attempts across the app per
+60-second window. Model generation permits 30 customer requests per user per
+60-second window, shared across sessions; an automatic corrective model retry is
+part of the same customer request. Limits are stored atomically in D1, survive
+worker restarts, return HTTP 429 with `Retry-After`, and fail closed if storage is
+unavailable. Saved reply replay and server-built record replies do not consume
+model quota. Expired quota rows are removed when checking a quota.
+
+Assistant Markdown cannot render images, including external tracking images;
+raw HTML remains disabled. Logout clears the browser cookie only after server
+revocation succeeds, leaving failed sign-outs retryable.
+
+Run `npm run audit:deps` to check the lockfile against current npm advisories.
+The scoped `image-size` override patches Vinext's exact transitive pin to 2.0.3;
+remove it when the application adopts a Vinext release that no longer needs it.
 
 ## Testing
 

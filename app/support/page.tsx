@@ -791,7 +791,11 @@ export default function SupportPage() {
                       </div>
                       <div className="message-bubble">
                         {message.role === 'assistant' ? (
-                          <Markdown remarkPlugins={[remarkGfm]} skipHtml>
+                          <Markdown
+                            remarkPlugins={[remarkGfm]}
+                            skipHtml
+                            disallowedElements={['img']}
+                          >
                             {message.content}
                           </Markdown>
                         ) : (

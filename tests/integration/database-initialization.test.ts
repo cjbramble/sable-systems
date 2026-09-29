@@ -72,7 +72,7 @@ describe('database initialization', () => {
     },
   );
 
-  test.for(['6', '7'])(
+  test.for(['6', '7', '8'])(
     'upgrades supported schema %s without reseeding',
     async (version, { initialization }) => {
       const { database, getDatabase, restart } = initialization;
@@ -103,6 +103,34 @@ describe('database initialization', () => {
       expect(await databaseSnapshot(database)).toEqual(before);
     },
   );
+
+  test('adds request quotas when upgrading schema 8 and preserves all existing records', async ({
+    initialization,
+  }) => {
+    const { database, getDatabase, restart } = initialization;
+    await getDatabase();
+    await addUserRecords(database);
+    await database.batch([
+      database.prepare('DROP TABLE request_limits'),
+      database.prepare(
+        "UPDATE metadata SET value = '8' WHERE key = 'schema_version'",
+      ),
+    ]);
+    const before = await databaseSnapshot(database);
+    await (
+      await restart()
+    )();
+    const after = await databaseSnapshot(database);
+    for (const [table, rows] of Object.entries(before.tables)) {
+      if (table !== 'metadata')
+        expect(after.tables[table], table).toEqual(rows);
+    }
+    expect(after.tables.request_limits).toEqual([]);
+    expect(after.tables.metadata).toContainEqual({
+      key: 'schema_version',
+      value: SCHEMA_VERSION,
+    });
+  });
 
   test('adds the missing schema-8 history tables to a supported legacy database', async ({
     initialization,

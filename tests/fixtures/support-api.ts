@@ -76,6 +76,15 @@ export function createSupportApiFixture(database: D1Database) {
           body: JSON.stringify(body),
         });
       cleanups.push(() => revokeSession(database, request({})));
+      // Quotas are per user and durable. Keep independent test cases from
+      // consuming each other's allowance; multiple sessions within one test
+      // still share the real quota until this fixture is torn down.
+      cleanups.push(async () => {
+        await database
+          .prepare('DELETE FROM request_limits WHERE quota_key = ?')
+          .bind(`chat:${user.userId}`)
+          .run();
+      });
       return { request };
     },
 

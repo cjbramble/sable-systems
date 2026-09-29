@@ -7,6 +7,7 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === 'seatbelt';
 
 const localBindingConfig = {
   main: 'vinext/server/fetch-handler',
+  compatibility_date: '2026-05-15',
   compatibility_flags: ['nodejs_compat'],
   d1_databases: [
     {
@@ -18,7 +19,7 @@ const localBindingConfig = {
   ],
 };
 
-export default defineConfig(async () => {
+export default defineConfig(async ({ command }) => {
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
   process.env.WRANGLER_WRITE_LOGS ??= 'false';
@@ -37,7 +38,10 @@ export default defineConfig(async () => {
       vinext(),
       cloudflare({
         viteEnvironment: { name: 'rsc', childEnvironments: ['ssr'] },
-        config: localBindingConfig,
+        config: {
+          ...localBindingConfig,
+          vars: { SABLE_LOCAL_DEMO: command === 'serve' ? 'true' : 'false' },
+        },
       }),
     ],
   };

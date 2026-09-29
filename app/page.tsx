@@ -23,9 +23,12 @@ export default async function Home() {
   let authenticated = false;
   try {
     const requestHeaders = await headers();
-    const request = new Request('http://sable.local/', {
-      headers: requestHeaders,
-    });
+    const request = new Request(
+      `http://${requestHeaders.get('host') ?? 'invalid.local'}/`,
+      {
+        headers: requestHeaders,
+      },
+    );
     authenticated = Boolean(
       await getAuthenticatedUser(await getDatabase(), request),
     );

@@ -5,10 +5,21 @@ import {
   parseLoginInput,
 } from '@/db/auth';
 import { getDatabase } from '@/db/database';
+import {
+  consumeRequestQuota,
+  loginQuotaKey,
+  requestLimitResponse,
+} from '@/db/request-limits';
+import { isLocalDemoRequest } from '@/lib/local-demo';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
+  if (!isLocalDemoRequest(request))
+    return Response.json(
+      { error: 'Demo sign-in is available only in the local demo runtime.' },
+      { status: 403, headers: { 'Cache-Control': 'no-store' } },
+    );
   if (!isTrustedMutation(request))
     return Response.json(
       { error: 'Cross-origin access denied.' },
@@ -34,6 +45,15 @@ export async function POST(request: Request) {
 
   try {
     const db = await getDatabase();
+    const globalRetry = await consumeRequestQuota(db, 'login:global', 60, 60);
+    if (globalRetry) return requestLimitResponse(globalRetry);
+    const accountRetry = await consumeRequestQuota(
+      db,
+      await loginQuotaKey(input.email),
+      10,
+      60,
+    );
+    if (accountRetry) return requestLimitResponse(accountRetry);
     const userId = await authenticateCredentials(
       db,
       input.email,

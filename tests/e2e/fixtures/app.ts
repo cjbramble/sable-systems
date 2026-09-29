@@ -1,5 +1,10 @@
 import { test as base } from '@playwright/test';
-import { Miniflare, Response } from 'miniflare';
+import {
+  Miniflare,
+  convertV4MiniflareOptions,
+  Response,
+  type Request as WorkerRequest,
+} from 'miniflare';
 import { readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +23,7 @@ type App = {
 };
 
 type Fixtures = {
+  localDemo: boolean;
   modelReply: string;
   modelResponses: { status: number; body: unknown }[] | null;
   app: App;
@@ -32,9 +38,10 @@ const projectPath = (path: string) =>
   fileURLToPath(new URL(`../../../${path}`, import.meta.url));
 
 export const test = base.extend<Fixtures>({
+  localDemo: [true, { option: true }],
   modelReply: ['', { option: true }],
   modelResponses: [null, { option: true }],
-  app: async ({ modelReply, modelResponses }, provide) => {
+  app: async ({ modelReply, modelResponses, localDemo }, provide) => {
     if (!modelReply && modelResponses === null)
       throw new Error(
         'Set a controlled modelReply or modelResponses for this test.',
@@ -45,67 +52,72 @@ export const test = base.extend<Fixtures>({
     const unexpectedRequests: string[] = [];
     const serverPath = projectPath('dist/server');
     const files = await readdir(serverPath, { recursive: true });
-    const runtime = new Miniflare({
-      host: '127.0.0.1',
-      port: 0,
-      cf: false,
-      // Vinext loads chunks dynamically, so register the complete server build
-      // explicitly, with the worker entrypoint first.
-      modulesRoot: serverPath,
-      modules: [
-        'index.js',
-        ...files.filter((file) => file !== 'index.js' && /\.m?js$/.test(file)),
-      ].map((file) => ({
-        type: 'ESModule' as const,
-        path: resolve(serverPath, file),
-      })),
-      compatibilityDate: '2026-05-15',
-      compatibilityFlags: ['nodejs_compat'],
-      d1Databases: ['DB'],
-      d1Persist: false,
-      assets: {
-        directory: projectPath('dist/client'),
-        binding: 'ASSETS',
-        routerConfig: { has_user_worker: true },
-      },
-      // Exercise real app endpoints; replace only worker-to-model transport.
-      outboundService: async (request) => {
-        if (
-          request.method === 'GET' &&
-          request.url === 'http://127.0.0.1:8017/v1/models'
-        ) {
-          return Response.json(modelMetadata);
-        }
-        if (
-          request.method === 'POST' &&
-          request.url === 'http://127.0.0.1:8017/v1/chat/completions'
-        ) {
-          modelRequests.push(await request.json());
-          if (responseSequence !== null) {
-            const planned = responseSequence.shift();
-            if (!planned) {
-              unexpectedRequests.push('Model response sequence exhausted');
-              return new Response(
-                'No model response configured for this request',
-                {
-                  status: 502,
-                },
-              );
-            }
-            return Response.json(planned.body, { status: planned.status });
+    const runtime = new Miniflare(
+      convertV4MiniflareOptions({
+        host: '127.0.0.1',
+        port: 0,
+        cf: false,
+        // Vinext loads chunks dynamically, so register the complete server build
+        // explicitly, with the worker entrypoint first.
+        modulesRoot: serverPath,
+        modules: [
+          'index.js',
+          ...files.filter(
+            (file) => file !== 'index.js' && /\.m?js$/.test(file),
+          ),
+        ].map((file) => ({
+          type: 'ESModule' as const,
+          path: resolve(serverPath, file),
+        })),
+        compatibilityDate: '2026-05-15',
+        compatibilityFlags: ['nodejs_compat'],
+        d1Databases: ['DB'],
+        d1Persist: false,
+        bindings: { SABLE_LOCAL_DEMO: String(localDemo) },
+        assets: {
+          directory: projectPath('dist/client'),
+          binding: 'ASSETS',
+          routerConfig: { has_user_worker: true },
+        },
+        // Exercise real app endpoints; replace only worker-to-model transport.
+        outboundService: async (request: WorkerRequest) => {
+          if (
+            request.method === 'GET' &&
+            request.url === 'http://127.0.0.1:8017/v1/models'
+          ) {
+            return Response.json(modelMetadata);
           }
-          return Response.json({
-            choices: [
-              { finish_reason: 'stop', message: { content: modelReply } },
-            ],
+          if (
+            request.method === 'POST' &&
+            request.url === 'http://127.0.0.1:8017/v1/chat/completions'
+          ) {
+            modelRequests.push(await request.json());
+            if (responseSequence !== null) {
+              const planned = responseSequence.shift();
+              if (!planned) {
+                unexpectedRequests.push('Model response sequence exhausted');
+                return new Response(
+                  'No model response configured for this request',
+                  {
+                    status: 502,
+                  },
+                );
+              }
+              return Response.json(planned.body, { status: planned.status });
+            }
+            return Response.json({
+              choices: [
+                { finish_reason: 'stop', message: { content: modelReply } },
+              ],
+            });
+          }
+          unexpectedRequests.push(`${request.method} ${request.url}`);
+          return new Response('Unexpected outbound request blocked by test', {
+            status: 502,
           });
-        }
-        unexpectedRequests.push(`${request.method} ${request.url}`);
-        return new Response('Unexpected outbound request blocked by test', {
-          status: 502,
-        });
-      },
-    });
+        },
+      }),
+    );
     try {
       const url = await runtime.ready;
       const database = await runtime.getD1Database('DB');

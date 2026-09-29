@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = '8';
+export const SCHEMA_VERSION = '9';
 export const SEED_VERSION = 'sable-distribution-2026-09-02-v7';
 
 export const METADATA_TABLE_SQL = `CREATE TABLE IF NOT EXISTS metadata (
@@ -38,6 +38,12 @@ export const SESSIONS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS sessions (
 
 export const SESSIONS_USER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_sessions_user_expiry
   ON sessions(user_id, expires_at)`;
+
+export const REQUEST_LIMITS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS request_limits (
+  quota_key TEXT PRIMARY KEY,
+  attempts INTEGER NOT NULL CHECK (attempts > 0),
+  expires_at INTEGER NOT NULL
+) STRICT`;
 
 export const ORDER_USER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_orders_placed_by_user
   ON orders(placed_by_user_id)`;
@@ -121,6 +127,7 @@ export const schemaStatements = [
   USERS_TABLE_SQL,
   USER_CREDENTIALS_TABLE_SQL,
   SESSIONS_TABLE_SQL,
+  REQUEST_LIMITS_TABLE_SQL,
   SUPPORT_INCIDENTS_TABLE_SQL,
   SUPPORT_MESSAGES_TABLE_SQL,
   `CREATE TABLE IF NOT EXISTS products (

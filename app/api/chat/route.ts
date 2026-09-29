@@ -1,5 +1,6 @@
 import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
 import { getDatabase } from '@/db/database';
+import { consumeRequestQuota, requestLimitResponse } from '@/db/request-limits';
 import {
   canAccessSupportIncident,
   getSavedSupportExchange,
@@ -160,6 +161,13 @@ export async function POST(request: Request) {
     const authorizedContext = await buildAuthorizedContext(db, history, user);
     const unavailable = unavailableRecordReply(authorizedContext);
     if (unavailable) return await reply(unavailable);
+    const retryAfter = await consumeRequestQuota(
+      db,
+      `chat:${user.userId}`,
+      30,
+      60,
+    );
+    if (retryAfter) return requestLimitResponse(retryAfter);
     phase = 'model';
     let correction: string[] | undefined;
     for (let attempt = 1; ; attempt += 1) {

@@ -1378,9 +1378,12 @@ describe('support response safety', () => {
       await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
       const session = await fixture.session(calderPikeUser);
       const fetchMock = fixture.mockModel(assistantMessage);
-      // Reject before executing the transaction. Subsequent batches use real D1.
+      // Let the pre-inference quota transaction run, then reject the save
+      // before executing it. Subsequent batches use real D1.
+      const realBatch = database.batch.bind(database);
       const batchMock = vi
         .spyOn(database, 'batch')
+        .mockImplementationOnce(realBatch)
         .mockRejectedValueOnce(
           new DOMException(
             'test: private storage timeout details',
@@ -1397,7 +1400,7 @@ describe('support response safety', () => {
 
       const failed = await POST(makeRequest());
       expect(fetchMock).toHaveBeenCalledOnce();
-      expect(batchMock).toHaveBeenCalledOnce();
+      expect(batchMock).toHaveBeenCalledTimes(2);
       expect(failed.status).toBe(500);
       expect(await failed.json()).toEqual({
         error:
@@ -1410,7 +1413,7 @@ describe('support response safety', () => {
       expect(retry.status).toBe(200);
       expect(await retry.json()).toMatchObject({ message: assistantMessage });
       expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(batchMock).toHaveBeenCalledTimes(2);
+      expect(batchMock).toHaveBeenCalledTimes(4);
       expect(await fixture.findIncidentOwner(incidentId)).toEqual({
         user_id: calderPikeUser.userId,
       });
@@ -1434,7 +1437,7 @@ describe('support response safety', () => {
       expect(replay.status).toBe(200);
       expect(await replay.json()).toMatchObject({ message: assistantMessage });
       expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(batchMock).toHaveBeenCalledTimes(2);
+      expect(batchMock).toHaveBeenCalledTimes(4);
       expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
       expect((await fixture.messages(incidentId)).results).toEqual(
         savedMessages.results,

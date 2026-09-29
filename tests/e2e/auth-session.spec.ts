@@ -164,6 +164,59 @@ for (const destination of ['shop', 'orders', 'support'] as const) {
   });
 }
 
+test('retains the session after a database revocation failure and revokes it on retry', async ({
+  page,
+  context,
+  app,
+  loginPage,
+  ordersPage,
+}) => {
+  await loginPage.goto('/orders');
+  await loginPage.signIn(email, password, '/orders');
+  await expect(ordersPage.session.signOutButton).toBeEnabled();
+  const original = (await context.cookies(app.url)).find(
+    (cookie) => cookie.name === 'sable_session',
+  )!;
+  expect(original).toBeDefined();
+  await app.database
+    .prepare(`CREATE TRIGGER reject_test_revocation
+    BEFORE UPDATE OF revoked_at ON sessions
+    BEGIN SELECT RAISE(ABORT, 'simulated revocation failure'); END`)
+    .run();
+  try {
+    const [failed] = await Promise.all([
+      page.waitForResponse(
+        (response) => new URL(response.url()).pathname === '/api/auth/logout',
+      ),
+      ordersPage.session.signOut(),
+    ]);
+    expect(failed.status()).toBe(503);
+    expect(failed.headers()['set-cookie']).toBeUndefined();
+    await expect(ordersPage.session.error).toHaveText(
+      'Sign-out could not be confirmed. Please try again.',
+    );
+    expect(
+      (await context.cookies(app.url)).find(
+        (cookie) => cookie.name === 'sable_session',
+      ),
+    ).toEqual(original);
+    expect((await page.request.get('/api/auth/session')).status()).toBe(200);
+  } finally {
+    await app.database.prepare('DROP TRIGGER reject_test_revocation').run();
+  }
+  expect((await ordersPage.signOut()).status()).toBe(200);
+  await expect(loginPage.heading).toBeVisible();
+  expect(
+    (await context.cookies(app.url)).some(
+      (cookie) => cookie.name === 'sable_session',
+    ),
+  ).toBe(false);
+  const replay = await page.request.get('/api/auth/session', {
+    headers: { Cookie: `sable_session=${original.value}` },
+  });
+  expect(replay.status()).toBe(401);
+});
+
 test('leaving login cancels its delayed session check without redirecting the new page', async ({
   page,
   app,

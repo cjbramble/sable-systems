@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { expect, onTestFinished, test as base, vi } from 'vitest';
 
 const dropOrder = [
+  'request_limits',
   'support_messages',
   'support_incidents',
   'sessions',

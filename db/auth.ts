@@ -1,3 +1,5 @@
+import { isLocalDemoRequest } from '@/lib/local-demo';
+
 const SESSION_COOKIE = 'sable_session';
 const SESSION_DURATION_SECONDS = 60 * 60 * 12;
 const PASSWORD_MAX_LENGTH = 256;
@@ -46,6 +48,7 @@ export function parseLoginInput(value: unknown) {
     typeof candidate.password === 'string' ? candidate.password : '';
   if (
     !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+    email.length > 254 ||
     password.length < 12 ||
     password.length > PASSWORD_MAX_LENGTH
   )
@@ -137,6 +140,7 @@ export async function getAuthenticatedUser(
   db: D1Database,
   request: Request,
 ): Promise<AuthenticatedUser | null> {
+  if (!isLocalDemoRequest(request)) return null;
   const token = getCookie(request, SESSION_COOKIE);
   if (!token) return null;
   const tokenHash = await hashToken(token);

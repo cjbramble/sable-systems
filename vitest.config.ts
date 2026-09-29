@@ -22,6 +22,7 @@ export default defineConfig({
               compatibilityDate: '2026-05-15',
               compatibilityFlags: ['nodejs_compat'],
               d1Databases: ['DB', 'INITIALIZATION_DB'],
+              bindings: { SABLE_LOCAL_DEMO: 'true' },
             },
           }),
         ],

@@ -16,7 +16,11 @@ export async function POST(request: Request) {
   try {
     await revokeSession(await getDatabase(), request);
   } catch {
-    // Clearing the browser credential still signs out this device if storage is unavailable.
+    // Keep the credential so a retry can revoke the same server session.
+    return Response.json(
+      { error: 'Sign-out could not be confirmed. Please try again.' },
+      { status: 503, headers: { 'Cache-Control': 'no-store' } },
+    );
   }
   return Response.json(
     { authenticated: false },
