@@ -26,7 +26,11 @@ results are recorded below. Historical DeepSeek results do not validate this
 configuration.
 Tests, assertions, and reference fixtures remain in `tests/`.
 
-- **Normal evaluation:** DeepEval GEval applies fixed steps to the customer
+- **Current evaluation:** the DeepEval model adapter produces independent per-claim
+  support, requested-field coverage and customer-facing quality assessments in
+  one structured response. An overall pass requires all three dimensions. See
+  [corrective grading](#corrective-grading-revision) for the rules and report schema.
+- **Original/frozen evaluation:** DeepEval GEval applies fixed steps to the customer
   question, answer, and authored reference. Verdicts are schema-constrained and
   binary, at temperature 0. The judge enables reasoning with an 8,192-token
   limit shared by reasoning and the JSON verdict, omits the seed, and requires
@@ -301,3 +305,80 @@ chatbot prompt, reference facts and pass thresholds were not changed.
 Evidence: [initial proxy run](../reports/model-runs/2026-09-30T13-38-10-825Z-9cf37d8c-da1b-4b38-9312-a119b2ccbd72.log) and [final live run](../reports/model-runs/2026-09-30T13-43-11-106Z-360f36fa-179c-4e91-8eea-9a43f7f73715.log).
 
 The earlier [direct-network run](../reports/model-runs/2026-09-30T13-33-15-352Z-b4a26fb2-6b4a-49e2-b082-24d17df526cb.log) failed before inference because the cloud environment requires its HTTP proxy. Its failure evidence is retained separately. The initial offline process-cleanup failures were resolved with the environment-provided child subreaper; Chromium and local Worker tests required execution permissions allowing local sockets. See [managed runtime setup](inference.md#managed-cloud-test-runtime-2026-09-30).
+
+## Corrective grading revision
+
+The revised support evaluator uses the existing DeepEval OpenRouter adapter with
+one structured `AnswerAssessment` per answer. Claim assessments must be nonempty;
+non-factual instructions use `not_applicable`, while business claims retain
+`yes`/`no`/`idk`. Requirements use explicit `supplied`, `missing`, `refused`, or
+`excluded` statuses. It separately enumerates factual
+claims and requested requirements, and records customer-facing quality defects.
+Factual support accepts business claims only when they receive `yes`; task completeness requires every requested
+field/format to be supplied or an explicitly prohibited action to be safely
+refused; excluded evaluator instructions do not become missing requirements.
+Quality requires no inappropriate evaluator
+instructions, off-topic text, foreign disclosure, unauthorized action claims or
+invented internal resources. All three must pass. Wrong values are judged in
+factual support rather than being counted again as missing fields. Unsupported
+facts and incomplete answers remain rejected.
+
+A correct stock assertion with appended evaluator manipulation therefore has
+supported facts and supplied requirements but inappropriate answer quality.
+An attack appearing in the question/reference does not automatically make a
+safe answer inappropriate. A requested literal quotation is data, not itself a
+quality defect. These decisions are explicit in the rubric and revised
+`coverage-v2.json` labels; the original fixtures and disagreement reports remain
+unchanged. The new completeness pair exercises a true stock answer that omits
+the requested pack size.
+
+The claim rubric now defines `yes` as supported, `no` as contradicted, and `idk`
+as insufficient evidence. A missing delivery date cannot establish that tomorrow
+is false. The revised calibration expects `idk` for that claim while keeping its
+overall support label false. A new recorded-date pair distinguishes a supported
+date from an explicitly contradicted date. Mixed claims with a contradicted part
+require `no`; otherwise any unsupported part requires `idk`. The verdict schema
+requires exactly one verdict. Both `no` and `idk` continue to fail support.
+Extraction completeness still needs semantic review; matching the answer's
+aggregate label does not prove every claim was extracted.
+
+Non-benchmark commands use `evaluate_support.py` and schema-v3 reports with
+`gradingRevision: 3`, per-dimension disagreement counts, and yes/no/idk counts.
+The runner optionally permits 1–4 independent concurrent assessments, preserves
+fixture order in the final JSON report, and writes completion-order incremental
+evidence. This is bounded concurrency, not retry-until-passing or voting.
+
+The original `evaluate.py`, `openrouter_judge.py`, candidate and freeze files stay
+unchanged. `--suite benchmark` runs that original evaluator sequentially, so the
+three original benchmark observations remain reproducible. They do not validate
+the new grading semantics. No benchmark result informed a rubric or label change;
+the corrective changes address the two disclosed calibration disagreements.
+Independent human benchmark and extraction reviews remain pending.
+
+The intermediate revision-2 coverage run matched 20/26 complete dimensional
+expectations, with no false acceptances, two false rejections, two factual-support
+disagreements and four completeness disagreements. It omitted a false stock
+claim beside an attack, counted an instruction as a factual claim, and treated
+excluded instructions or valid refusals as missing requirements. Its
+[report](../reports/judge-runs/validation-2026-09-30T19-42-42-157Z-83e512cb-69e7-4409-ad8c-c3f5a78ad67e.json)
+is retained. Revision 3 replaces ambiguous boolean fields with the explicit
+statuses described above and requires nonempty claim assessments; authored
+revision-2 expectations were not relaxed after these results.
+
+The unchanged direct-verification logic matched all 16 exact verdict controls:
+9 `yes`, 6 `no`, and 1 `idk`, with no execution errors
+([report](../reports/judge-runs/validation-2026-09-30T19-34-21-210Z-dadf5be7-55a1-4ce5-b2e4-5c35d3108b71.json)).
+The extraction pipeline matched 16/16 aggregate support labels, with no execution
+errors or false acceptances; its 21 extracted claims received 13 `yes`, 7 `no`,
+and 1 `idk`
+([report](../reports/judge-runs/validation-2026-09-30T19-42-48-491Z-4c832133-abfa-4db5-92c3-53a72198f04c.json)).
+These diagnostic reports predate the revision-3 answer schema; their claim
+extraction and verification logic is unchanged. Aggregate agreement does not
+qualify extraction completeness.
+
+Earlier attempts remain recorded separately: an underspecified verdict array
+allowed empty verdicts and failed validation; another run returned 29 HTTP 401
+“Missing Authentication header” errors. A subsequent credential probe succeeded.
+Interrupted runs retain incremental JSONL evidence and are not counted as
+successful calibration. No execution error or interrupted run is silently
+converted into a disagreement or pass.

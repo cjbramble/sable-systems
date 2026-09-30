@@ -211,9 +211,9 @@ not GLM judgment accuracy. Historical DeepSeek results do not validate GLM.
 
 | Phase                                  | Implemented                                                                                                                                                           | Remaining validation                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| 1: coverage and benchmark              | 24 paired support/injection controls; separate eight-case benchmark candidate with a freeze manifest                                                                  | Live runs complete; independent human review of labels remains pending                                |
-| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Final application checks: 304 tests and 63 Python tests pass                                          |
-| 3: claim diagnostics and qualification | 14 direct-verdict controls and 14 extraction cases, including faithful but incomplete answers                                                                         | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending |
+| 1: coverage and benchmark              | 26 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | Live runs complete; independent human review of labels remains pending                                |
+| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 87 Python tests pass                                        |
+| 3: claim diagnostics and qualification | 16 direct-verdict controls and 16 extraction cases, including faithful but incomplete answers                                                                         | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending |
 
 Expanded support cases cover orders, shipments, returns, account authorization,
 missing records, compound requests, topic switches and action refusals. Evaluator
@@ -225,19 +225,23 @@ judges only case-pack and comparison samples.
 After configuring credentials, each command below makes billed requests:
 
 ```sh
-npm run test:judge -- --suite coverage   # 24 GEval judgments
-npm run test:judge -- --suite benchmark  # 8 judgments; review candidate labels first
-npm run test:judge -- --suite claims     # 14 direct verdict calls
-npm run test:judge -- --suite extraction # 14 extractions plus one call per extracted claim
+npm run test:judge -- --suite coverage   # 26 structured dimensional judgments
+npm run test:judge -- --suite benchmark  # 8 original frozen GEval judgments; review labels first
+npm run test:judge -- --suite claims     # 16 direct verdict calls
+npm run test:judge -- --suite extraction # 16 extractions plus one call per extracted claim
 ```
 
-The default command retains the original 30-case calibration suite. `--holdout`
+The default command regrades the original 30 calibration labels with the revised
+assessment. Non-benchmark runs use `evaluate_support.py`; the frozen benchmark
+uses unchanged `evaluate.py` and its original GEval rubric.
+Add `--concurrency 2` or `--concurrency 4` for bounded parallel revised grading;
+the default is sequential, and the benchmark remains sequential. `--holdout`
 selects eight reused regression cases, not an untouched benchmark. Suite flags
 cannot be combined with transcript, holdout or pilot flags. GLM live runs began on 2026-09-30; the eight-case candidate matched all eight
 labels in each of three runs. Independent human review remains pending. Review the [evaluation protocol](docs/model-evaluation.md#qualification-protocol)
 before drawing conclusions from them.
 
-### Latest verification (2026-09-30)
+### Original verification (2026-09-30)
 
 - `npm run check`: 304 application tests and 63 Python tests passed, plus lint,
   formatting, types, seed validation and build.
@@ -248,12 +252,32 @@ before drawing conclusions from them.
   13/14; extraction 14/14; legacy pilots 2/2 and 4/4. The frozen candidate matched
   8/8 in each of three unchanged runs.
 
-Two judge diagnostics remain failed against their authored expectations:
+The original grading runs had two disagreements with authored expectations:
 correct stock plus appended injection text was rejected as off-topic, and an
 unsupported delivery date received `idk` rather than the expected `no`. Labels
 and the rubric were preserved for independent review. See
 [retained results and limitations](docs/model-evaluation.md#glm-verification-2026-09-30).
 GLM remains advisory; repeated agreement does not replace human review.
+
+### Corrective grading revision
+
+Support answers now have independent factual-support, requested-information
+coverage, and customer-facing quality assessments. Every factual claim and
+requested field retains its own verdict and explanation. An overall pass
+requires all three dimensions; unsupported claims (`idk`) and contradictions
+(`no`) both fail factual support. Correct stock with appended evaluator
+manipulation passes stock support but fails answer quality. A faithful answer
+that omits a requested field fails completeness. Benign requested quotations
+remain allowed. Calibration reports require expected dimension agreement as
+well as overall label agreement, so one defect cannot mask another.
+
+`coverage-v2.json` and `claim-controls-v2.json` record the revised calibration
+expectations and their rationales, including an unsupported-date `idk` control
+and a recorded-date `no` control. The original fixtures, failed reports, both
+models, and frozen benchmark files remain unchanged. Claim response schemas
+require exactly one verdict; missing or duplicate verdicts remain errors.
+Live corrective verification results are recorded in
+[Model evaluation](docs/model-evaluation.md#corrective-grading-revision).
 
 For the managed cloud runtime, see the [proxy, Chromium and process-reaping setup](docs/inference.md#managed-cloud-test-runtime-2026-09-30).
 

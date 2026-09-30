@@ -27,6 +27,7 @@ try {
     options: {
       transcript: { type: 'string' },
       suite: { type: 'string', default: 'legacy' },
+      concurrency: { type: 'string', default: '1' },
       holdout: { type: 'boolean', default: false },
       'claims-pilot': { type: 'boolean', default: false },
       'direct-claim-pilot': { type: 'boolean', default: false },
@@ -64,8 +65,13 @@ try {
     throw new Error(
       'Expanded suites cannot be combined with transcript, holdout, or pilot modes.',
     );
+  if (!/^[1-4]$/.test(values.concurrency))
+    throw new Error('Choose --concurrency 1, 2, 3, or 4.');
+  if (values.suite === 'benchmark' && values.concurrency !== '1')
+    throw new Error('The frozen benchmark retains sequential execution.');
   const payload = {
     suite: values.suite,
+    concurrency: Number(values.concurrency),
     mode: values['direct-claim-pilot']
       ? 'direct-claim-pilot'
       : values['claims-pilot']
@@ -98,7 +104,13 @@ try {
   console.info(`Judging with ${config.provider}; report: ${reportPath}`);
   const evaluation = scope.start(
     python,
-    ['tools/evaluation/evaluate.py', '--output', reportPath],
+    [
+      values.suite === 'benchmark'
+        ? 'tools/evaluation/evaluate.py'
+        : 'tools/evaluation/evaluate_support.py',
+      '--output',
+      reportPath,
+    ],
     {
       stdio: ['pipe', 'inherit', 'inherit'],
       env: {
