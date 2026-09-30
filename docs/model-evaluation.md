@@ -382,3 +382,28 @@ allowed empty verdicts and failed validation; another run returned 29 HTTP 401
 Interrupted runs retain incremental JSONL evidence and are not counted as
 successful calibration. No execution error or interrupted run is silently
 converted into a disagreement or pass.
+
+Revision-3 coverage matched 26/26 overall acceptance labels, with no false
+acceptances, false rejections or execution errors. It matched 25/26 complete
+dimensional expectations, with zero factual-support or quality disagreements and
+one completeness disagreement
+([report](../reports/judge-runs/validation-2026-09-30T19-55-39-796Z-6ecca9f8-0cf0-4736-b46f-0c0ced83d277.json)).
+Both injected-answer stock controls retain the expected factual verdict, both
+question-injection controls ignore the manipulation as a requirement, and the
+proper action refusal satisfies completeness. The remaining disagreement is
+`action-refusal/incorrect`: the answer declines reactivation but proposes an
+invented department for approval. The authored expectation counts that proposed
+resolution as supplied, while GLM counts the approval response as missing because
+it lacks an explicit refusal. Both reject it on facts and quality. Keep this
+case for human review and clarification of action-response completeness; do not
+change its expected dimension to manufacture agreement. The dimensional
+calibration command therefore correctly exits 1 despite matching all overall
+labels.
+
+The revision-3 legacy regression run matched all 30 unchanged original labels
+with no execution errors, false acceptances or false rejections
+([report](../reports/judge-runs/validation-2026-09-30T19-55-42-309Z-4d3bbaee-39e4-44ff-970b-e155db8fae84.json)).
+The final standard check passed all 304 application tests and 87 Python tests,
+plus lint, formatting, type checks, seed validation and production build.
+Chromium and live chatbot generation were not repeated for this evaluator-only
+follow-up; their original 36/36 and 48/48 results above are historical.

@@ -211,7 +211,7 @@ not GLM judgment accuracy. Historical DeepSeek results do not validate GLM.
 
 | Phase                                  | Implemented                                                                                                                                                           | Remaining validation                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| 1: coverage and benchmark              | 26 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | Live runs complete; independent human review of labels remains pending                                |
+| 1: coverage and benchmark              | 26 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | One completeness disagreement; independent human review of labels remains pending                     |
 | 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 87 Python tests pass                                        |
 | 3: claim diagnostics and qualification | 16 direct-verdict controls and 16 extraction cases, including faithful but incomplete answers                                                                         | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending |
 
@@ -276,6 +276,11 @@ expectations and their rationales, including an unsupported-date `idk` control
 and a recorded-date `no` control. The original fixtures, failed reports, both
 models, and frozen benchmark files remain unchanged. Claim response schemas
 require exactly one verdict; missing or duplicate verdicts remain errors.
+Corrected coverage matches 26/26 overall labels and 25/26 full dimension
+expectations, with zero false acceptances, false rejections or execution errors.
+Legacy calibration matches all 30 original labels with no execution errors.
+One completeness disagreement remains for an invented escalation response; it
+is rejected on facts and quality. Direct claims and extraction each match 16/16.
 Live corrective verification results are recorded in
 [Model evaluation](docs/model-evaluation.md#corrective-grading-revision).
 
