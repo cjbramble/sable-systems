@@ -2,7 +2,8 @@
 
 A local web application for the fictional SABLE Systems wholesale business.
 The portal provides inventory-aware ordering, charge-account checkout, order
-history, and COV-E customer support powered by a local Qwen3 4B model.
+history, and COV-E customer support. This branch trials DeepSeek V4.1 Flash
+through OpenRouter, with the local Qwen3 4B runtime still selectable.
 
 Built with React, Vinext, and Tailwind CSS, with a Cloudflare Workers backend
 and a D1/SQLite database.
@@ -21,8 +22,7 @@ Select a thumbnail to open the video.
 Requirements:
 
 - Node.js 22.13 or later and npm.
-- `llama-server` available on `PATH`, or configured with `LLAMA_SERVER`.
-- The Qwen model file listed below.
+- An OpenRouter API key with credits for hosted inference.
 
 Install dependencies from the repository root:
 
@@ -30,7 +30,34 @@ Install dependencies from the repository root:
 npm ci
 ```
 
-Place the model at:
+Create the ignored local environment file if it is missing:
+
+```sh
+cp .env.example .env
+```
+
+Fill in `OPENROUTER_API_KEY=` in `.env`, then start:
+
+```sh
+npm run dev
+```
+
+Open [http://127.0.0.1:8016](http://127.0.0.1:8016). With
+`SUPPORT_MODEL_PROVIDER=openrouter`, the launcher starts only the web app;
+no model weights or `llama-server` are required. The key is used server-side.
+Press Control-C to stop the web app and its child processes.
+
+The trial pins `deepseek/deepseek-v4.1-flash` to the DeepInfra FP8 endpoint, disables
+provider fallback and reasoning, and retains the authorization, grounding,
+and corrective-retry checks. Hosted requests send the question, scoped records,
+and saved conversation history to OpenRouter and DeepInfra. See
+[OpenRouter trial](docs/openrouter-trial.md) for testing and Cloud setup.
+
+### Local inference
+
+For the Qwen baseline, set `SUPPORT_MODEL_PROVIDER=local` and
+`JUDGE_PROVIDER=local` in `.env`. Install `llama-server` on `PATH` (or set
+`LLAMA_SERVER`) and place the support model at:
 
 ```text
 models/customer-support/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf
@@ -39,25 +66,25 @@ models/customer-support/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf
 The [model reference](models/customer-support/README.md) includes its expected
 checksum. Model weights are Git-ignored.
 
-Start the application:
-
-```sh
-npm run dev
-```
-
-Open [http://127.0.0.1:8016](http://127.0.0.1:8016). The launcher starts
-`llama-server` on port 8017, waits for readiness, then starts the web app.
-Press Control-C to stop the model, web app, and their child processes.
+`npm run dev` then starts `llama-server` on port 8017, waits for readiness,
+and starts the web app. Control-C stops both processes and their children.
 
 ## Configuration
 
-The application and model listen on `127.0.0.1`, using ports 8016 and 8017 respectively.
+The application listens on `127.0.0.1:8016`; local inference uses port 8017.
+The launchers read `.env`; shell values take precedence. Unconfigured checkouts
+retain the local baseline. `.env.example` selects the hosted trial.
 
-| Variable                      | Purpose                              | Default                 |
-| ----------------------------- | ------------------------------------ | ----------------------- |
-| `CUSTOMER_SUPPORT_MODEL_PATH` | Path to the GGUF model               | Model path shown above  |
-| `LLAMA_SERVER`                | Path or command for the model server | `llama-server`          |
-| `SITE_URL`                    | Base URL for site metadata           | `http://127.0.0.1:8016` |
+| Variable                      | Purpose                                   | Default                               |
+| ----------------------------- | ----------------------------------------- | ------------------------------------- |
+| `SUPPORT_MODEL_PROVIDER`      | `local` or `openrouter`                   | `local` when unset                    |
+| `OPENROUTER_API_KEY`          | Server-side OpenRouter secret             | No key; required for hosted inference |
+| `OPENROUTER_SUPPORT_MODEL`    | Hosted COV-E model ID                     | `deepseek/deepseek-v4.1-flash`        |
+| `JUDGE_PROVIDER`              | Independent `local` or `openrouter` judge | `local` when unset                    |
+| `OPENROUTER_JUDGE_MODEL`      | Hosted advisory judge model ID            | `deepseek/deepseek-v4.1-flash`        |
+| `CUSTOMER_SUPPORT_MODEL_PATH` | Path to the GGUF model                    | Model path shown above                |
+| `LLAMA_SERVER`                | Path or command for the model server      | `llama-server`                        |
+| `SITE_URL`                    | Base URL for site metadata                | `http://127.0.0.1:8016`               |
 
 Pass overrides to the launcher:
 
@@ -177,26 +204,30 @@ For live model evaluation, also run:
 npm run setup:judge
 ```
 
-Judge setup prepares the same environment and downloads the checksum-verified
-Qwen3-14B Q4_K_M model (9 GB) to `models/judge/`. Initial setup requires internet
-access; evaluation runs locally with telemetry disabled.
+Judge setup prepares the same environment. With `JUDGE_PROVIDER=openrouter`,
+it skips model downloads. With `JUDGE_PROVIDER=local`, it downloads the
+checksum-verified Qwen3-14B Q4_K_M model (9 GB) to `models/judge/`.
+DeepEval telemetry and cloud reporting are disabled in both modes; hosted
+judging makes explicitly configured, billed OpenRouter requests.
 
-Stop the app before running full model evaluations. The runner uses port 8017
+For local judging, stop the app before running full model evaluations. The runner uses port 8017
 sequentially: generate responses with the chatbot, unload its model, then load
 the judge. It never stops an externally started server; an occupied port prevents
 judge startup. Interrupted runs retain partial evidence.
+Hosted generation and judging do not use port 8017. Live suites use the provider
+settings in `.env`; ordinary tests never forward the API key or use a hosted model.
 
 ### Commands
 
-| Command                 | Runs                                                                             |
-| ----------------------- | -------------------------------------------------------------------------------- |
-| `npm test`              | Deterministic unit and integration tests                                         |
-| `npm run test:e2e`      | Production build and browser tests                                               |
-| `npm run test:model`    | Live chatbot factuality tests, repeated sampling, then local judging             |
-| `npm run test:judge`    | Local judge validation against 30 labeled examples                               |
-| `npm run test:python`   | Judge-adapter unit tests; no model server required                               |
-| `npm run validate:data` | Seed-data validation                                                             |
-| `npm run check`         | Lint, format check, type checks, deterministic tests, seed validation, and build |
+| Command                 | Runs                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------ |
+| `npm test`              | Deterministic unit and integration tests                                                         |
+| `npm run test:e2e`      | Production build and browser tests                                                               |
+| `npm run test:model`    | Live chatbot factuality tests, repeated sampling, then advisory judging (billed with OpenRouter) |
+| `npm run test:judge`    | Selected judge validation against 30 labeled examples (billed with OpenRouter)                   |
+| `npm run test:python`   | Judge-adapter unit tests; no model server required                                               |
+| `npm run validate:data` | Seed-data validation                                                                             |
+| `npm run check`         | Lint, format check, type checks, deterministic tests, seed validation, and build                 |
 
 Browser, Python evaluator, and live-model suites run separately from `npm test`
 and `npm run check`.

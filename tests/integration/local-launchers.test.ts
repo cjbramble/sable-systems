@@ -5,6 +5,31 @@ describe.skipIf(process.platform === 'win32')(
   'local launcher process ownership',
   { timeout: 12000 },
   () => {
+    test.for(['dev-openrouter', 'test-openrouter-normal'])(
+      'runs with OpenRouter without starting a local model: %s',
+      async (scenario) => {
+        const app = launchFixture(scenario);
+        if (scenario.startsWith('dev-')) {
+          await app.ready('web');
+          app.child.kill('SIGTERM');
+        }
+        await app.stopped(0);
+        expect(app.events.some((event) => event.role === 'model')).toBe(false);
+        expect(app.output).not.toContain('launcher-test-key');
+      },
+    );
+
+    test.for(['dev-openrouter-missing-key', 'test-openrouter-missing-key'])(
+      'rejects blank OpenRouter credentials before starting any process: %s',
+      async (scenario) => {
+        const app = launchFixture(scenario);
+        await app.stopped(1);
+        expect(
+          app.events.some((event) => event.event === 'spawn-request'),
+        ).toBe(false);
+        expect(app.output).toContain('Fill in OPENROUTER_API_KEY');
+      },
+    );
     test.for(['dev-metadata', 'test-metadata'])(
       'waits for the expected model metadata: %s',
       async (scenario) => {

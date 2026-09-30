@@ -699,76 +699,75 @@ describe('support response safety', () => {
       failure: 'timeout',
       expectedStatus: 504,
       expectedError:
-        'The local model took too long to respond. Please try again.',
+        'The support model took too long to respond. Please try again.',
     },
     {
       failure: 'timeout-existing-incident',
       expectedStatus: 504,
       expectedError:
-        'The local model took too long to respond. Please try again.',
+        'The support model took too long to respond. Please try again.',
     },
     {
       failure: 'body-timeout',
       expectedStatus: 504,
       expectedError:
-        'The local model took too long to respond. Please try again.',
+        'The support model took too long to respond. Please try again.',
     },
     {
       failure: 'body-connection',
       expectedStatus: 502,
       expectedError:
-        'The local model returned an invalid response. Please try again.',
+        'The support model returned an invalid response. Please try again.',
     },
     {
       failure: 'connection',
       expectedStatus: 503,
-      expectedError:
-        'The local model is not reachable. Start the app with `npm run dev` and try again.',
+      expectedError: 'The support model is unavailable. Please try again.',
     },
     {
       failure: 'HTTP',
       expectedStatus: 502,
       expectedError:
-        'The local model could not complete that request. Please try again.',
+        'The support model could not complete that request. Please try again.',
     },
     {
       failure: 'context-overflow',
       expectedStatus: 422,
       expectedError:
-        'That message is too long for the local model. Shorten it and try again.',
+        'That message is too long for the support model. Shorten it and try again.',
     },
     {
       failure: 'other-bad-request',
       expectedStatus: 502,
       expectedError:
-        'The local model could not complete that request. Please try again.',
+        'The support model could not complete that request. Please try again.',
     },
     {
       failure: 'malformed-JSON',
       expectedStatus: 502,
       expectedError:
-        'The local model returned an invalid response. Please try again.',
+        'The support model returned an invalid response. Please try again.',
     },
     {
       failure: 'empty-reply',
       replyContent: '',
       expectedStatus: 502,
       expectedError:
-        'The local model returned an empty response. Please try again.',
+        'The support model returned an empty response. Please try again.',
     },
     {
       failure: 'whitespace-only-reply',
       replyContent: ' \t\r\n ',
       expectedStatus: 502,
       expectedError:
-        'The local model returned an empty response. Please try again.',
+        'The support model returned an empty response. Please try again.',
     },
     {
       failure: 'non-string-reply',
       replyContent: { text: 'This structured reply must not be saved.' },
       expectedStatus: 502,
       expectedError:
-        'The local model returned an empty response. Please try again.',
+        'The support model returned an empty response. Please try again.',
     },
     {
       failure: 'missing-choices',
@@ -777,21 +776,21 @@ describe('support response safety', () => {
       },
       expectedStatus: 502,
       expectedError:
-        'The local model returned an empty response. Please try again.',
+        'The support model returned an empty response. Please try again.',
     },
     {
       failure: 'empty-choices',
       replyPayload: { choices: [] },
       expectedStatus: 502,
       expectedError:
-        'The local model returned an empty response. Please try again.',
+        'The support model returned an empty response. Please try again.',
     },
     {
       failure: 'missing-message',
       replyPayload: { choices: [{ index: 0, finish_reason: 'stop' }] },
       expectedStatus: 502,
       expectedError:
-        'The local model returned an empty response. Please try again.',
+        'The support model returned an empty response. Please try again.',
     },
     {
       failure: 'truncated-reply',
@@ -805,7 +804,7 @@ describe('support response safety', () => {
       },
       expectedStatus: 502,
       expectedError:
-        "The local model's reply was incomplete. Please try again.",
+        "The support model's reply was incomplete. Please try again.",
     },
     {
       failure: 'missing-finish-reason',
@@ -814,14 +813,14 @@ describe('support response safety', () => {
       },
       expectedStatus: 502,
       expectedError:
-        "The local model's reply was incomplete. Please try again.",
+        "The support model's reply was incomplete. Please try again.",
     },
     {
       failure: 'missing-content',
       replyPayload: { choices: [{ message: { role: 'assistant' } }] },
       expectedStatus: 502,
       expectedError:
-        'The local model returned an empty response. Please try again.',
+        'The support model returned an empty response. Please try again.',
     },
   ])(
     'handles model $failure failures without changing saved records and permits a clean retry',

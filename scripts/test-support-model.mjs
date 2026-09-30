@@ -7,6 +7,11 @@ import {
   waitForModel,
 } from './lib/local-model.mjs';
 import { createProcessScope, exitStatus } from './lib/process-scope.mjs';
+import { loadLocalEnvironment } from './lib/environment.mjs';
+import {
+  getSupportModelConfig,
+  supportModelHeaders,
+} from '../lib/support-model-config.mjs';
 
 const scope = createProcessScope();
 const logPath = resolve('reports/server-logs/llama-test-server.log');
@@ -83,7 +88,14 @@ async function runVitest() {
 }
 
 try {
-  if (!(await localModelIsReady(scope.signal))) {
+  loadLocalEnvironment();
+  const config = getSupportModelConfig(process.env);
+  if (config.provider === 'openrouter') {
+    supportModelHeaders(config);
+    console.info(
+      `Live tests use OpenRouter ${config.model}; API requests are billed.`,
+    );
+  } else if (!(await localModelIsReady(scope.signal))) {
     scope.signal.throwIfAborted();
     const launch = modelLaunch();
     if (!existsSync(launch.path))

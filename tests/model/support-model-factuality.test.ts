@@ -17,6 +17,7 @@ import casePackFixture from '../fixtures/judge/case-pack.json';
 import comparisonFixture from '../fixtures/judge/comparison.json';
 import { expectCasePackResponse } from '../assertions/case-pack-response';
 import { expectNoChargeAccountAuthorizations } from '../assertions/support-facts';
+import { expectAllocationBlockRule } from '../assertions/allocation-block';
 import {
   expectProductComparisonResponse,
   expectOverlappingComparisonResponse,
@@ -959,9 +960,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
     expect(normalizedAnswer).toMatch(
       /\b(?:invalid|not (?:a )?(?:valid )?multiple|not (?:a )?valid|does not meet|doesn't meet|not divisible|must be adjusted)\b/i,
     );
-    expect(normalizedAnswer).toMatch(
-      /\b(?:multiples?|blocks?|increments?)\s+(?:of\s+)?25\b|\b25[- ](?:seat|license)\s+blocks?\b/i,
-    );
+    expectAllocationBlockRule(normalizedAnswer, 25);
     expect(normalizedAnswer).toMatch(/\bdigital(?:ly)?\b/i);
     expect(normalizedAnswer).toMatch(
       /\b(?:no|not|without)\b[^.!?\n]{0,60}\bphysical\s+(?:stock|inventory)\b|\bphysical\s+(?:stock|inventory)\b[^.!?\n]{0,30}\b(?:none|not applicable|does not apply)\b/i,

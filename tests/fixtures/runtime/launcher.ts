@@ -57,6 +57,12 @@ export function launchFixture(scenario: string) {
       detached: true,
       env: {
         ...process.env,
+        SUPPORT_MODEL_PROVIDER: scenario.includes('openrouter')
+          ? 'openrouter'
+          : 'local',
+        OPENROUTER_API_KEY: scenario.includes('missing-key')
+          ? ''
+          : 'launcher-test-key',
         LLAMA_SERVER: 'launcher-test-model',
         CUSTOMER_SUPPORT_MODEL_PATH: here('./child.mjs'),
         LAUNCHER_TEST_CASE: scenario,

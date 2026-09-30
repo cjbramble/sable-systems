@@ -1,6 +1,7 @@
 import tailwindcss from '@tailwindcss/postcss';
 import vinext from 'vinext';
 import { defineConfig } from 'vite';
+import { OPENROUTER_MODEL } from './lib/support-model-config.mjs';
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === 'seatbelt';
@@ -40,7 +41,16 @@ export default defineConfig(async ({ command }) => {
         viteEnvironment: { name: 'rsc', childEnvironments: ['ssr'] },
         config: {
           ...localBindingConfig,
-          vars: { SABLE_LOCAL_DEMO: command === 'serve' ? 'true' : 'false' },
+          vars: {
+            SABLE_LOCAL_DEMO: command === 'serve' ? 'true' : 'false',
+            SUPPORT_MODEL_PROVIDER:
+              process.env.SUPPORT_MODEL_PROVIDER || 'local',
+            OPENROUTER_SUPPORT_MODEL:
+              process.env.OPENROUTER_SUPPORT_MODEL || OPENROUTER_MODEL,
+          },
+          // Load only declared bindings/secrets, including shell/Cloud overrides.
+          // The actual key is a runtime secret; it is never embedded in vars.
+          secrets: { required: ['OPENROUTER_API_KEY'] },
         },
       }),
     ],

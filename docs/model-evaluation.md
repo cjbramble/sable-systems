@@ -2,10 +2,13 @@
 
 For setup and commands, see [Testing](../README.md#testing). Model identity and
 download details are in the [judge model record](../models/judge/README.md).
+This branch adds independently selectable hosted generation and judging;
+see [OpenRouter trial](openrouter-trial.md) for routing, configuration, and
+retained live verification. Historical local results below remain unchanged.
 
 ## Validation status
 
-The local judge remains advisory and is not approved as a pass/fail gate for
+Both local and hosted judges remain advisory and are not approved as a pass/fail gate for
 chatbot responses. It has accepted incorrect claims, rejected correct answers,
 and produced faulty explanations for otherwise correct verdicts.
 
@@ -15,14 +18,15 @@ The eight selected by `--holdout` are no longer an untouched validation set.
 
 ## Evaluation method
 
-The runner generates chatbot responses, unloads that model, then loads the local
+With local providers selected, the runner generates chatbot responses, unloads that model, then loads the local
 Qwen3-14B judge with an 8,192-token context and one processing slot. Evaluation
 code, model configuration, and the locked Python project live in
 `tools/evaluation/`; tests, assertions, and reference fixtures remain in `tests/`.
 
 - **Normal evaluation:** DeepEval GEval applies fixed steps to the customer
   question, answer, and authored reference. Verdicts are schema-constrained and
-  binary, using non-thinking generation at temperature 0 with seed 42.
+  binary, using non-thinking generation at temperature 0. Local requests use
+  seed 42; hosted requests omit the seed and require structured-output support.
 - **Claim-level diagnostic:** Extracts claims from two labeled answers and checks
   each separately against the verbatim reference. An answer is judged faithful
   only when every claim receives `yes`; missing verdicts are errors. This does

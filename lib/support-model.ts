@@ -2,11 +2,12 @@ import {
   fitChatHistoryToBudget,
   type ChatHistoryMessage,
 } from './chat-history';
+import { SUPPORT_MODEL_MAX_REPLY_TOKENS } from './model-readiness.mjs';
 import {
-  SUPPORT_MODEL_ALIAS,
-  SUPPORT_MODEL_CONTEXT_TOKENS,
-  SUPPORT_MODEL_MAX_REPLY_TOKENS,
-} from './model-readiness.mjs';
+  OPENROUTER_ROUTING,
+  supportModelHeaders,
+} from './support-model-config.mjs';
+import { supportModelConfig } from './support-model-runtime';
 
 export { SUPPORT_MODEL_ALIAS } from './model-readiness.mjs';
 
@@ -77,6 +78,7 @@ export function createSupportModelRequest({
   generation,
   correction,
 }: SupportModelRequest): [string, RequestInit] {
+  const config = supportModelConfig();
   const settings = { ...defaultGeneration, ...generation };
   const systemContent = systemPrompt(distributorName, distributorId);
   // Keep retrieved, possibly customer-authored text out of the system role.
@@ -86,9 +88,7 @@ export function createSupportModelRequest({
     records: authorizedContext,
   });
   const historyBudget =
-    (SUPPORT_MODEL_CONTEXT_TOKENS -
-      settings.maxTokens -
-      CHAT_TEMPLATE_TOKEN_RESERVE) *
+    (config.contextTokens - settings.maxTokens - CHAT_TEMPLATE_TOKEN_RESERVE) *
       ESTIMATED_CHARACTERS_PER_TOKEN -
     systemContent.length -
     recordsContent.length;
@@ -96,15 +96,12 @@ export function createSupportModelRequest({
     ? [{ role: 'user', content: resourceCorrection(correction) }]
     : [];
   return [
-    SUPPORT_MODEL_SERVER_URL,
+    config.url,
     {
       method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
+      headers: supportModelHeaders(config),
       body: JSON.stringify({
-        model: SUPPORT_MODEL_ALIAS,
+        model: config.model,
         messages: [
           { role: 'system', content: systemContent },
           { role: 'user', content: recordsContent },
@@ -122,7 +119,14 @@ export function createSupportModelRequest({
         top_p: settings.topP,
         max_tokens: settings.maxTokens,
         stream: false,
-        ...(settings.seed === undefined ? {} : { seed: settings.seed }),
+        ...(config.provider === 'openrouter'
+          ? {
+              provider: OPENROUTER_ROUTING,
+              reasoning: { enabled: false },
+            }
+          : settings.seed === undefined
+            ? {}
+            : { seed: settings.seed }),
       }),
       signal: AbortSignal.timeout(120_000),
     },
@@ -131,10 +135,12 @@ export function createSupportModelRequest({
 
 function readSupportModelChoice(payload: unknown) {
   if (!payload || typeof payload !== 'object') return null;
+  if ((payload as Record<string, unknown>).error) return null;
   const choices = (payload as Record<string, unknown>).choices;
   if (!Array.isArray(choices)) return null;
   const firstChoice = choices[0];
   if (!firstChoice || typeof firstChoice !== 'object') return null;
+  if ((firstChoice as Record<string, unknown>).error) return null;
   const { message, finish_reason: finishReason } = firstChoice as Record<
     string,
     unknown
@@ -168,7 +174,8 @@ export async function isContextOverflowResponse(response: Response) {
     return (
       type === 'exceed_context_size_error' ||
       (typeof message === 'string' &&
-        message.includes('exceeds the available context size'))
+        (message.includes('exceeds the available context size') ||
+          /(?:maximum context length|context length exceeded)/i.test(message)))
     );
   } catch {
     return false;

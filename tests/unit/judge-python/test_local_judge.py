@@ -7,6 +7,12 @@ from pydantic import BaseModel
 import local_judge
 
 
+@pytest.fixture(autouse=True)
+def offline_provider(monkeypatch):
+    monkeypatch.setenv("JUDGE_PROVIDER", "local")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+
 class Verdict(BaseModel):
     score: Literal[0, 1]
     reason: str
@@ -35,7 +41,66 @@ def transport(monkeypatch):
             state["closed"] = True
 
     monkeypatch.setattr(local_judge.http.client, "HTTPConnection", Connection)
+    monkeypatch.setattr(local_judge.http.client, "HTTPSConnection", Connection)
     return state
+
+
+def test_openrouter_judge_uses_https_schema_routing_without_recording_credentials(monkeypatch, transport):
+    monkeypatch.setenv("JUDGE_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "offline-test-key")
+    judge = local_judge.LocalJudge()
+    assert judge.generate("Evaluate this answer", Verdict).score == 1
+    assert transport["destination"] == ("openrouter.ai", 443, 180)
+    method, path, body, headers = transport["request"]
+    assert (method, path) == ("POST", "/api/v1/chat/completions")
+    assert headers["Authorization"] == "Bearer offline-test-key"
+    assert body["model"] == "deepseek/deepseek-v4.1-flash"
+    assert body["provider"] == {"only": ["deepinfra/fp8"], "allow_fallbacks": False, "require_parameters": True, "data_collection": "deny", "zdr": True}
+    assert body["reasoning"] == {"enabled": False}
+    assert "seed" not in body and "chat_template_kwargs" not in body
+    assert body["response_format"]["json_schema"]["strict"] is True
+    assert "offline-test-key" not in json.dumps(judge.requests)
+    assert local_judge._openrouter_request.get() is None
+    assert transport["closed"] is True
+
+
+def test_openrouter_judge_requires_a_key_before_connecting(monkeypatch, transport):
+    monkeypatch.setenv("JUDGE_PROVIDER", "openrouter")
+    with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
+        local_judge.LocalJudge().generate("Evaluate", Verdict)
+    assert "destination" not in transport
+
+
+def test_openrouter_failures_reset_network_scope_without_logging_credentials(monkeypatch, transport):
+    monkeypatch.setenv("JUDGE_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "offline-test-key")
+    transport["status"] = 401
+    judge = local_judge.LocalJudge()
+    with pytest.raises(RuntimeError, match="Judge HTTP failure: 401"):
+        judge.generate("Evaluate", Verdict)
+    assert judge.requests == []
+    assert local_judge._openrouter_request.get() is None
+
+
+def test_openrouter_network_scope_permits_only_fixed_dns_and_resolved_https_addresses():
+    destination = ("198.51.100.1", 443)
+    token = local_judge._openrouter_request.set({destination})
+    try:
+        local_judge.restrict_network("socket.getaddrinfo", ("openrouter.ai", 443))
+        local_judge.restrict_network("socket.connect", (None, destination))
+        with pytest.raises(PermissionError):
+            local_judge.restrict_network("socket.getaddrinfo", ("example.com", 443))
+        with pytest.raises(PermissionError):
+            local_judge.restrict_network("socket.connect", (None, ("198.51.100.2", 443)))
+    finally:
+        local_judge._openrouter_request.reset(token)
+
+
+def test_openrouter_metadata_has_no_local_weights_or_local_generation_parameters(monkeypatch):
+    monkeypatch.setenv("JUDGE_PROVIDER", "openrouter")
+    metadata, generation = local_judge.judge_metadata()
+    assert metadata == {"provider": "openrouter", "alias": "deepseek/deepseek-v4.1-flash"}
+    assert "seed" not in generation and "chat_template_kwargs" not in generation
 
 
 def test_judge_uses_only_local_schema_constrained_requests(transport):

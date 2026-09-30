@@ -247,7 +247,7 @@ test.describe('model failure recovery', () => {
   const followUpMessage = 'Which order details do you need?';
   const recoveredReply = 'Please provide the order number.';
   const errorMessage =
-    'The local model could not complete that request. Please try again.';
+    'The support model could not complete that request. Please try again.';
   const upstreamError = 'Controlled upstream failure for browser recovery test';
 
   test.use({

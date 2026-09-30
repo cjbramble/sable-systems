@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { expectCasePackResponse } from '../assertions/case-pack-response';
+import { expectAllocationBlockRule } from '../assertions/allocation-block';
 import { expectOverlappingComparisonResponse } from '../assertions/product-comparison';
 import { expectClaimsToComeFromContext } from '../assertions/context-claims';
 import { comparisonContext } from '../fixtures/model-context';
@@ -15,6 +16,24 @@ import {
 // These preauthored examples now inform the factual checkers. Their old holdout
 // labels are retained for provenance, not claimed as unseen checker evidence.
 describe('live model response assertions', () => {
+  it('requires a real block increment, accepts equivalent labels, and rejects contradictions', () => {
+    // Independent quantities, different from the retained live model response.
+    for (const answer of [
+      'Allocation requires multiples of 12 seats.',
+      'Licenses are supplied in 12-seat blocks.',
+      'Minimum block: 12 seats. Adjust 65 to a valid whole-pack multiple: 60 or 72.',
+      'The allocation block size is 12. Whole-block multiples are required.',
+    ])
+      expect(() => expectAllocationBlockRule(answer, 12), answer).not.toThrow();
+    for (const answer of [
+      'Minimum block: 12 seats.',
+      'Adjust 65 to a valid whole-pack multiple.',
+      'Minimum block: 10 seats. A whole-pack multiple is required.',
+      'Use multiples of 10 seats.',
+      'Use multiples of 12 seats. Minimum block: 10 seats.',
+    ])
+      expect(() => expectAllocationBlockRule(answer, 12), answer).toThrow();
+  });
   it('accepts stock paraphrases and checks every stated quantity and denial', () => {
     // Authored controls use a different quantity from the live stock case.
     for (const answer of [

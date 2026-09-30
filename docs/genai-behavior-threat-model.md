@@ -2,7 +2,7 @@
 
 Approved by the project owner on 2026-09-15 and revised on 2026-09-29 to describe
 the current implementation. The contract and threat tables are requirements, not implemented guarantees.
-No training, deployment or new evaluation framework is proposed now.
+The OpenRouter trial changes inference transport; the support scope stays read-only.
 
 ## System boundary
 
@@ -13,13 +13,15 @@ Current flow: session authentication → rule-based classification of the
 latest customer message, looking back through saved incident history for
 follow-ups → distributor- or user-scoped SQL retrieval → a system message with the
 policy prompt, then a JSON data message labeled `authorized_support_records`, then
-up to 11 saved incident messages and the current customer message → Qwen3-4B →
+up to 11 saved incident messages and the current customer message → the configured
+support model (local Qwen3-4B or DeepSeek V4.1 Flash through OpenRouter) →
 identifier validation → response and optional incident persistence. This is
 structured-data RAG. The model does not write SQL or modify business records. Only
 the latest customer message and its reply are saved per exchange; chat
 persistence is not an order-management capability.
 
-The separate Qwen3-14B evaluator is advisory and not approved as a pass/fail gate;
+The independently configured evaluator (local Qwen3-14B or hosted V4.1 Flash) is
+advisory and not approved as a pass/fail gate;
 see [Model evaluation](model-evaluation.md). Evaluator failures must not be
 reported as measured COV-E failures.
 
@@ -86,7 +88,8 @@ Controls in place, with deterministic coverage:
   incident-list baseline bypasses inference; other customer-written fields need
   their own model-path coverage.
 - Requests carry 1–12 messages of at most 4,000 characters, ending with a customer
-  message. The oldest history is dropped to fit the model's 4,096-token context;
+  message. The oldest history is dropped to fit the configured prompt budget
+  (4,096 tokens locally, 8,192 with OpenRouter);
   a request that still overflows returns a specific 422 error and saves nothing.
 - [Output validation](../lib/support-response.ts) rejects unsupported record
   identifiers in any letter case. Rejected replies are neither returned nor saved.

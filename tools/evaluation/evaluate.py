@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 import time
 
-from local_judge import GENERATION, MANIFEST, ROOT, STEPS, judge_answer, judge_claims, judge_direct_claim
+from local_judge import ROOT, STEPS, judge_metadata, judge_answer, judge_claims, judge_direct_claim
 
 
 def main():
@@ -30,8 +30,9 @@ def main():
     holdout = json.loads(holdout_path.read_text()) if labeled else None
     direct_path = ROOT / "tests/fixtures/judge/direct-claims.json"
     direct = json.loads(direct_path.read_text()) if mode == "direct-claim-pilot" else None
+    model_metadata, generation = judge_metadata()
     report = {
-        "schemaVersion": 1, "mode": mode, "model": MANIFEST,
+        "schemaVersion": 1, "mode": mode, "model": model_metadata,
         "validationSet": validation_set if mode == "validation" else None,
         "holdoutSha256": hashlib.sha256(holdout_path.read_bytes()).hexdigest() if holdout else None,
         "holdoutFrozenAgainst": holdout["frozenAgainst"] if holdout else None,
@@ -42,7 +43,7 @@ def main():
                    "claimVerification": "one-at-a-time" if pilot else None,
                    "strictMode": True, "penalizeAmbiguousClaims": True if pilot else None,
                    "evaluationSteps": None if pilot else STEPS},
-        "generation": GENERATION,
+        "generation": generation,
         "evaluatorSha256": {name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest() for name in ("local_judge.py", "evaluate.py", "uv.lock")},
         "sourceTranscript": payload.get("sourceTranscript"),
         "sourceSha256": payload.get("sourceSha256"),
@@ -107,7 +108,7 @@ def main():
     with destination.open("x") as output:
         json.dump(report, output, indent=2)
         output.write("\n")
-    print(f"Local judge report: {destination}")
+    print(f"Judge report: {destination}")
     # Live judge verdicts are advisory; harness errors and factual failures are not.
     return 0 if report["successful"] else 1
 

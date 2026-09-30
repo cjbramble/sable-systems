@@ -39,8 +39,7 @@ const failureResponses = {
     status: 500,
   },
   model: {
-    error:
-      'The local model is not reachable. Start the app with `npm run dev` and try again.',
+    error: 'The support model is unavailable. Please try again.',
     status: 503,
   },
   saving: {
@@ -184,7 +183,7 @@ export async function POST(request: Request) {
         return Response.json(
           {
             error:
-              'That message is too long for the local model. Shorten it and try again.',
+              'That message is too long for the support model. Shorten it and try again.',
           },
           { status: 422 },
         );
@@ -193,7 +192,7 @@ export async function POST(request: Request) {
         return Response.json(
           {
             error:
-              'The local model could not complete that request. Please try again.',
+              'The support model could not complete that request. Please try again.',
           },
           { status: 502 },
         );
@@ -208,7 +207,7 @@ export async function POST(request: Request) {
         return Response.json(
           {
             error:
-              'The local model returned an invalid response. Please try again.',
+              'The support model returned an invalid response. Please try again.',
           },
           { status: 502 },
         );
@@ -216,7 +215,8 @@ export async function POST(request: Request) {
       if (isIncompleteSupportModelReply(modelPayload)) {
         return Response.json(
           {
-            error: "The local model's reply was incomplete. Please try again.",
+            error:
+              "The support model's reply was incomplete. Please try again.",
           },
           { status: 502 },
         );
@@ -226,7 +226,7 @@ export async function POST(request: Request) {
         return Response.json(
           {
             error:
-              'The local model returned an empty response. Please try again.',
+              'The support model returned an empty response. Please try again.',
           },
           { status: 502 },
         );
@@ -268,7 +268,8 @@ export async function POST(request: Request) {
     )
       return Response.json(
         {
-          error: 'The local model took too long to respond. Please try again.',
+          error:
+            'The support model took too long to respond. Please try again.',
         },
         { status: 504 },
       );
