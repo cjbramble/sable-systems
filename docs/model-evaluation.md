@@ -36,8 +36,10 @@ Tests, assertions, and reference fixtures remain in `tests/`.
   limit shared by reasoning and the JSON verdict, omits the seed, and requires
   structured-output support. Environment overrides allow a controlled reasoning
   comparison; see [OpenRouter inference](inference.md).
-- **Claim-level diagnostic:** Extracts claims from two labeled answers and checks
-  each separately against the verbatim reference. An answer is judged faithful
+- **Claim-level diagnostic:** The extraction suite copies source quotes from 26
+  labeled answers, checks coverage of 40 authored claims, and checks each quote
+  separately against the verbatim reference. The two-answer legacy pilot remains
+  available for regression checks. An answer is judged faithful
   only when every claim receives `yes`; missing verdicts are errors. This does
   not check answer completeness.
 - **Direct-claim diagnostic:** Bypasses extraction using four authored
@@ -205,16 +207,16 @@ used for tuning, retire the candidate into calibration and author a replacement.
 A different model override must be disclosed as a different configuration;
 reports retain the actual model and generation settings.
 
-`--suite claims` checks 14 authored direct-verdict cases spanning negation,
+`--suite claims` checks 16 authored direct-verdict cases spanning negation,
 arithmetic, contradictions, unsupported policies, mixed claims and unsupported
-dates. Explicit `no` is required for negative controls; `idk` cannot satisfy a
-negative label. `--suite extraction` runs the same answers through extraction
-and sequential verification, retaining independently authored expected claims
-as human review anchors. Those anchors and all labels are withheld from the
-judge. Matching the final label does not establish extraction completeness:
-a missed false claim can make an incorrect answer look faithful. Semantic
-review must check that every authored claim is represented and no claim was
-invented. Do not require exact text equality between extracted claims and anchors.
+dates. Controls require their exact `yes`, `no`, or `idk` verdict. Both `no`
+and `idk` fail factual support, but missing evidence is distinct from contradiction.
+`--suite extraction` uses the separate 26-answer source-coverage fixture and
+sequential verification. The authored source claims and all labels are withheld
+from the model. Matching the final support label does not establish extraction
+completeness: a missed false claim can make an incorrect answer look faithful.
+The source check now detects missing claims, non-source quotes, and unmatched
+extracted text without another model call. See [claim extraction coverage](#claim-extraction-coverage).
 The complete/incomplete pair intentionally has two positive faithfulness
 labels: missing a requested detail fails task completeness but does not make a
 true statement false. GEval and factual assertions remain necessary.
@@ -407,3 +409,73 @@ The final standard check passed all 304 application tests and 87 Python tests,
 plus lint, formatting, type checks, seed validation and production build.
 Chromium and live chatbot generation were not repeated for this evaluator-only
 follow-up; their original 36/36 and 48/48 results above are historical.
+
+## Claim extraction coverage
+
+This phase closes a reporting gap: earlier extraction runs saved expected claims
+but did not check whether the extractor found them. A correct support verdict
+could therefore hide an omitted assertion. The new suite has 26 answers and
+40 expected source claims in `extraction-controls-v1.json`. The prior 16-case
+fixtures and reports remain unchanged.
+
+Extraction now asks GLM for verbatim source quotes in a strict, nonempty schema.
+The model sees only extraction rules and the answer, not the question, reference,
+authored claim list, or expected verdict. This prevents reference details or
+missing requested fields from becoming extraction requirements. Each extracted
+quote is then checked for truth against the reference using the existing
+`yes`/`no`/`idk` rules. No second judge or extra matching call is added.
+
+After extraction, a deterministic check compares source quotes with the authored
+claim list. A quote must occur in the answer with whole-word edges; `48` cannot
+match inside `148`. A longer quote may cover several authored claims, provided
+it preserves their full text. Negation, quantities, dates, product identity,
+exceptions and claimed actions must survive. Non-source quotes are reported
+rather than silently discarded, and every extracted quote still gets a truth
+check. This check requires literal source quoting; it does not claim to match
+arbitrary paraphrases semantically.
+
+Reports now use schema version 4 and record extraction revision 1 separately
+from the unchanged answer-grading revision 3. Each extraction result includes
+which extracted quotes cover each authored claim, missing claims, non-source
+quotes, unmatched extracted text and a coverage pass flag. Summaries count
+expected, covered, missing and unassessed claims, extraction failures, and
+support-label disagreements separately. Execution errors remain execution
+errors. A run passes only when every sample executes, coverage passes, and the
+support labels match. The first live attempt was interrupted before completion
+to finalize fixture formatting and failure accounting; its incremental evidence
+is retained and is not counted as a successful run.
+
+The new cases include true stock followed by an unsupported delivery date,
+negated policy exceptions, two product-price associations, invented actions,
+courtesy, and instructions aimed at the extractor. The original contradiction,
+arithmetic, mixed-fact, date and incomplete-but-faithful controls remain represented.
+A missing requested field is a task-completeness issue; a present assertion lost
+during extraction is an extraction issue.
+
+Coverage is measured against an authored inventory, not independent ground
+truth. Human review must still check whether that inventory includes every
+substantive assertion and excludes non-factual text. Merged quotes are allowed;
+this suite checks completeness, not whether every claim has been split into a
+separate sentence. It does not qualify the frozen benchmark or settle the
+separate action-refusal completeness disagreement. The generator, GLM model,
+primary answer rules, and original benchmark evaluator remain unchanged.
+
+The completed live GLM run matched all 26 support labels and covered all 40
+expected source claims. There were no execution errors, false acceptances, false
+rejections, missing claims, non-source quotes or unmatched extracted text. No
+claims remained unassessed. GLM returned 37 extracted quotes; merged quotes
+covered the 40 authored claims. Their truth verdicts were 25 `yes`, 10 `no`, and
+2 `idk`. These are results against authored calibration examples, not general
+accuracy or independent qualification.
+
+Evidence: [completed extraction run](../reports/judge-runs/validation-2026-09-30T21-09-06-297Z-868eb27e-05b1-4b97-b1aa-4205a89e98a1.json).
+
+The standard check passed 304 application tests and 108 Python tests, plus lint,
+formatting, types, seed validation and production build. Browser tests and live
+chatbot generation were not repeated for this extraction-only change.
+
+The two-answer legacy extraction pilot also completed cleanly with 2/2 support
+labels matching and no execution errors
+([report](../reports/judge-runs/claims-pilot-2026-09-30T21-11-51-472Z-80f57f22-8cf0-4fc6-9a4a-3e5f05671bf2.json)). Its earlier attempt produced the
+expected judgments but exited with a termination signal; that attempt is retained
+separately and is not counted as a clean command pass.

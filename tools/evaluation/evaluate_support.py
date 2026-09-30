@@ -10,7 +10,7 @@ import sys
 import time
 
 from openrouter_judge import ROOT, judge_metadata
-from support_grading import ANSWER_RULES, CLAIM_RULES, judge_answer, judge_claims, judge_direct_claim
+from support_grading import ANSWER_RULES, CLAIM_RULES, judge_answer, judge_claims, judge_direct_claim, EXTRACTION_RULES, assess_claim_coverage
 
 
 def main():
@@ -29,7 +29,7 @@ def main():
         raise ValueError("Unknown judge suite")
     if suite != "legacy" and (mode != "validation" or payload.get("validationSet", "all") != "all"):
         raise ValueError("Expanded suites require normal validation mode")
-    suite_path = ROOT / "tests/fixtures/judge" / ({"coverage": "coverage-v2.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "claim-controls-v2.json"}.get(suite, "coverage.json"))
+    suite_path = ROOT / "tests/fixtures/judge" / ({"coverage": "coverage-v2.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "extraction-controls-v1.json"}.get(suite, "coverage.json"))
     suite_fixture = json.loads(suite_path.read_text()) if suite != "legacy" else None
     freeze = None
     if suite == "benchmark":
@@ -62,6 +62,8 @@ def main():
             for row in scenario["examples"]:
                 if type(row.get("correct")) is not bool or not isinstance(row.get("text"), str) or not row["text"].strip():
                     raise ValueError("Invalid authored example")
+                if suite == "extraction":
+                    assess_claim_coverage(row["text"], row.get("expectedClaims"), row.get("expectedClaims", []))
     planned = []
     scenarios = {row["id"]: row for row in suite_fixture["scenarios"]} if suite_fixture else {"case-pack": None, "comparison": None}
     for scenario, authored in scenarios.items():
@@ -97,7 +99,7 @@ def main():
         raise ValueError("No scenarios selected")
     model_metadata, generation = judge_metadata()
     report = {
-        "schemaVersion": 3, "mode": mode, "model": model_metadata,
+        "schemaVersion": 4, "mode": mode, "model": model_metadata,
         "concurrency": concurrency,
         "suite": suite,
         "suiteStatus": suite_fixture["status"] if suite_fixture else "reused-calibration",
@@ -114,6 +116,8 @@ def main():
                    "strictMode": True, "penalizeAmbiguousClaims": True if claim_diagnostic else None,
                    "evaluationSteps": None,
                    "gradingRevision": 3,
+                   "extractionRevision": 1 if suite == "extraction" or mode == "claims-pilot" else None,
+                   "extractionRules": EXTRACTION_RULES if suite == "extraction" or mode == "claims-pilot" else None,
                    "assessmentRules": CLAIM_RULES if claim_diagnostic else ANSWER_RULES},
         "generation": generation,
         "evaluatorSha256": {
@@ -145,6 +149,10 @@ def main():
         try:
             result.update(judge(fixture["question"], answer, fixture["references"][0]))
             result["agrees"] = result["passed"] == row["correct"] if labeled else None
+            if suite == "extraction":
+                result["supportAgrees"] = result["agrees"]
+                result["claimCoverage"] = assess_claim_coverage(answer, row["expectedClaims"], result["claims"])
+                result["agrees"] = result["agrees"] and result["claimCoverage"]["passed"]
             if row.get("expectedDimensions") is not None:
                 result["dimensionAgreement"] = {key: result["dimensions"][key] == value for key, value in row["expectedDimensions"].items()}
                 result["agrees"] = result["agrees"] and all(result["dimensionAgreement"].values())
@@ -182,6 +190,14 @@ def main():
                 "falseAcceptances": sum(row.get("expectedPassed") is False and row.get("passed") is True for row in completed),
                 "falseRejections": sum(row.get("expectedPassed") is True and row.get("passed") is False for row in completed),
                 "labelDisagreements": sum(row.get("agrees") is False for row in completed),
+                "supportLabelDisagreements": sum(row.get("supportAgrees") is False for row in completed),
+                "extractionFailures": sum(row.get("claimCoverage", {}).get("passed") is False for row in completed),
+                "expectedClaims": sum(len(row.get("expectedClaims") or []) for row in rows),
+                "coveredClaims": sum(bool(item["extractedIndices"]) for row in completed for item in row.get("claimCoverage", {}).get("matches", [])),
+                "unassessedClaims": sum(len(row.get("expectedClaims") or []) for row in rows if "claimCoverage" not in row),
+                "missingClaims": sum(len(row.get("claimCoverage", {}).get("missingClaims", [])) for row in completed),
+                "nonSourceQuotes": sum(len(row.get("claimCoverage", {}).get("nonSourceQuotes", [])) for row in completed),
+                "unmatchedClaims": sum(len(row.get("claimCoverage", {}).get("unmatchedClaims", [])) for row in completed),
                 "factualFailures": sum(row.get("factualPassed") is False for row in rows),
                 "judgeRejections": sum(row.get("passed") is False for row in completed),
                 "dimensionDisagreements": {key: sum(row.get("dimensionAgreement", {}).get(key) is False for row in completed)
@@ -194,6 +210,7 @@ def main():
     report["executionSuccessful"] = len(results) == report["coverage"]["expectedSamples"] and not report["summary"]["overall"]["executionErrors"]
     report["factualSuccessful"] = all(row["factualPassed"] is True for row in results) if not labeled else None
     report["labelAgreementSuccessful"] = all(row.get("agrees") is True for row in results) if labeled else None
+    report["extractionSuccessful"] = all(row.get("claimCoverage", {}).get("passed") is True for row in results) if suite == "extraction" else None
     report["successful"] = report["executionSuccessful"] and bool(results) and all(
         "error" not in row and (row["agrees"] if labeled else row["factualPassed"] is True)
         for row in results
