@@ -211,8 +211,8 @@ not GLM judgment accuracy. Historical DeepSeek results do not validate GLM.
 
 | Phase                                  | Implemented                                                                                                                                                           | Remaining validation                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| 1: coverage and benchmark              | 26 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | One completeness disagreement; independent human review of labels remains pending                     |
-| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 108 Python tests pass                                       |
+| 1: coverage and benchmark              | 36 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | One completeness disagreement; independent human review of labels remains pending                     |
+| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 124 Python tests pass                                       |
 | 3: claim diagnostics and qualification | 16 direct-verdict controls; 26 extraction cases with 40 expected source claims and separate coverage/truth results                                                    | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending |
 
 Expanded support cases cover orders, shipments, returns, account authorization,
@@ -225,7 +225,7 @@ judges only case-pack and comparison samples.
 After configuring credentials, each command below makes billed requests:
 
 ```sh
-npm run test:judge -- --suite coverage   # 26 structured dimensional judgments
+npm run test:judge -- --suite coverage   # 36 structured dimensional judgments
 npm run test:judge -- --suite benchmark  # 8 original frozen GEval judgments; review labels first
 npm run test:judge -- --suite claims     # 16 direct verdict calls
 npm run test:judge -- --suite extraction # 26 extractions plus one call per extracted quote
@@ -306,6 +306,24 @@ with no execution errors, missing claims or non-source quotes. Human review
 of the authored claim lists is still needed. See
 [claim extraction coverage](docs/model-evaluation.md#claim-extraction-coverage)
 for results and limits.
+
+### Completeness of action responses
+
+The current answer rules judge each requested action and information field
+separately. A safe refusal answers an action request. A proposed route or claimed
+completion also addresses that request, even when it is false; facts and answer
+quality reject invented routes and unauthorized actions. Saying nothing about a
+requested item fails completeness. A recorded status alone does not answer a
+request to change it.
+
+`coverage-v3.json` preserves all 26 prior expected outcomes and adds ten action
+response controls. It includes a refusal of only one requested action, a missing
+requested status, false completion claims, invented routes, and a recorded request
+route. Factual assessments now quote the answer itself; plain advice is not treated
+as an assertion of a record error, and omitted reference facts cannot enter the
+assessment. The ordinary answer rules are version 6; claim verification and extraction
+retain their existing rules. See [action-response completeness](docs/model-evaluation.md#action-response-completeness)
+for the exact cases and live results.
 
 For the managed cloud runtime, see the [proxy, Chromium and process-reaping setup](docs/inference.md#managed-cloud-test-runtime-2026-09-30).
 

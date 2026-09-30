@@ -476,6 +476,64 @@ chatbot generation were not repeated for this extraction-only change.
 
 The two-answer legacy extraction pilot also completed cleanly with 2/2 support
 labels matching and no execution errors
-([report](../reports/judge-runs/claims-pilot-2026-09-30T21-11-51-472Z-80f57f22-8cf0-4fc6-9a4a-3e5f05671bf2.json)). Its earlier attempt produced the
-expected judgments but exited with a termination signal; that attempt is retained
-separately and is not counted as a clean command pass.
+([report](../reports/judge-runs/claims-pilot-2026-09-30T21-11-51-472Z-80f57f22-8cf0-4fc6-9a4a-3e5f05671bf2.json)).
+
+## Action-response completeness
+
+The prior run disagreed on one dimension of `action-refusal/incorrect`. The
+answer declined reactivation but proposed an invented department for approval.
+The authored expectation counted both actions as addressed, while GLM counted
+approval as missing because it lacked a refusal. Both rejected the answer on
+facts and quality. This phase makes the meaning of completeness explicit.
+
+Completeness now asks whether each requested item received a response. A refusal
+of an action the assistant cannot perform is complete. An explicit proposed route
+or claimed completion also addresses the action, even if false or unauthorized;
+those errors belong to factual support and answer quality. An omitted action or
+information field is missing. A refusal of reactivation alone does not answer
+an approval request, and a status alone does not address a requested change.
+No requested action must actually be performed for an answer to be complete.
+
+The answer rubric is version 6. `coverage-v3.json` preserves all 26 prior examples,
+labels and expected dimensions without alteration, then adds ten examples. These
+cover full and partial refusals, status-only answers, invented routes addressing
+one or both actions, false completion claims, and an action paired with a status
+request. One positive control uses a recorded cancellation-review route without
+promising an outcome. The new controls were authored before live calibration.
+The prior fixture and failed report remain unchanged.
+
+For review, compare each sample's `text` with its question and
+`expectedDimensions` in [coverage-v3.json](../tests/fixtures/judge/coverage-v3.json).
+For example, “I cannot reactivate it” leaves approval unaddressed, while “I cannot
+reactivate it, but [invented department] can approve an exception” addresses
+approval with a false route. The latter still fails overall on facts and quality.
+Review comments should identify the specific requested item or assertion that
+is misclassified. The fixture rationales explain each new case.
+
+The primary GLM model, generator, claim-verification rules, extraction rules and
+original frozen benchmark remain unchanged. This is rubric calibration against
+authored examples, not independent benchmark qualification.
+
+The first revision-4 live attempt also exposed two claim-identification errors:
+GLM inferred an unrecorded ID error from “please check the order ID,” and listed
+a return status from the reference even though the answer omitted it. Revision 5
+introduced verbatim answer quotes and deterministic source validation. That
+validation exposed formatting errors in the next attempt: GLM decorated quotes
+with explanations, split compound sentences using supplied words, and listed an
+implicit conclusion as a separate claim. Those interrupted runs remain retained
+as failed development attempts. Revision 6 tells the judge to copy a whole
+sentence when necessary and place commentary in `reason`. The validator accepts
+one pair of enclosing quotation marks only when the enclosed words occur
+exactly in the answer; it never repairs numbers, words or negation.
+The rubric distinguishes plain advice from factual assertions, while still
+treating asserted policies, resources, capabilities and completed actions as
+facts even when they appear in a recommendation. Invalid source quotes are
+execution errors with retained response evidence, not fabricated factual
+failures. The interrupted revision-4 attempts remain saved and are not counted
+as completed calibration. No expected label or dimension changed in response
+to those results.
+
+Source matching checks that assessed text occurs in the answer. It does not
+prove the judge included every assertion or understood the quoted context.
+The separate extraction controls check authored claim coverage; independent
+human review remains necessary for semantic correctness.

@@ -29,7 +29,7 @@ def main():
         raise ValueError("Unknown judge suite")
     if suite != "legacy" and (mode != "validation" or payload.get("validationSet", "all") != "all"):
         raise ValueError("Expanded suites require normal validation mode")
-    suite_path = ROOT / "tests/fixtures/judge" / ({"coverage": "coverage-v2.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "extraction-controls-v1.json"}.get(suite, "coverage.json"))
+    suite_path = ROOT / "tests/fixtures/judge" / ({"coverage": "coverage-v3.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "extraction-controls-v1.json"}.get(suite, "coverage.json"))
     suite_fixture = json.loads(suite_path.read_text()) if suite != "legacy" else None
     freeze = None
     if suite == "benchmark":
@@ -115,7 +115,7 @@ def main():
                    "claimVerification": "one-at-a-time" if claim_diagnostic else None,
                    "strictMode": True, "penalizeAmbiguousClaims": True if claim_diagnostic else None,
                    "evaluationSteps": None,
-                   "gradingRevision": 3,
+                   "gradingRevision": 3 if claim_diagnostic else 6,
                    "extractionRevision": 1 if suite == "extraction" or mode == "claims-pilot" else None,
                    "extractionRules": EXTRACTION_RULES if suite == "extraction" or mode == "claims-pilot" else None,
                    "assessmentRules": CLAIM_RULES if claim_diagnostic else ANSWER_RULES},
