@@ -212,8 +212,8 @@ not GLM judgment accuracy. Historical DeepSeek results do not validate GLM.
 | Phase                                  | Implemented                                                                                                                                                           | Remaining validation                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | 1: coverage and benchmark              | 26 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | One completeness disagreement; independent human review of labels remains pending                     |
-| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 87 Python tests pass                                        |
-| 3: claim diagnostics and qualification | 16 direct-verdict controls and 16 extraction cases, including faithful but incomplete answers                                                                         | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending |
+| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 108 Python tests pass                                       |
+| 3: claim diagnostics and qualification | 16 direct-verdict controls; 26 extraction cases with 40 expected source claims and separate coverage/truth results                                                    | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending |
 
 Expanded support cases cover orders, shipments, returns, account authorization,
 missing records, compound requests, topic switches and action refusals. Evaluator
@@ -228,7 +228,7 @@ After configuring credentials, each command below makes billed requests:
 npm run test:judge -- --suite coverage   # 26 structured dimensional judgments
 npm run test:judge -- --suite benchmark  # 8 original frozen GEval judgments; review labels first
 npm run test:judge -- --suite claims     # 16 direct verdict calls
-npm run test:judge -- --suite extraction # 16 extractions plus one call per extracted claim
+npm run test:judge -- --suite extraction # 26 extractions plus one call per extracted quote
 ```
 
 The default command regrades the original 30 calibration labels with the revised
@@ -280,9 +280,32 @@ Corrected coverage matches 26/26 overall labels and 25/26 full dimension
 expectations, with zero false acceptances, false rejections or execution errors.
 Legacy calibration matches all 30 original labels with no execution errors.
 One completeness disagreement remains for an invented escalation response; it
-is rejected on facts and quality. Direct claims and extraction each match 16/16.
+is rejected on facts and quality. At that revision, direct claims and extraction each matched 16/16.
 Live corrective verification results are recorded in
 [Model evaluation](docs/model-evaluation.md#corrective-grading-revision).
+
+### Checking claim extraction
+
+The extraction suite now checks whether all 40 expected claims appear in the
+quotes extracted from its 26 answers. It lists missing claims, quotes that are
+not in the answer, and extracted text outside the expected claim list. Truth
+checks run separately, so a correct overall verdict cannot hide a missed claim.
+API failures leave claims unassessed and fail the run.
+
+The extractor copies source text rather than paraphrasing it. A longer quote can
+cover several expected claims. Expected claims and labels are not sent to the
+model. The controls include appended false claims, contradictions, negation,
+policy exceptions, product prices, claimed actions, courtesy, and extractor
+injection. A faithful answer that omits requested information remains distinct
+from an extractor that omits information actually present in the answer.
+
+Run `npm run test:judge -- --suite extraction --concurrency 4` after configuring
+the API key. This uses the existing GLM judge and makes billed requests.
+The live run covered 40/40 expected claims and matched all 26 truth labels,
+with no execution errors, missing claims or non-source quotes. Human review
+of the authored claim lists is still needed. See
+[claim extraction coverage](docs/model-evaluation.md#claim-extraction-coverage)
+for results and limits.
 
 For the managed cloud runtime, see the [proxy, Chromium and process-reaping setup](docs/inference.md#managed-cloud-test-runtime-2026-09-30).
 
