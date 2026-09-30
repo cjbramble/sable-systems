@@ -407,13 +407,3 @@ The final standard check passed all 304 application tests and 87 Python tests,
 plus lint, formatting, type checks, seed validation and production build.
 Chromium and live chatbot generation were not repeated for this evaluator-only
 follow-up; their original 36/36 and 48/48 results above are historical.
-
-## Jev assessment
-
-`typesafe/jev-1.13` was assessed for direct-claim classification. Two exploratory
-runs matched the existing 16 authored verdict controls, but this repeated a task
-already handled by GLM and did not establish coverage of a distinct gap. The Jev
-runner and command were removed. Jev is not part of the evaluation pipeline.
-Adoption would require a specific unmet evaluation need and evidence that it
-addresses that need. The retained exploratory reports are historical evidence,
-not qualification or active verification.
