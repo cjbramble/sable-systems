@@ -11,6 +11,8 @@ import local_judge
 def offline_provider(monkeypatch):
     monkeypatch.setenv("JUDGE_PROVIDER", "local")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_JUDGE_REASONING", raising=False)
+    monkeypatch.delenv("OPENROUTER_JUDGE_MAX_TOKENS", raising=False)
 
 
 class Verdict(BaseModel):
@@ -56,10 +58,59 @@ def test_openrouter_judge_uses_https_schema_routing_without_recording_credential
     assert headers["Authorization"] == "Bearer offline-test-key"
     assert body["model"] == "deepseek/deepseek-v4.1-flash"
     assert body["provider"] == {"only": ["deepinfra/fp8"], "allow_fallbacks": False, "require_parameters": True, "data_collection": "deny", "zdr": True}
-    assert body["reasoning"] == {"enabled": False}
+    assert body["reasoning"] == {"enabled": True}
+    assert body["max_tokens"] == 8192
     assert "seed" not in body and "chat_template_kwargs" not in body
     assert body["response_format"]["json_schema"]["strict"] is True
     assert "offline-test-key" not in json.dumps(judge.requests)
+    assert local_judge._openrouter_request.get() is None
+    assert transport["closed"] is True
+
+
+def test_openrouter_judge_comparison_overrides_reach_the_request(monkeypatch, transport):
+    monkeypatch.setenv("JUDGE_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "offline-test-key")
+    monkeypatch.setenv("OPENROUTER_JUDGE_REASONING", "false")
+    monkeypatch.setenv("OPENROUTER_JUDGE_MAX_TOKENS", "4096")
+    local_judge.LocalJudge().generate("Evaluate", Verdict)
+    body = transport["request"][2]
+    assert body["reasoning"] == {"enabled": False}
+    assert body["max_tokens"] == 4096
+
+
+@pytest.mark.parametrize("name,value", [
+    ("OPENROUTER_JUDGE_REASONING", "yes"),
+    ("OPENROUTER_JUDGE_MAX_TOKENS", "255"),
+    ("OPENROUTER_JUDGE_MAX_TOKENS", "32769"),
+    ("OPENROUTER_JUDGE_MAX_TOKENS", "4096.5"),
+])
+def test_invalid_hosted_judge_settings_fail_before_a_request(monkeypatch, transport, name, value):
+    monkeypatch.setenv("JUDGE_PROVIDER", "openrouter")
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ValueError, match=name):
+        local_judge.LocalJudge()
+    assert "destination" not in transport
+
+
+def test_local_judge_keeps_its_baseline_despite_hosted_settings(monkeypatch, transport):
+    monkeypatch.setenv("OPENROUTER_JUDGE_REASONING", "true")
+    monkeypatch.setenv("OPENROUTER_JUDGE_MAX_TOKENS", "8192")
+    local_judge.LocalJudge().generate("Evaluate", Verdict)
+    body = transport["request"][2]
+    assert body["max_tokens"] == 1024
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert "reasoning" not in body
+
+
+def test_truncated_reasoning_verdict_retains_evidence_and_cannot_pass(monkeypatch, transport):
+    monkeypatch.setenv("JUDGE_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "offline-test-key")
+    transport.update({"finish": "length", "content": ""})
+    with pytest.raises(RuntimeError, match="did not finish") as caught:
+        local_judge.judge_answer("Question", "Answer", "Reference")
+    assert len(caught.value.judge_calls) == 1
+    assert caught.value.judge_calls[0]["response"]["choices"][0]["finish_reason"] == "length"
+    assert "offline-test-key" not in json.dumps(caught.value.judge_calls)
     assert local_judge._openrouter_request.get() is None
     assert transport["closed"] is True
 

@@ -48,8 +48,9 @@ no model weights or `llama-server` are required. The key is used server-side.
 Press Control-C to stop the web app and its child processes.
 
 The trial pins `deepseek/deepseek-v4.1-flash` to the DeepInfra FP8 endpoint, disables
-provider fallback and reasoning, and retains the authorization, grounding,
-and corrective-retry checks. Hosted requests send the question, scoped records,
+provider fallback, and retains the authorization, grounding, and corrective-retry
+checks. COV-E disables reasoning; the advisory judge enables it with an
+8,192-token budget. Hosted requests send the question, scoped records,
 and saved conversation history to OpenRouter and DeepInfra. See
 [OpenRouter trial](docs/openrouter-trial.md) for testing and Cloud setup.
 
@@ -82,6 +83,8 @@ retain the local baseline. `.env.example` selects the hosted trial.
 | `OPENROUTER_SUPPORT_MODEL`    | Hosted COV-E model ID                     | `deepseek/deepseek-v4.1-flash`        |
 | `JUDGE_PROVIDER`              | Independent `local` or `openrouter` judge | `local` when unset                    |
 | `OPENROUTER_JUDGE_MODEL`      | Hosted advisory judge model ID            | `deepseek/deepseek-v4.1-flash`        |
+| `OPENROUTER_JUDGE_REASONING`  | Hosted judge reasoning, `true` or `false` | `true`                                |
+| `OPENROUTER_JUDGE_MAX_TOKENS` | Hosted judge reasoning plus verdict limit | `8192` (range `256`–`32768`)          |
 | `CUSTOMER_SUPPORT_MODEL_PATH` | Path to the GGUF model                    | Model path shown above                |
 | `LLAMA_SERVER`                | Path or command for the model server      | `llama-server`                        |
 | `SITE_URL`                    | Base URL for site metadata                | `http://127.0.0.1:8016`               |

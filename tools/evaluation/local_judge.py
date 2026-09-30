@@ -85,9 +85,19 @@ def judge_config():
     if provider == "local":
         return provider, MANIFEST["alias"], GENERATION
     model = os.environ.get("OPENROUTER_JUDGE_MODEL", "").strip() or "deepseek/deepseek-v4.1-flash"
+    reasoning = os.environ.get("OPENROUTER_JUDGE_REASONING", "").strip().lower() or "true"
+    if reasoning not in ("true", "false"):
+        raise ValueError("OPENROUTER_JUDGE_REASONING must be true or false")
+    try:
+        max_tokens = int(os.environ.get("OPENROUTER_JUDGE_MAX_TOKENS", "").strip() or "8192")
+    except ValueError:
+        raise ValueError("OPENROUTER_JUDGE_MAX_TOKENS must be an integer from 256 to 32768") from None
+    if not 256 <= max_tokens <= 32768:
+        raise ValueError("OPENROUTER_JUDGE_MAX_TOKENS must be an integer from 256 to 32768")
     generation = {key: value for key, value in GENERATION.items() if key not in ("seed", "chat_template_kwargs")}
     generation.update({
-        "reasoning": {"enabled": False},
+        "max_tokens": max_tokens,
+        "reasoning": {"enabled": reasoning == "true"},
         "provider": {"only": ["deepinfra/fp8"], "allow_fallbacks": False, "require_parameters": True, "data_collection": "deny", "zdr": True},
     })
     return provider, model, generation
@@ -174,7 +184,11 @@ def judge_answer(question, answer, expected):
         evaluation_params=[SingleTurnParams.INPUT, SingleTurnParams.ACTUAL_OUTPUT, SingleTurnParams.EXPECTED_OUTPUT],
         model=judge, strict_mode=True, async_mode=False,
     )
-    metric.measure(LLMTestCase(input=question, actual_output=answer, expected_output=expected), _show_indicator=False)
+    try:
+        metric.measure(LLMTestCase(input=question, actual_output=answer, expected_output=expected), _show_indicator=False)
+    except Exception as error:
+        error.judge_calls = judge.requests
+        raise
     if metric.score not in (0, 1) or not isinstance(metric.reason, str) or not metric.reason.strip():
         raise ValueError("Local judge returned an invalid verdict")
     return {"score": metric.score, "passed": metric.score == 1, "reason": metric.reason, "calls": judge.requests}

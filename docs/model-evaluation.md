@@ -25,8 +25,11 @@ code, model configuration, and the locked Python project live in
 
 - **Normal evaluation:** DeepEval GEval applies fixed steps to the customer
   question, answer, and authored reference. Verdicts are schema-constrained and
-  binary, using non-thinking generation at temperature 0. Local requests use
-  seed 42; hosted requests omit the seed and require structured-output support.
+  binary, at temperature 0. Local requests use non-thinking generation, seed 42,
+  and a 1,024-token output limit. The hosted judge enables reasoning with an
+  8,192-token limit shared by reasoning and the JSON verdict; it omits the seed
+  and requires structured-output support. Environment overrides allow a
+  controlled reasoning comparison; see [OpenRouter trial](openrouter-trial.md).
 - **Claim-level diagnostic:** Extracts claims from two labeled answers and checks
   each separately against the verbatim reference. An answer is judged faithful
   only when every claim receives `yes`; missing verdicts are errors. This does
@@ -88,9 +91,16 @@ answered the total each time.
 ## Validation history
 
 Agreement below means matching authored labels, not general model accuracy.
-The prompt, reasoning-mode, and claim-level experiments are separate from the
-active GEval configuration. Detailed settings and outputs are retained in the
-linked local reports.
+The hosted V4.1 Flash comparison on 2026-09-29 matched 28/30 labels with reasoning
+off and 30/30 with reasoning on, using the same 8,192-token limits and fixed
+rubric. Reasoning corrected both the false rejection and the 320-unit stock
+overclaim. The judge remains advisory; these reused examples do not establish
+general accuracy. See [comparison results](openrouter-trial.md#judge-reasoning-comparison-2026-09-29)
+for timing, usage, configuration, and retained evidence.
+
+The historical local prompt, reasoning-mode, and claim-level experiments are
+separate from the active hosted GEval configuration. Detailed settings and
+outputs are retained in the linked local reports.
 
 | Date       | Evaluation                                        | Agreement | Finding                                                                                     |
 | ---------- | ------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------- |
