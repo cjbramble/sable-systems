@@ -494,7 +494,7 @@ information field is missing. A refusal of reactivation alone does not answer
 an approval request, and a status alone does not address a requested change.
 No requested action must actually be performed for an answer to be complete.
 
-The answer rubric is version 6. `coverage-v3.json` preserves all 26 prior examples,
+The answer rubric is version 7. `coverage-v3.json` preserves all 26 prior examples,
 labels and expected dimensions without alteration, then adds ten examples. These
 cover full and partial refusals, status-only answers, invented routes addressing
 one or both actions, false completion claims, and an action paired with a status
@@ -537,3 +537,11 @@ Source matching checks that assessed text occurs in the answer. It does not
 prove the judge included every assertion or understood the quoted context.
 The separate extraction controls check authored claim coverage; independent
 human review remains necessary for semantic correctness.
+
+The completed [revision-6 coverage run](../reports/judge-runs/validation-2026-09-30T22-25-26-465Z-730eb487-f15e-4e8f-a9c1-57cc9221b0da.json) matched all 36 overall labels with no
+execution errors, but matched only 35/36 complete dimensional expectations.
+For `action-refusal/approval-route-only`, GLM inferred a reactivation route
+from the invented department’s name even though the answer proposed approval
+only. Revision 7 forbids inferring an unmentioned action from a resource name
+or another action’s prerequisites. The original expected dimensions remain
+unchanged.

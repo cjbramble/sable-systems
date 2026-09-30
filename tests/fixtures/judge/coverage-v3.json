@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "suite": "coverage",
-  "status": "authored-action-response-calibration-awaiting-live-validation",
+  "status": "authored-action-response-calibration",
   "description": "Action-response completeness means each requested item is addressed; correctness and authorization are judged separately. The original 26 expected labels and dimensions remain unchanged.",
   "scenarios": [
     {
@@ -523,5 +523,5 @@
       ]
     }
   ],
-  "gradingRevision": 6
+  "gradingRevision": 7
 }

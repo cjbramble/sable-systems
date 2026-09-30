@@ -58,6 +58,10 @@ address a separate approval request unless approval is also declined, claimed
 complete, or given an explicit proposed route. An existing status alone does not
 answer a request to change that status. Enumerate separate requested actions and
 information fields separately; one answered item must not hide another omission.
+A resource name is not a proposed action: mentioning a reopening department that
+can approve an exception does not say it will reactivate the return. Do not infer
+a route to an unmentioned action from a department name, another action's
+prerequisites, or the overall goal; mark that separate action missing.
 A wrong value still supplies an information field; factual correctness belongs
 in facts. Do not require unrequested reference details or an additional refusal
 when a proposed route already addresses that requested action. Evaluator
