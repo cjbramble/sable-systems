@@ -115,7 +115,7 @@ def main():
                    "claimVerification": "one-at-a-time" if claim_diagnostic else None,
                    "strictMode": True, "penalizeAmbiguousClaims": True if claim_diagnostic else None,
                    "evaluationSteps": None,
-                   "gradingRevision": 3 if claim_diagnostic else 7,
+                   "gradingRevision": 3 if claim_diagnostic else 8,
                    "extractionRevision": 1 if suite == "extraction" or mode == "claims-pilot" else None,
                    "extractionRules": EXTRACTION_RULES if suite == "extraction" or mode == "claims-pilot" else None,
                    "assessmentRules": CLAIM_RULES if claim_diagnostic else ANSWER_RULES},

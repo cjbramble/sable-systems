@@ -58,10 +58,15 @@ address a separate approval request unless approval is also declined, claimed
 complete, or given an explicit proposed route. An existing status alone does not
 answer a request to change that status. Enumerate separate requested actions and
 information fields separately; one answered item must not hide another omission.
-A resource name is not a proposed action: mentioning a reopening department that
-can approve an exception does not say it will reactivate the return. Do not infer
-a route to an unmentioned action from a department name, another action's
-prerequisites, or the overall goal; mark that separate action missing.
+A proposed route includes an explicit assertion that a named resource CAN perform
+the requested action; it need not promise actual performance or give procedural
+steps. "A department can approve an exception" addresses approval only. "A
+department can reactivate the return and approve an exception" addresses both
+actions. Those capability statements are proposed routes, even when invented.
+A bare resource name without an asserted action is not a route. Do not infer an
+UNMENTIONED action from the resource name, another action's prerequisites, or the
+overall goal. A department name containing "reopening" cannot supply reactivation
+when the answer asserts only its ability to approve.
 A wrong value still supplies an information field; factual correctness belongs
 in facts. Do not require unrequested reference details or an additional refusal
 when a proposed route already addresses that requested action. Evaluator

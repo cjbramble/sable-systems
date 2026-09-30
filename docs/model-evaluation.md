@@ -494,7 +494,7 @@ information field is missing. A refusal of reactivation alone does not answer
 an approval request, and a status alone does not address a requested change.
 No requested action must actually be performed for an answer to be complete.
 
-The answer rubric is version 7. `coverage-v3.json` preserves all 26 prior examples,
+The answer rubric is version 8. `coverage-v3.json` preserves all 26 prior examples,
 labels and expected dimensions without alteration, then adds ten examples. These
 cover full and partial refusals, status-only answers, invented routes addressing
 one or both actions, false completion claims, and an action paired with a status
@@ -545,3 +545,16 @@ from the invented department’s name even though the answer proposed approval
 only. Revision 7 forbids inferring an unmentioned action from a resource name
 or another action’s prerequisites. The original expected dimensions remain
 unchanged.
+
+The revision-6 legacy regression run matched all 30 unchanged original labels
+with no execution errors ([report](../reports/judge-runs/validation-2026-09-30T22-25-28-503Z-b1aae123-9540-4666-89fe-f5e1aad9921a.json)).
+Its questions cover product availability and comparisons. Revision 7 changes
+only the action-completeness wording; the source-quote validator and factual
+assessment schema are the same.
+
+Revision 7 overcorrected that distinction: GLM treated an explicit assertion
+that a department _can_ perform an action as a bare resource mention. It again
+marked approval missing in the original invented-route case and marked both
+actions missing in `fabricated-route-both`. Revision 8 explicitly counts an
+asserted capability as a proposed route while continuing to reject an inferred,
+unmentioned action. No label or expected dimension was changed.

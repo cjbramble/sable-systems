@@ -321,7 +321,7 @@ response controls. It includes a refusal of only one requested action, a missing
 requested status, false completion claims, invented routes, and a recorded request
 route. Factual assessments now quote the answer itself; plain advice is not treated
 as an assertion of a record error, and omitted reference facts cannot enter the
-assessment. The ordinary answer rules are version 7; claim verification and extraction
+assessment. The ordinary answer rules are version 8; claim verification and extraction
 retain their existing rules. See [action-response completeness](docs/model-evaluation.md#action-response-completeness)
 for the exact cases and live results.
 
