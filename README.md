@@ -212,7 +212,7 @@ not GLM judgment accuracy. Historical DeepSeek results do not validate GLM.
 | Phase                                  | Implemented                                                                                                                                                           | Remaining validation                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | 1: coverage and benchmark              | 26 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | One completeness disagreement; independent human review of labels remains pending                     |
-| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 96 Python tests pass                                        |
+| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 87 Python tests pass                                        |
 | 3: claim diagnostics and qualification | 16 direct-verdict controls and 16 extraction cases, including faithful but incomplete answers                                                                         | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending |
 
 Expanded support cases cover orders, shipments, returns, account authorization,
@@ -283,27 +283,6 @@ One completeness disagreement remains for an invented escalation response; it
 is rejected on facts and quality. Direct claims and extraction each match 16/16.
 Live corrective verification results are recorded in
 [Model evaluation](docs/model-evaluation.md#corrective-grading-revision).
-
-### Optional independent claim decisions
-
-`typesafe/jev-1.13` provides a narrow second opinion on the 16 direct-claim
-controls through OpenRouter's System One API. It returns typed `yes`/`no`/`idk`
-choices, rather than extracting claims or generating explanations. Both the
-exploratory pilot and integrated run matched 16/16 exact verdicts; this is
-calibration evidence, not independent qualification. GLM remains the primary
-advisory judge, and Jev results never override its results or factual assertions.
-
-```sh
-npm run test:judge:decisions # optional, billed, 16 sequential requests
-```
-
-This command uses `OPENROUTER_API_KEY` from the process environment, requires
-zero-retention/no-fallback routing, and verifies the resolved Jev version and
-TypeSafe provider. It retains separate reports and incremental evidence in
-`reports/judge-runs/`; failures and disagreements exit nonzero. It is excluded
-from the default judge command and `npm run check`. Probability/confidence
-values are retained as model outputs and are not calibrated acceptance gates.
-See [the assessment and limitations](docs/model-evaluation.md#jev-independent-direct-claim-decisions).
 
 For the managed cloud runtime, see the [proxy, Chromium and process-reaping setup](docs/inference.md#managed-cloud-test-runtime-2026-09-30).
 
