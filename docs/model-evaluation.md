@@ -407,3 +407,51 @@ The final standard check passed all 304 application tests and 87 Python tests,
 plus lint, formatting, type checks, seed validation and production build.
 Chromium and live chatbot generation were not repeated for this evaluator-only
 follow-up; their original 36/36 and 48/48 results above are historical.
+
+## Jev independent direct-claim decisions
+
+The [OpenRouter model metadata](https://openrouter.ai/api/v1/models/typesafe/jev-1.13/endpoints)
+identifies Jev as a `text->decisions` model with a 32,000-token context.
+The official [`@openrouter/sdk`](https://www.npmjs.com/package/@openrouter/sdk)
+1.4.12 defines a dedicated `POST /api/v1/systemone` interface: state plus typed
+choice/boolean/score questions, with discrete answers and optional confidence
+and probability values. This is a different interface from GLM's chat-completion
+JSON schema assessments. No SDK dependency was added; the small diagnostic uses
+Python's standard library and the inherited HTTPS proxy.
+
+The useful role here is independent direct-claim classification. The optional
+`npm run test:judge:decisions` command sends each of the 16 authored controls to
+`typesafe/jev-1.13`, verifies resolved model
+`typesafe/jev-1.13-20260917` and the TypeSafe provider, and asks for exactly one
+`yes`/`no`/`idk` choice. Authored labels are withheld. Missing evidence and explicit
+contradictions remain distinct. The privacy/routing requirements remain zero
+retention, denied data collection, parameter enforcement and no fallbacks, with
+only TypeSafe allowed. Requests are sequential, with no retries or voting.
+
+An exploratory 16-case pilot and a separate integrated run both matched all
+16 exact verdicts, with no execution errors or false acceptances/rejections.
+The integrated run's reported cost was $0.000314118. This supports using Jev
+as an inexpensive secondary diagnostic on this specific classification task;
+it does not establish general accuracy or independence of underlying training
+data. The comparison is against existing calibration labels, not the frozen
+benchmark or an independently human-reviewed set.
+
+Reports preserve request criteria, source/fixture hashes, actual resolved model,
+provider, exact verdicts, probability/confidence outputs, expected/processed
+counts and sanitized error evidence. Disagreements fail this diagnostic and
+require investigation; they do not alter primary GLM verdicts, authored labels,
+deterministic factual assertions, or the benchmark. Optional confidence outputs
+are not calibrated thresholds. The command is excluded from default grading
+and standard offline verification.
+
+Jev does not address claim-extraction completeness or provide GLM's per-claim
+explanations through this interface. It is therefore not used for extraction,
+customer-facing generation, explanation review, or the disputed approval-response
+completeness label. Human reviews remain necessary. Retain the original models
+and frozen benchmark unchanged.
+
+Integrated evidence: [Jev direct-claim report](../reports/judge-runs/jev-claims-a7a3fffc-122f-4db6-a13c-fa95a669b5b6.json).
+
+After adding this optional diagnostic, `npm run check` passed all 304 application
+tests and 96 Python tests, plus lint, formatting, types, seed validation and
+production build. No generator, primary judge, or frozen benchmark files changed.

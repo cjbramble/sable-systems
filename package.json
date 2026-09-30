@@ -14,6 +14,7 @@
     "test:model": "node scripts/test-support-model.mjs",
     "setup:judge": "uv sync --project tools/evaluation --locked",
     "test:judge": "node scripts/test-support-judge.mjs",
+    "test:judge:decisions": "uv run --project tools/evaluation --locked --offline python tools/evaluation/evaluate_decisions.py",
     "test:python": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --project tools/evaluation --locked --offline python -m pytest -c tools/evaluation/pyproject.toml tests/unit/judge-python",
     "test:e2e": "npm run build && playwright test",
     "demo:record": "npm run build && playwright test --config tools/demo/playwright.config.ts",
