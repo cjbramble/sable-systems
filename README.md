@@ -47,9 +47,10 @@ app and uses the OpenRouter key server-side. Press Control-C to stop it.
 
 Inference pins `deepseek/deepseek-v4.1-flash` to the DeepInfra FP8 endpoint, disables
 provider fallback, and retains the authorization, grounding, and corrective-retry
-checks. COV-E disables reasoning; the advisory judge enables it with an
+checks. COV-E disables reasoning; the advisory judge uses `z-ai/glm-5.3-flash`
+with reasoning enabled and an
 8,192-token budget. Hosted requests send the question, scoped records,
-and saved conversation history to OpenRouter and DeepInfra. See
+and saved conversation history to OpenRouter and the selected provider. See
 [OpenRouter inference](docs/inference.md) for testing and Cloud setup.
 
 ## Configuration
@@ -62,16 +63,17 @@ require an API key for inference. `.env.example` contains the supported settings
 | ----------------------------- | ----------------------------------------- | ------------------------------------- |
 | `OPENROUTER_API_KEY`          | Server-side OpenRouter secret             | No key; required for hosted inference |
 | `OPENROUTER_SUPPORT_MODEL`    | Hosted COV-E model ID                     | `deepseek/deepseek-v4.1-flash`        |
-| `OPENROUTER_JUDGE_MODEL`      | Hosted advisory judge model ID            | `deepseek/deepseek-v4.1-flash`        |
+| `OPENROUTER_JUDGE_MODEL`      | Hosted advisory judge model ID            | `z-ai/glm-5.3-flash`                  |
 | `OPENROUTER_JUDGE_REASONING`  | Hosted judge reasoning, `true` or `false` | `true`                                |
 | `OPENROUTER_JUDGE_MAX_TOKENS` | Hosted judge reasoning plus verdict limit | `8192` (range `256`–`32768`)          |
 | `SITE_URL`                    | Base URL for site metadata                | `http://127.0.0.1:8016`               |
 
-The default model and pinned provider/privacy policy are shared by COV-E and
-the judge in `lib/openrouter-config.json`. COV-E uses an 8,192-token prompt
+The chat and judge defaults and provider/privacy policies are configured separately
+in `lib/openrouter-config.json`. COV-E uses an 8,192-token prompt
 budget with a 600-token reply limit and reasoning disabled. The judge uses
-reasoning and an 8,192-token completion limit. Model overrides must be supported
-by the pinned DeepInfra FP8 endpoint; there is no provider fallback.
+reasoning and an 8,192-token completion limit. Chat model overrides must be supported by the pinned DeepInfra FP8 endpoint.
+The judge lets OpenRouter select a compatible endpoint with required parameters,
+zero data retention, and data collection denied; there is no provider fallback.
 
 ## Usage
 
@@ -191,15 +193,69 @@ forward your real key or incur inference charges.
 | `npm test`              | Deterministic unit and integration tests                                                         |
 | `npm run test:e2e`      | Production build and browser tests                                                               |
 | `npm run test:model`    | Live chatbot factuality tests, repeated sampling, then advisory judging (billed with OpenRouter) |
-| `npm run test:judge`    | Selected judge validation against 30 labeled examples (billed with OpenRouter)                   |
+| `npm run test:judge`    | Default 30-case calibration; selectable expanded suites (billed with OpenRouter)                 |
 | `npm run test:python`   | Judge-adapter unit tests; no model server required                                               |
 | `npm run validate:data` | Seed-data validation                                                                             |
-| `npm run check`         | Lint, format check, type checks, deterministic tests, seed validation, and build                 |
+| `npm run check`         | Lint, format check, type checks, application and Python tests, seed validation, and build        |
 
-Browser, Python evaluator, and live-model suites run separately from `npm test`
-and `npm run check`.
+Python evaluator tests are included in `npm run check`; run `npm run setup:judge`
+first. Browser and live-model suites run separately. `npm test` covers only the
+application unit/integration tests.
 Database tests use disposable local databases. Browser tests use controlled
 model responses.
+
+### DeepEval improvement phases
+
+The GLM judge remains advisory. Offline adapter tests establish harness behavior,
+not GLM judgment accuracy. Historical DeepSeek results do not validate GLM.
+
+| Phase                                  | Implemented                                                                                                                                                           | Remaining validation                                                                                  |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 1: coverage and benchmark              | 24 paired support/injection controls; separate eight-case benchmark candidate with a freeze manifest                                                                  | Live runs complete; independent human review of labels remains pending                                |
+| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Final application checks: 304 tests and 63 Python tests pass                                          |
+| 3: claim diagnostics and qualification | 14 direct-verdict controls and 14 extraction cases, including faithful but incomplete answers                                                                         | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending |
+
+Expanded support cases cover orders, shipments, returns, account authorization,
+missing records, compound requests, topic switches and action refusals. Evaluator
+injection controls place attacks in the question, answer and quoted source text,
+with correct-answer and benign-quotation controls. These synthetic fixtures test
+judging; they do not expand the live chatbot transcript parser, which still
+judges only case-pack and comparison samples.
+
+After configuring credentials, each command below makes billed requests:
+
+```sh
+npm run test:judge -- --suite coverage   # 24 GEval judgments
+npm run test:judge -- --suite benchmark  # 8 judgments; review candidate labels first
+npm run test:judge -- --suite claims     # 14 direct verdict calls
+npm run test:judge -- --suite extraction # 14 extractions plus one call per extracted claim
+```
+
+The default command retains the original 30-case calibration suite. `--holdout`
+selects eight reused regression cases, not an untouched benchmark. Suite flags
+cannot be combined with transcript, holdout or pilot flags. GLM live runs began on 2026-09-30; the eight-case candidate matched all eight
+labels in each of three runs. Independent human review remains pending. Review the [evaluation protocol](docs/model-evaluation.md#qualification-protocol)
+before drawing conclusions from them.
+
+### Latest verification (2026-09-30)
+
+- `npm run check`: 304 application tests and 63 Python tests passed, plus lint,
+  formatting, types, seed validation and build.
+- Chromium: 36/36 tests passed. Live chatbot: 48/48 tests passed after fixing a
+  nearest-quantity assertion false positive; all ten retained samples were
+  accepted by GLM.
+- GLM label agreement: original calibration 30/30; coverage 23/24; direct claims
+  13/14; extraction 14/14; legacy pilots 2/2 and 4/4. The frozen candidate matched
+  8/8 in each of three unchanged runs.
+
+Two judge diagnostics remain failed against their authored expectations:
+correct stock plus appended injection text was rejected as off-topic, and an
+unsupported delivery date received `idk` rather than the expected `no`. Labels
+and the rubric were preserved for independent review. See
+[retained results and limitations](docs/model-evaluation.md#glm-verification-2026-09-30).
+GLM remains advisory; repeated agreement does not replace human review.
+
+For the managed cloud runtime, see the [proxy, Chromium and process-reaping setup](docs/inference.md#managed-cloud-test-runtime-2026-09-30).
 
 Run all test suites in sequence (stops if a suite fails):
 

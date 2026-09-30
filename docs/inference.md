@@ -1,7 +1,8 @@
 # OpenRouter inference
 
-COV-E and its advisory judge use `deepseek/deepseek-v4.1-flash` through OpenRouter.
-The default model and provider/privacy routing are shared in
+COV-E uses `deepseek/deepseek-v4.1-flash`; its advisory judge uses
+`z-ai/glm-5.3-flash`, both through OpenRouter.
+Separate model defaults and provider/privacy routing are configured in
 `lib/openrouter-config.json`. Model overrides and generation settings remain
 separate for chat and judging. Local inference launchers, provider switches,
 model downloads, and weights have been removed. Historical results below retain
@@ -16,13 +17,14 @@ The file is Git-ignored. Never put the key in a `VITE_*` or `NEXT_PUBLIC_*`
 variable, a browser component, a commit, or a test transcript.
 
 Chat and judging both use OpenRouter, with independent model and generation
-settings. Both defaults pin the DeepInfra FP8 endpoint (`only: ['deepinfra/fp8']`), prohibit
-provider fallback, and require supported parameters. COV-E disables reasoning
+settings. Chat pins the DeepInfra FP8 endpoint (`only: ['deepinfra/fp8']`).
+The judge lets OpenRouter select a compatible endpoint without a provider pin.
+Both prohibit provider fallback and require supported parameters. COV-E disables reasoning
 and keeps its 600-token answer budget. The advisory judge enables reasoning
 with an 8,192-token limit, raised from 1,024; this total covers both reasoning
 and the JSON verdict. They enforce `data_collection: 'deny'`
-and `zdr: true`. They omit the seed parameter. Model overrides must be available
-on that pinned endpoint.
+and `zdr: true`. They omit the seed parameter. Chat model overrides must be available on its pinned endpoint; judge overrides
+must support the requested schema, reasoning, and privacy requirements.
 
 The app sends only server-selected authorized records and saved history. It
 keeps deterministic incident/no-match replies, authentication, request quotas,
@@ -39,8 +41,7 @@ capacity, or model quality. A blank key makes it unavailable without a request.
 Offline checks do not spend credits:
 
 ```sh
-npm run check
-npm run test:python
+npm run check # includes offline Python evaluator tests
 ```
 
 Prepare the judge's Python dependencies:
@@ -126,6 +127,10 @@ reports/judge-runs/transcript-2026-09-30T01-12-12-196Z-d6536b08-2744-43df-8d26-3
 ```
 
 ## Judge reasoning comparison (2026-09-29)
+
+This historical comparison used DeepSeek V4.1 Flash, not the current GLM judge.
+GLM live calibration began on 2026-09-30; see the current results in
+[Model evaluation](model-evaluation.md).
 
 One run per setting judged all 30 authored examples (15 correct and 15
 incorrect). The paired requests had identical prompts, references, labels,
@@ -219,7 +224,7 @@ and store the key as a secret available to the task runtime:
 ```text
 OPENROUTER_API_KEY=<secret>
 OPENROUTER_SUPPORT_MODEL=deepseek/deepseek-v4.1-flash
-OPENROUTER_JUDGE_MODEL=deepseek/deepseek-v4.1-flash
+OPENROUTER_JUDGE_MODEL=z-ai/glm-5.3-flash
 OPENROUTER_JUDGE_REASONING=true
 OPENROUTER_JUDGE_MAX_TOKENS=8192
 ```
@@ -249,3 +254,32 @@ Primary references used to configure the adapter:
 - [Provider routing](https://openrouter.ai/docs/guides/routing/provider-selection)
 - [Reasoning controls](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)
 - [Provider privacy](https://openrouter.ai/docs/guides/privacy/provider-logging)
+
+## Managed cloud test runtime (2026-09-30)
+
+The current environment permits OpenRouter HTTPS through its configured HTTP
+proxy and supplies the API key as an injected secret. Direct Internet DNS/TCP is
+not available. The Python judge honors `HTTPS_PROXY` (or `https_proxy`) with a
+CONNECT tunnel to `openrouter.ai:443`, verified TLS, and scoped socket access.
+The live Vitest Worker uses a host-side `EnvHttpProxyAgent` bridge for only the
+OpenRouter key and completion endpoints. The bridge is enabled only for the
+explicit live-model launcher when a proxy is configured; offline tests retain
+dummy credentials and mocked responses. Neither transport follows redirects or
+disables certificate verification.
+
+Run commands with execution permissions allowing local sockets. This environment
+also supplies a child-process subreaper to collect orphaned test descendants;
+without it, process-cleanup assertions can fail even after termination. `uv`
+needs a cache under a writable root. The setup supplies system Chromium and a
+Playwright config selecting `/usr/bin/chromium`. In this managed workspace:
+
+```sh
+UV_CACHE_DIR=/workspace/.cache/uv python /workspace/setup/reap.py npm run check
+python /workspace/setup/reap.py npx playwright test --config /workspace/sable-playwright.config.mjs
+python /workspace/setup/reap.py npm run test:model
+python /workspace/setup/reap.py npm run test:judge
+```
+
+The wrapper and browser config are environment setup files, not application
+requirements for an ordinary development machine. Keep inherited proxy and CA
+settings, and keep the API key in its secret binding.

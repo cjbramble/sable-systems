@@ -10,6 +10,9 @@ import openrouter_judge
 @pytest.fixture(autouse=True)
 def offline_credentials(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "offline-test-key")
+    monkeypatch.delenv("HTTPS_PROXY", raising=False)
+    monkeypatch.delenv("https_proxy", raising=False)
+    monkeypatch.delenv("OPENROUTER_JUDGE_MODEL", raising=False)
     monkeypatch.delenv("OPENROUTER_JUDGE_REASONING", raising=False)
     monkeypatch.delenv("OPENROUTER_JUDGE_MAX_TOKENS", raising=False)
 
@@ -26,6 +29,9 @@ def transport(monkeypatch):
     class Connection:
         def __init__(self, host, port, timeout):
             state["destination"] = (host, port, timeout)
+
+        def set_tunnel(self, host, port):
+            state["tunnel"] = (host, port)
 
         def request(self, method, path, body, headers):
             state["request"] = (method, path, json.loads(body), headers)
@@ -53,8 +59,8 @@ def test_openrouter_judge_uses_https_schema_routing_without_recording_credential
     method, path, body, headers = transport["request"]
     assert (method, path) == ("POST", "/api/v1/chat/completions")
     assert headers["Authorization"] == "Bearer offline-test-key"
-    assert body["model"] == "deepseek/deepseek-v4.1-flash"
-    assert body["provider"] == {"only": ["deepinfra/fp8"], "allow_fallbacks": False, "require_parameters": True, "data_collection": "deny", "zdr": True}
+    assert body["model"] == "z-ai/glm-5.3-flash"
+    assert body["provider"] == {"allow_fallbacks": False, "require_parameters": True, "data_collection": "deny", "zdr": True}
     assert body["reasoning"] == {"enabled": True}
     assert body["max_tokens"] == 8192
     assert "seed" not in body and "chat_template_kwargs" not in body
@@ -112,7 +118,9 @@ def test_openrouter_failures_reset_network_scope_without_logging_credentials(mon
     judge = openrouter_judge.OpenRouterJudge()
     with pytest.raises(RuntimeError, match="Judge HTTP failure: 401"):
         judge.generate("Evaluate", Verdict)
-    assert judge.requests == []
+    assert len(judge.requests) == 1
+    assert judge.requests[0]["httpStatus"] == 401
+    assert "offline-test-key" not in json.dumps(judge.requests)
     assert openrouter_judge._openrouter_request.get() is None
 
 
@@ -132,7 +140,7 @@ def test_openrouter_network_scope_permits_only_fixed_dns_and_resolved_https_addr
 
 def test_openrouter_metadata_has_no_local_weights_or_local_generation_parameters(monkeypatch):
     metadata, generation = openrouter_judge.judge_metadata()
-    assert metadata == {"provider": "openrouter", "alias": "deepseek/deepseek-v4.1-flash"}
+    assert metadata == {"provider": "openrouter", "alias": "z-ai/glm-5.3-flash"}
     assert "seed" not in generation and "chat_template_kwargs" not in generation
 
 
@@ -250,3 +258,63 @@ def test_direct_claim_verification_uses_one_call_and_the_unmodified_reference(tr
     prompt = result["calls"][0]["request"]["messages"][0]["content"]
     assert reference in prompt
     assert claim in prompt
+
+
+def test_judge_model_override_preserves_privacy_and_reasoning(monkeypatch, transport):
+    monkeypatch.setenv("OPENROUTER_JUDGE_MODEL", " other/model ")
+    openrouter_judge.OpenRouterJudge().generate("Evaluate", Verdict)
+    body = transport["request"][2]
+    assert body["model"] == "other/model"
+    assert body["reasoning"] == {"enabled": True}
+    assert body["provider"] == openrouter_judge.DEFAULTS["judgeProvider"]
+    assert openrouter_judge.DEFAULTS["model"] == "deepseek/deepseek-v4.1-flash"
+    assert openrouter_judge.DEFAULTS["provider"]["only"] == ["deepinfra/fp8"]
+
+
+@pytest.mark.parametrize("kind", ["invalid-json", "upstream", "timeout", "oversized"])
+def test_failed_transport_keeps_bounded_redacted_evidence(monkeypatch, transport, kind):
+    class FailureConnection:
+        def __init__(self, *args, **kwargs):
+            pass
+        def request(self, *args):
+            if kind == "timeout":
+                raise TimeoutError("connection failed")
+        def getresponse(self):
+            self.status = 200
+            return self
+        def read(self, limit):
+            if kind == "invalid-json":
+                return b"invalid offline-test-key"
+            if kind == "oversized":
+                return b"x" * limit
+            return b'{"error":{"message":"offline-test-key"}}'
+        def close(self):
+            pass
+    monkeypatch.setattr(openrouter_judge.http.client, "HTTPSConnection", FailureConnection)
+    with pytest.raises((ValueError, RuntimeError, TimeoutError)) as caught:
+        openrouter_judge.judge_answer("Question", "Answer", "Reference")
+    calls = caught.value.judge_calls
+    assert len(calls) == 1
+    assert "offline-test-key" not in json.dumps(calls)
+    assert calls[0]["errorType"]
+    assert len(calls[0].get("rawResponse", "")) <= 2_000_000
+    assert openrouter_judge._openrouter_request.get() is None
+
+
+
+def test_cloud_proxy_tunnels_only_to_openrouter_and_resets_transport(monkeypatch, transport):
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy:8080")
+    judge = openrouter_judge.OpenRouterJudge()
+    assert judge.generate("Evaluate", Verdict).score == 1
+    assert transport["destination"] == ("proxy", 8080, 180)
+    assert transport["tunnel"] == ("openrouter.ai", 443)
+    assert openrouter_judge._openrouter_transport.get() == ("openrouter.ai", 443)
+    assert "Authorization" not in json.dumps(judge.requests)
+
+
+@pytest.mark.parametrize("proxy", ["https://proxy:8080", "http://name:secret@proxy:8080", "http://proxy/path"])
+def test_invalid_proxy_configuration_fails_before_connection(monkeypatch, transport, proxy):
+    monkeypatch.setenv("HTTPS_PROXY", proxy)
+    with pytest.raises(ValueError, match="proxy"):
+        openrouter_judge.OpenRouterJudge().generate("Evaluate", Verdict)
+    assert "destination" not in transport
