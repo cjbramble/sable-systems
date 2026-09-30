@@ -122,3 +122,102 @@ def test_direct_claim_pilot_preserves_controlled_pairs_and_requires_an_explicit_
     for args, row in zip(calls, rows, strict=True):
         assert args == (fixture["question"], row["answer"], fixture["references"][0])
         assert row["reference"] == fixture["references"][0]
+
+
+@pytest.mark.parametrize("suite,count", [("coverage", 24), ("benchmark", 8)])
+def test_expanded_suites_withhold_labels_and_retain_review_status(monkeypatch, tmp_path, suite, count):
+    calls = []
+    def judge(*args):
+        calls.append(args)
+        return {"score": 1, "passed": True, "reason": "Offline scripted verdict"}
+    monkeypatch.setattr(evaluation, "judge_answer", judge)
+    code, report, _ = run_report(monkeypatch, tmp_path, {"mode": "validation", "suite": suite})
+    assert code == 1
+    assert len(calls) == len(report["results"]) == count
+    path = evaluation.ROOT / "tests/fixtures/judge" / ("coverage.json" if suite == "coverage" else "benchmark-candidate.json")
+    fixtures = json.loads(path.read_text())
+    expected = [(row["question"], example["text"], row["reference"])
+                for row in fixtures["scenarios"] for example in row["examples"]]
+    assert calls == expected
+    assert report["suiteStatus"] == fixtures["status"]
+    assert len(report["suiteSha256"]) == 64
+    assert sum(row["expectedPassed"] for row in report["results"]) == count // 2
+    if suite == "benchmark":
+        assert report["benchmarkFreeze"]["reviewStatus"] == "pending-independent-human-review"
+
+
+def test_benchmark_rejects_fixture_drift_before_any_judgment(monkeypatch, tmp_path):
+    original = evaluation.ROOT
+    import shutil
+    shutil.copytree(original / "tests/fixtures/judge", tmp_path / "tests/fixtures/judge")
+    shutil.copytree(original / "tools/evaluation", tmp_path / "tools/evaluation", ignore=shutil.ignore_patterns(".venv", "__pycache__"))
+    (tmp_path / "lib").mkdir()
+    shutil.copyfile(original / "lib/openrouter-config.json", tmp_path / "lib/openrouter-config.json")
+    candidate = tmp_path / "tests/fixtures/judge/benchmark-candidate.json"
+    candidate.write_text(candidate.read_text() + "\n")
+    monkeypatch.setattr(evaluation, "ROOT", tmp_path)
+    monkeypatch.setattr(evaluation, "judge_answer", lambda *args: pytest.fail("No judgment on drift"))
+    with pytest.raises(ValueError, match="freeze mismatch"):
+        run_report(monkeypatch, tmp_path, {"mode": "validation", "suite": "benchmark"})
+
+
+@pytest.mark.parametrize("payload", [
+    {"mode": "validation", "suite": "unknown"},
+    {"mode": "transcript", "suite": "coverage"},
+    {"mode": "validation", "suite": "benchmark", "validationSet": "holdout"},
+])
+def test_invalid_suite_selection_fails_before_judgment(monkeypatch, tmp_path, payload):
+    monkeypatch.setattr(evaluation, "judge_answer", lambda *args: pytest.fail("No judgment for invalid suite"))
+    with pytest.raises(ValueError):
+        run_report(monkeypatch, tmp_path, payload)
+
+
+@pytest.mark.parametrize("suite", ["claims", "extraction"])
+def test_claim_controls_require_explicit_verdicts_and_keep_review_anchors_private(monkeypatch, tmp_path, suite):
+    calls = []
+    def judge(*args):
+        calls.append(args)
+        return {"score": 0, "passed": False, "reason": "Uncertain",
+                "claims": [args[1]], "verdicts": [{"verdict": "idk", "reason": "Uncertain"}]}
+    monkeypatch.setattr(evaluation, "judge_direct_claim" if suite == "claims" else "judge_claims", judge)
+    monkeypatch.setattr(evaluation, "judge_answer", lambda *args: pytest.fail("Not GEval"))
+    code, report, _ = run_report(monkeypatch, tmp_path, {"mode": "validation", "suite": suite})
+    assert code == 1
+    assert len(report["results"]) == len(calls) == 14
+    if suite == "claims":
+        assert not any(row["agrees"] for row in report["results"])
+    else:
+        assert all(row["claimCoverageReviewRequired"] and row["expectedClaims"] for row in report["results"])
+    incomplete = report["results"][-1]
+    assert incomplete["expectedPassed"] is True
+    assert incomplete["expectedTaskComplete"] is False
+    fixture = json.loads((evaluation.ROOT / "tests/fixtures/judge/claim-controls.json").read_text())
+    assert calls == [(scenario["question"], row["text"], scenario["reference"])
+                     for scenario in fixture["scenarios"] for row in scenario["examples"]]
+
+
+def test_summary_separates_false_acceptances_rejections_and_execution_errors(monkeypatch, tmp_path):
+    responses = iter([True, True, False, False, None] + [True] * 19)
+    def judge(*args):
+        value = next(responses)
+        if value is None:
+            raise TimeoutError("Scripted transport failure")
+        return {"passed": value, "score": int(value), "reason": "Scripted"}
+    monkeypatch.setattr(evaluation, "judge_answer", judge)
+    code, report, _ = run_report(monkeypatch, tmp_path, {"mode": "validation", "suite": "coverage"})
+    assert code == 1
+    assert report["coverage"]["expectedSamples"] == report["coverage"]["processedSamples"] == 24
+    summary = report["summary"]["overall"]
+    assert summary["falseAcceptances"] == 11
+    assert summary["falseRejections"] == 1
+    assert summary["executionErrors"] == 1
+    assert report["executionSuccessful"] is False
+    assert report["labelAgreementSuccessful"] is False
+    assert report["factualSuccessful"] is None
+
+
+@pytest.mark.parametrize("batches", [{}, {"unsupported": {"samples": []}}, {"case-pack": {"samples": []}}])
+def test_empty_or_unsupported_transcripts_cannot_report_success(monkeypatch, tmp_path, batches):
+    monkeypatch.setattr(evaluation, "judge_answer", lambda *args: pytest.fail("No calls for malformed coverage"))
+    with pytest.raises(ValueError):
+        run_report(monkeypatch, tmp_path, {"mode": "transcript", "batches": batches})

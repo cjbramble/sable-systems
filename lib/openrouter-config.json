@@ -6,5 +6,12 @@
     "require_parameters": true,
     "data_collection": "deny",
     "zdr": true
+  },
+  "judgeModel": "z-ai/glm-5.3-flash",
+  "judgeProvider": {
+    "allow_fallbacks": false,
+    "require_parameters": true,
+    "data_collection": "deny",
+    "zdr": true
   }
 }

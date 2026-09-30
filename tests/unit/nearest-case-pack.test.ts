@@ -140,3 +140,24 @@ it('rejects contradictory nearest-quantity lists while respecting list boundarie
     ),
   ).toEqual([]);
 });
+
+it('distinguishes appositional differences from claimed nearest quantities', () => {
+  for (const answer of [
+    'The nearest valid quantity is 312 units, 2 units above the requested 310.',
+    'The nearest valid quantity is 312, 2 above the requested 310.',
+    'The closest valid quantity is 312 units, 2 units more than requested.',
+    'The nearest lower valid quantity is 304 units, 6 units below requested.',
+  ])
+    expect(findIncorrectNearestCasePackClaims(answer, 310, 8), answer).toEqual(
+      [],
+    );
+  for (const answer of [
+    'The nearest valid quantity is 304 units, 6 units below the requested 310.',
+    'The nearest valid quantities are 312 units, 304 units.',
+    'The nearest valid quantities are 312 units or 304 units.',
+  ])
+    expect(
+      findIncorrectNearestCasePackClaims(answer, 310, 8),
+      answer,
+    ).toMatchObject([{ claimedQuantity: 304, expectedQuantities: [312] }]);
+});

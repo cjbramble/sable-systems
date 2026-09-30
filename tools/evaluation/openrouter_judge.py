@@ -8,8 +8,10 @@ import os
 import socket
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 _openrouter_request = ContextVar("openrouter_request", default=None)
+_openrouter_transport = ContextVar("openrouter_transport", default=("openrouter.ai", 443))
 
 # Set these before importing DeepEval, regardless of the caller's environment.
 os.environ.update({
@@ -27,7 +29,7 @@ def restrict_network(event, args):
     # Background SDK calls remain blocked, including during threaded judging.
     destinations = _openrouter_request.get()
     if destinations is not None:
-        if event == "socket.getaddrinfo" and args[:2] != ("openrouter.ai", 443):
+        if event == "socket.getaddrinfo" and args[:2] != _openrouter_transport.get():
             raise PermissionError("Judge evaluation permits only OpenRouter resolution")
         if event == "socket.connect":
             address = args[1]
@@ -42,7 +44,7 @@ sys.addaudithook(restrict_network)
 
 
 def connect_openrouter(address, timeout, source_address=None):
-    if address != ("openrouter.ai", 443) or source_address is not None:
+    if address != _openrouter_transport.get() or source_address is not None:
         raise PermissionError("Unexpected judge HTTPS destination")
     destinations = _openrouter_request.get()
     if destinations is None:
@@ -50,7 +52,7 @@ def connect_openrouter(address, timeout, source_address=None):
     last_error = None
     # Use these resolved addresses directly; no second DNS lookup or redirects.
     for family, kind, protocol, _, destination in socket.getaddrinfo(
-        "openrouter.ai", 443, type=socket.SOCK_STREAM
+        *address, type=socket.SOCK_STREAM
     ):
         destinations.add(destination)
         connection = socket.socket(family, kind, protocol)
@@ -75,7 +77,7 @@ GENERATION = {"temperature": 0, "top_p": 1, "max_tokens": 8192, "stream": False}
 
 
 def judge_config():
-    model = os.environ.get("OPENROUTER_JUDGE_MODEL", "").strip() or DEFAULTS["model"]
+    model = os.environ.get("OPENROUTER_JUDGE_MODEL", "").strip() or DEFAULTS["judgeModel"]
     reasoning = os.environ.get("OPENROUTER_JUDGE_REASONING", "").strip().lower() or "true"
     if reasoning not in ("true", "false"):
         raise ValueError("OPENROUTER_JUDGE_REASONING must be true or false")
@@ -89,7 +91,7 @@ def judge_config():
     generation.update({
         "max_tokens": max_tokens,
         "reasoning": {"enabled": reasoning == "true"},
-        "provider": DEFAULTS["provider"],
+        "provider": DEFAULTS["judgeProvider"],
     })
     return "openrouter", model, generation
 
@@ -134,27 +136,47 @@ class OpenRouterJudge(DeepEvalBaseLLM):
         if not key:
             raise ValueError("OPENROUTER_API_KEY is required for the OpenRouter judge")
         headers.update({"Authorization": f"Bearer {key}", "X-OpenRouter-Title": "SABLE advisory judge"})
-        connection = http.client.HTTPSConnection("openrouter.ai", 443, timeout=180)
+        proxy_url = os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
+        destination = ("openrouter.ai", 443)
+        if proxy_url:
+            proxy = urlsplit(proxy_url)
+            if proxy.scheme != "http" or not proxy.hostname or proxy.username or proxy.password or proxy.path not in ("", "/") or proxy.query or proxy.fragment:
+                raise ValueError("Judge HTTPS proxy must be an HTTP endpoint without credentials")
+            destination = (proxy.hostname, proxy.port or 80)
+        connection = http.client.HTTPSConnection(*destination, timeout=180)
+        if proxy_url:
+            connection.set_tunnel("openrouter.ai", 443)
         connection._create_connection = connect_openrouter
+        transport_scope = _openrouter_transport.set(destination)
         network_scope = _openrouter_request.set(set())
+        record = {"request": body}
+        self.requests.append(record)
         try:
             connection.request("POST", "/api/v1/chat/completions", json.dumps(body), headers)
             response = connection.getresponse()
+            record["httpStatus"] = response.status
             raw = response.read(2_000_001)
+            record["responseBytes"] = len(raw)
+            record["rawResponse"] = raw[:2_000_000].decode("utf-8", errors="replace").replace(key, "[REDACTED]")[:2_000_000]
             if response.status != 200 or len(raw) > 2_000_000:
                 raise RuntimeError(f"Judge HTTP failure: {response.status}")
             data = json.loads(raw)
+            record["response"] = json.loads(json.dumps(data).replace(key, "[REDACTED]"))
+            record.pop("rawResponse", None)
             if data.get("error"):
                 raise RuntimeError("Judge returned an upstream error")
-            self.requests.append({"request": body, "response": data})
             choice = data["choices"][0]
             if choice.get("error"):
                 raise RuntimeError("Judge returned an upstream error")
             if choice.get("finish_reason") != "stop":
                 raise RuntimeError("Judge did not finish its verdict")
-            return schema.model_validate_json(choice["message"]["content"])
+            return schema.model_validate_json(choice["message"]["content"].replace(key, "[REDACTED]"))
+        except Exception as error:
+            record["errorType"] = type(error).__name__
+            raise
         finally:
             _openrouter_request.reset(network_scope)
+            _openrouter_transport.reset(transport_scope)
             connection.close()
 
     async def a_generate(self, prompt, schema=None):

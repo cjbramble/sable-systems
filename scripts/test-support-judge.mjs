@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import defaults from '../lib/openrouter-config.json' with { type: 'json' };
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -18,12 +19,15 @@ try {
   loadLocalEnvironment();
   const config = getSupportModelConfig({
     ...process.env,
-    OPENROUTER_SUPPORT_MODEL: process.env.OPENROUTER_JUDGE_MODEL,
+    OPENROUTER_SUPPORT_MODEL:
+      process.env.OPENROUTER_JUDGE_MODEL?.trim() || defaults.judgeModel,
   });
   supportModelHeaders(config);
   const { values } = parseArgs({
     options: {
       transcript: { type: 'string' },
+      suite: { type: 'string', default: 'legacy' },
+      concurrency: { type: 'string', default: '1' },
       holdout: { type: 'boolean', default: false },
       'claims-pilot': { type: 'boolean', default: false },
       'direct-claim-pilot': { type: 'boolean', default: false },
@@ -41,7 +45,33 @@ try {
     throw new Error(
       'Choose only one of --transcript, --holdout, --claims-pilot, or --direct-claim-pilot.',
     );
+  if (
+    !['legacy', 'coverage', 'benchmark', 'claims', 'extraction'].includes(
+      values.suite,
+    )
+  )
+    throw new Error(
+      'Choose --suite legacy, coverage, benchmark, claims, or extraction.',
+    );
+  if (
+    values.suite !== 'legacy' &&
+    [
+      values.transcript,
+      values.holdout,
+      values['claims-pilot'],
+      values['direct-claim-pilot'],
+    ].some(Boolean)
+  )
+    throw new Error(
+      'Expanded suites cannot be combined with transcript, holdout, or pilot modes.',
+    );
+  if (!/^[1-4]$/.test(values.concurrency))
+    throw new Error('Choose --concurrency 1, 2, 3, or 4.');
+  if (values.suite === 'benchmark' && values.concurrency !== '1')
+    throw new Error('The frozen benchmark retains sequential execution.');
   const payload = {
+    suite: values.suite,
+    concurrency: Number(values.concurrency),
     mode: values['direct-claim-pilot']
       ? 'direct-claim-pilot'
       : values['claims-pilot']
@@ -74,7 +104,13 @@ try {
   console.info(`Judging with ${config.provider}; report: ${reportPath}`);
   const evaluation = scope.start(
     python,
-    ['tools/evaluation/evaluate.py', '--output', reportPath],
+    [
+      values.suite === 'benchmark'
+        ? 'tools/evaluation/evaluate.py'
+        : 'tools/evaluation/evaluate_support.py',
+      '--output',
+      reportPath,
+    ],
     {
       stdio: ['pipe', 'inherit', 'inherit'],
       env: {

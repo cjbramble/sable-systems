@@ -19,7 +19,7 @@
     "demo:record": "npm run build && playwright test --config tools/demo/playwright.config.ts",
     "demo:record:tests": "npm run build && playwright test --config tools/demo/playwright-checkout.config.ts",
     "typecheck": "tsc --noEmit",
-    "check": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run validate:data && npm run build",
+    "check": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run test:python && npm run validate:data && npm run build",
     "start": "wrangler dev --config dist/server/wrangler.json --ip 127.0.0.1 --var SABLE_LOCAL_DEMO:true",
     "lint": "oxlint",
     "format": "oxfmt",
@@ -66,6 +66,7 @@
     "oxlint-tsgolint": "7.0.2001",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
+    "undici": "7.29.1",
     "vite": "8.3.0",
     "vitest": "4.1.11",
     "wrangler": "4.143.1"

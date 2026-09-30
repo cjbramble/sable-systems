@@ -34,7 +34,7 @@ export function findIncorrectNearestCasePackClaims(
   // reply. Pack size, requested quantity, and parenthetical case counts are
   // not asserted quantities. This is bounded phrase coverage, not general NLP.
   const subject = String.raw`\b(?:nearest|closest)\s+(?<description>(?:(?:valid|full|whole|case[- ]pack|lower|higher|upper)\s+)*(?:order(?:\s+quantity)?|quantit(?:y|ies)|multiples?|case[- ]packs?))\b(?:\s+of\s+\d+\b)?(?:\s+(?:to|for)\s+\d+\b)?`;
-  const quantities = String.raw`(?<quantities>\b\d+(?:\s+units?)?(?:\s*(?:,|or|and)\s*\d+(?:\s+units?)?)*)\b`;
+  const quantities = String.raw`(?<quantities>\b\d+(?:\s+units?)?(?:\s*(?:,|or|and)\s*\d+\b(?!\s+(?:units?\s+)?(?:above|below|more|less|higher|lower|over|under)\b)(?:\s+units?)?)*)\b`;
   const patterns = [
     new RegExp(
       String.raw`${subject}\s*(?:(?:is|are|would\s+be)\s+|[:=]\s*|\(\s*(?:for\s+example,?\s*)?)?${quantities}`,

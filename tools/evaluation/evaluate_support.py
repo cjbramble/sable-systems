@@ -1,6 +1,7 @@
 """Judge authored validation cases or retained chatbot samples, sequentially."""
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import importlib.metadata
 import json
@@ -8,7 +9,8 @@ from pathlib import Path
 import sys
 import time
 
-from openrouter_judge import ROOT, STEPS, judge_metadata, judge_answer, judge_claims, judge_direct_claim
+from openrouter_judge import ROOT, judge_metadata
+from support_grading import ANSWER_RULES, CLAIM_RULES, judge_answer, judge_claims, judge_direct_claim
 
 
 def main():
@@ -19,25 +21,25 @@ def main():
     mode = payload["mode"]
     if mode not in ("validation", "transcript", "claims-pilot", "direct-claim-pilot"):
         raise ValueError("Unknown judge run mode")
+    concurrency = payload.get("concurrency", 1)
+    if type(concurrency) is not int or not 1 <= concurrency <= 4:
+        raise ValueError("Judge concurrency must be an integer from 1 to 4")
     suite = payload.get("suite", "legacy")
     if suite not in ("legacy", "coverage", "benchmark", "claims", "extraction"):
         raise ValueError("Unknown judge suite")
     if suite != "legacy" and (mode != "validation" or payload.get("validationSet", "all") != "all"):
         raise ValueError("Expanded suites require normal validation mode")
-    suite_path = ROOT / "tests/fixtures/judge" / ({"coverage": "coverage.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls.json", "extraction": "claim-controls.json"}.get(suite, "coverage.json"))
+    suite_path = ROOT / "tests/fixtures/judge" / ({"coverage": "coverage-v2.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "claim-controls-v2.json"}.get(suite, "coverage.json"))
     suite_fixture = json.loads(suite_path.read_text()) if suite != "legacy" else None
     freeze = None
     if suite == "benchmark":
-        freeze = json.loads((ROOT / "tests/fixtures/judge/benchmark-freeze.json").read_text())
-        for name, digest in freeze["sha256"].items():
-            if hashlib.sha256((ROOT / name).read_bytes()).hexdigest() != digest:
-                raise ValueError(f"Benchmark freeze mismatch: {name}")
+        raise ValueError("Use the original evaluate.py for the frozen benchmark")
     labeled = mode != "transcript"
     pilot = mode in ("claims-pilot", "direct-claim-pilot")
     judge = {"claims-pilot": judge_claims, "direct-claim-pilot": judge_direct_claim}.get(mode, judge_answer)
     if suite in ("claims", "extraction"):
         judge = judge_direct_claim if suite == "claims" else judge_claims
-    metric_name = {"claims-pilot": "FaithfulnessClaimPipeline", "direct-claim-pilot": "FaithfulnessVerdictStage"}.get(mode, "GEval")
+    metric_name = {"claims-pilot": "FaithfulnessClaimPipeline", "direct-claim-pilot": "FaithfulnessVerdictStage"}.get(mode, "StructuredSupportAssessment")
     if suite in ("claims", "extraction"):
         metric_name = "FaithfulnessVerdictStage" if suite == "claims" else "FaithfulnessClaimPipeline"
     claim_diagnostic = pilot or suite in ("claims", "extraction")
@@ -95,7 +97,8 @@ def main():
         raise ValueError("No scenarios selected")
     model_metadata, generation = judge_metadata()
     report = {
-        "schemaVersion": 2, "mode": mode, "model": model_metadata,
+        "schemaVersion": 3, "mode": mode, "model": model_metadata,
+        "concurrency": concurrency,
         "suite": suite,
         "suiteStatus": suite_fixture["status"] if suite_fixture else "reused-calibration",
         "suiteSha256": hashlib.sha256(suite_path.read_bytes()).hexdigest() if suite_fixture else None,
@@ -109,11 +112,13 @@ def main():
                    "referenceMode": "verbatim" if claim_diagnostic else None,
                    "claimVerification": "one-at-a-time" if claim_diagnostic else None,
                    "strictMode": True, "penalizeAmbiguousClaims": True if claim_diagnostic else None,
-                   "evaluationSteps": None if claim_diagnostic else STEPS},
+                   "evaluationSteps": None,
+                   "gradingRevision": 3,
+                   "assessmentRules": CLAIM_RULES if claim_diagnostic else ANSWER_RULES},
         "generation": generation,
         "evaluatorSha256": {
             **{name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-               for name in ("openrouter_judge.py", "evaluate.py", "uv.lock")},
+               for name in ("openrouter_judge.py", "evaluate.py", "evaluate_support.py", "support_grading.py", "uv.lock")},
             "openrouter-config.json": hashlib.sha256((ROOT / "lib/openrouter-config.json").read_bytes()).hexdigest(),
         },
         "sourceTranscript": payload.get("sourceTranscript"),
@@ -122,40 +127,52 @@ def main():
                      "expectedSamples": sum(len(item[3]) for item in planned)},
         "results": [],
     }
+    def evaluate_row(scenario, fixture_path, fixture, row):
+        started = time.monotonic()
+        answer = row["text"] if labeled else row["answer"]
+        result = {
+            "scenario": scenario, "id": row.get("id", row.get("sample")),
+            "answer": answer, "fixtureSha256": hashlib.sha256(fixture_path.read_bytes()).hexdigest(),
+            "expectedPassed": row.get("correct") if labeled else None,
+            "expectedVerdict": row.get("expectedVerdict") if mode == "direct-claim-pilot" or suite == "claims" else None,
+            "expectedClaims": row.get("expectedClaims") if suite == "extraction" else None,
+            "claimCoverageReviewRequired": suite == "extraction",
+            "expectedTaskComplete": row.get("expectedTaskComplete"),
+            "expectedDimensions": row.get("expectedDimensions"),
+            "factualPassed": row.get("passed") if mode == "transcript" else None,
+            "failure": row.get("failure"),
+        }
+        try:
+            result.update(judge(fixture["question"], answer, fixture["references"][0]))
+            result["agrees"] = result["passed"] == row["correct"] if labeled else None
+            if row.get("expectedDimensions") is not None:
+                result["dimensionAgreement"] = {key: result["dimensions"][key] == value for key, value in row["expectedDimensions"].items()}
+                result["agrees"] = result["agrees"] and all(result["dimensionAgreement"].values())
+            if mode == "direct-claim-pilot" or suite == "claims":
+                result["agrees"] = result["agrees"] and result["verdicts"][0]["verdict"] == row["expectedVerdict"]
+        except Exception as error:
+            result["error"] = f"{type(error).__name__}: {error}"
+            result["calls"] = getattr(error, "judge_calls", [])
+        result["seconds"] = round(time.monotonic() - started, 2)
+        return result
+
     destination = Path(args.output)
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Exclusive files and incremental records preserve failures and interrupted runs.
     with destination.with_suffix(".jsonl").open("x") as evidence:
         evidence.write(json.dumps({"run": report}) + "\n")
         evidence.flush()
-        for scenario, fixture_path, fixture, rows in planned:
-            for row in rows:
-                started = time.monotonic()
-                answer = row["text"] if labeled else row["answer"]
-                result = {
-                    "scenario": scenario, "id": row.get("id", row.get("sample")),
-                    "answer": answer, "fixtureSha256": hashlib.sha256(fixture_path.read_bytes()).hexdigest(),
-                    "expectedPassed": row.get("correct") if labeled else None,
-                    "expectedVerdict": row.get("expectedVerdict") if mode == "direct-claim-pilot" or suite == "claims" else None,
-                    "expectedClaims": row.get("expectedClaims") if suite == "extraction" else None,
-                    "claimCoverageReviewRequired": suite == "extraction",
-                    "expectedTaskComplete": row.get("expectedTaskComplete"),
-                    "factualPassed": row.get("passed") if mode == "transcript" else None,
-                    "failure": row.get("failure"),
-                }
-                try:
-                    result.update(judge(fixture["question"], answer, fixture["references"][0]))
-                    result["agrees"] = result["passed"] == row["correct"] if labeled else None
-                    if mode == "direct-claim-pilot" or suite == "claims":
-                        result["agrees"] = result["agrees"] and result["verdicts"][0]["verdict"] == row["expectedVerdict"]
-                except Exception as error:
-                    result["error"] = f"{type(error).__name__}: {error}"
-                    result["calls"] = getattr(error, "judge_calls", [])
-                result["seconds"] = round(time.monotonic() - started, 2)
-                report["results"].append(result)
+        tasks = [(scenario, path, fixture, row) for scenario, path, fixture, rows in planned for row in rows]
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            pending = {executor.submit(evaluate_row, *task): index for index, task in enumerate(tasks)}
+            completed = {}
+            for future in as_completed(pending):
+                result = future.result()
+                completed[pending[future]] = result
                 evidence.write(json.dumps(result) + "\n")
                 evidence.flush()
-                print(f"Judge {scenario}/{result['id']}: {result.get('error') or result.get('passed')} ({result['seconds']}s)", flush=True)
+                print(f"Judge {result['scenario']}/{result['id']}: {result.get('error') or result.get('passed')} ({result['seconds']}s)", flush=True)
+            report["results"] = [completed[index] for index in range(len(tasks))]
     results = report["results"]
     report["coverage"].update({"processedScenarios": list(dict.fromkeys(row["scenario"] for row in results)),
                                "processedSamples": len(results)})
@@ -166,7 +183,11 @@ def main():
                 "falseRejections": sum(row.get("expectedPassed") is True and row.get("passed") is False for row in completed),
                 "labelDisagreements": sum(row.get("agrees") is False for row in completed),
                 "factualFailures": sum(row.get("factualPassed") is False for row in rows),
-                "judgeRejections": sum(row.get("passed") is False for row in completed)}
+                "judgeRejections": sum(row.get("passed") is False for row in completed),
+                "dimensionDisagreements": {key: sum(row.get("dimensionAgreement", {}).get(key) is False for row in completed)
+                                            for key in ("factualSupport", "taskCompleteness", "answerQuality")},
+                "claimVerdicts": {key: sum(v["verdict"] == key for row in completed for v in row.get("verdicts", []))
+                                  for key in ("yes", "no", "idk")}}
     report["summary"] = {"overall": summarize(results),
                          "byScenario": {scenario: summarize([row for row in results if row["scenario"] == scenario])
                                         for scenario in report["coverage"]["expectedScenarios"]}}
