@@ -476,6 +476,105 @@ chatbot generation were not repeated for this extraction-only change.
 
 The two-answer legacy extraction pilot also completed cleanly with 2/2 support
 labels matching and no execution errors
-([report](../reports/judge-runs/claims-pilot-2026-09-30T21-11-51-472Z-80f57f22-8cf0-4fc6-9a4a-3e5f05671bf2.json)). Its earlier attempt produced the
-expected judgments but exited with a termination signal; that attempt is retained
-separately and is not counted as a clean command pass.
+([report](../reports/judge-runs/claims-pilot-2026-09-30T21-11-51-472Z-80f57f22-8cf0-4fc6-9a4a-3e5f05671bf2.json)).
+
+## Action-response completeness
+
+The prior run disagreed on one dimension of `action-refusal/incorrect`. The
+answer declined reactivation but proposed an invented department for approval.
+The authored expectation counted both actions as addressed, while GLM counted
+approval as missing because it lacked a refusal. Both rejected the answer on
+facts and quality. This phase makes the meaning of completeness explicit.
+
+Completeness now asks whether each requested item received a response. A refusal
+of an action the assistant cannot perform is complete. An explicit proposed route
+or claimed completion also addresses the action, even if false or unauthorized;
+those errors belong to factual support and answer quality. An omitted action or
+information field is missing. A refusal of reactivation alone does not answer
+an approval request, and a status alone does not address a requested change.
+No requested action must actually be performed for an answer to be complete.
+
+The answer rubric is version 8. `coverage-v3.json` preserves all 26 prior examples,
+labels and expected dimensions without alteration, then adds ten examples. These
+cover full and partial refusals, status-only answers, invented routes addressing
+one or both actions, false completion claims, and an action paired with a status
+request. One positive control uses a recorded cancellation-review route without
+promising an outcome. The new controls were authored before live calibration.
+The prior fixture and failed report remain unchanged. The fixture records its
+authoring revision; each report records the actual rubric used in
+`policy.gradingRevision`.
+
+For review, compare each sample's `text` with its question and
+`expectedDimensions` in [coverage-v3.json](../tests/fixtures/judge/coverage-v3.json).
+For example, “I cannot reactivate it” leaves approval unaddressed, while “I cannot
+reactivate it, but [invented department] can approve an exception” addresses
+approval with a false route. The latter still fails overall on facts and quality.
+Review comments should identify the specific requested item or assertion that
+is misclassified. The fixture rationales explain each new case.
+
+The primary GLM model, generator, claim-verification rules, extraction rules and
+original frozen benchmark remain unchanged. This is rubric calibration against
+authored examples, not independent benchmark qualification.
+
+The first revision-4 live attempt also exposed two claim-identification errors:
+GLM inferred an unrecorded ID error from “please check the order ID,” and listed
+a return status from the reference even though the answer omitted it. Revision 5
+introduced verbatim answer quotes and deterministic source validation. That
+validation exposed formatting errors in the next attempt: GLM decorated quotes
+with explanations, split compound sentences using supplied words, and listed an
+implicit conclusion as a separate claim. Those interrupted runs remain retained
+as failed development attempts. Revision 6 tells the judge to copy a whole
+sentence when necessary and place commentary in `reason`. The validator accepts
+one pair of enclosing quotation marks only when the enclosed words occur
+exactly in the answer; it never repairs numbers, words or negation.
+The rubric distinguishes plain advice from factual assertions, while still
+treating asserted policies, resources, capabilities and completed actions as
+facts even when they appear in a recommendation. Invalid source quotes are
+execution errors with retained response evidence, not fabricated factual
+failures. The interrupted revision-4 attempts remain saved and are not counted
+as completed calibration. No expected label or dimension changed in response
+to those results.
+
+Source matching checks that assessed text occurs in the answer. It does not
+prove the judge included every assertion or understood the quoted context.
+The separate extraction controls check authored claim coverage; independent
+human review remains necessary for semantic correctness.
+
+The completed [revision-6 coverage run](../reports/judge-runs/validation-2026-09-30T22-25-26-465Z-730eb487-f15e-4e8f-a9c1-57cc9221b0da.json) matched all 36 overall labels with no
+execution errors, but matched only 35/36 complete dimensional expectations.
+For `action-refusal/approval-route-only`, GLM inferred a reactivation route
+from the invented department’s name even though the answer proposed approval
+only. Revision 7 forbids inferring an unmentioned action from a resource name
+or another action’s prerequisites. The original expected dimensions remain
+unchanged.
+
+The revision-6 legacy regression run matched all 30 unchanged original labels
+with no execution errors ([report](../reports/judge-runs/validation-2026-09-30T22-25-28-503Z-b1aae123-9540-4666-89fe-f5e1aad9921a.json)).
+Its questions cover product availability and comparisons. Revisions 7 and 8
+change only the action-completeness wording; the source-quote validator and factual
+assessment schema are the same.
+
+Revision 7 overcorrected that distinction: GLM treated an explicit assertion
+that a department _can_ perform an action as a bare resource mention. It again
+marked approval missing in the original invented-route case and marked both
+actions missing in `fabricated-route-both`. Revision 8 explicitly counts an
+asserted capability as a proposed route while continuing to reject an inferred,
+unmentioned action. No label or expected dimension was changed.
+
+The completed [revision-7 run](../reports/judge-runs/validation-2026-09-30T22-44-31-323Z-4c14d2c7-206c-4b49-b406-a40178e78ac4.json) matched all 36 overall labels,
+with no execution errors and 34/36 complete dimensional matches. Its only
+disagreements were the two proposed-route cases described above.
+
+The final [revision-8 coverage run](../reports/judge-runs/validation-2026-09-30T22-59-40-430Z-8d11dcf7-46cf-4d7f-a8f6-3d03a8f366e2.json) matched
+all 36 overall labels and all 36 complete dimensional expectations. It processed
+all 14 planned scenarios and all 36 planned samples, with zero false acceptances,
+zero false rejections and zero execution errors. All eight action-refusal controls
+and all four action-and-information controls matched every authored dimension.
+These results calibrate the authored examples; independent review of the labels
+and explanations remains pending before qualification as a gate.
+
+`npm run check` passed lint, formatting, type checking, 304 application tests,
+124 Python tests, seed validation and the production build. After the final
+action wording and stronger fixture-preservation assertions, the Python suite
+again passed all 124 tests. The preservation check covers original questions,
+reference facts, answers, rationales, labels and expected dimensions.
