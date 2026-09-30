@@ -17,7 +17,6 @@ const key = 'test-key-not-a-secret';
 function useOpenRouter(apiKey = key) {
   vi.spyOn(runtime, 'supportModelConfig').mockReturnValue(
     getSupportModelConfig({
-      SUPPORT_MODEL_PROVIDER: 'openrouter',
       OPENROUTER_API_KEY: apiKey,
     }),
   );
@@ -31,7 +30,6 @@ it('uses the pinned hosted model with server credentials and no local-only param
     distributorId: calderPikeUser.distributorId,
     authorizedContext: 'Available stock: 312 units.',
     messages: [{ role: 'user', content: 'How much is available?' }],
-    generation: { seed: 42 },
   });
   expect(url).toBe(OPENROUTER_CHAT_URL);
   expect(new Headers(request.headers).get('Authorization')).toBe(
@@ -60,10 +58,22 @@ it('uses the pinned hosted model with server credentials and no local-only param
   expect(request.body).not.toContain(key);
 });
 
-it('fails closed for invalid provider configuration', () => {
+it('uses OpenRouter by default and requires a key without provider switches', () => {
+  const config = getSupportModelConfig();
+  expect(config).toMatchObject({
+    provider: 'openrouter',
+    url: OPENROUTER_CHAT_URL,
+    contextTokens: 8192,
+  });
+  useOpenRouter('');
   expect(() =>
-    getSupportModelConfig({ SUPPORT_MODEL_PROVIDER: 'typo' }),
-  ).toThrow(/local or openrouter/);
+    createSupportModelRequest({
+      distributorName: calderPikeUser.distributorDisplayName,
+      distributorId: calderPikeUser.distributorId,
+      authorizedContext: 'No records.',
+      messages: [{ role: 'user', content: 'Show my order.' }],
+    }),
+  ).toThrow(/OPENROUTER_API_KEY/);
 });
 
 it.each([401, 402, 429, 503])(

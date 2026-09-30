@@ -1,11 +1,6 @@
-import { closeSync, existsSync, mkdirSync, openSync, writeSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, writeSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
-import {
-  localModelIsReady,
-  modelLaunch,
-  waitForModel,
-} from './lib/local-model.mjs';
 import { createProcessScope, exitStatus } from './lib/process-scope.mjs';
 import { loadLocalEnvironment } from './lib/environment.mjs';
 import {
@@ -14,11 +9,7 @@ import {
 } from '../lib/support-model-config.mjs';
 
 const scope = createProcessScope();
-const logPath = resolve('reports/server-logs/llama-test-server.log');
-let logFile;
 let testExitCode;
-let ownedModel;
-let releasingModel = false;
 
 async function runVitest() {
   const vitestEntrypoint = resolve('node_modules/vitest/vitest.mjs');
@@ -90,43 +81,14 @@ async function runVitest() {
 try {
   loadLocalEnvironment();
   const config = getSupportModelConfig(process.env);
-  if (config.provider === 'openrouter') {
-    supportModelHeaders(config);
-    console.info(
-      `Live tests use OpenRouter ${config.model}; API requests are billed.`,
-    );
-  } else if (!(await localModelIsReady(scope.signal))) {
-    scope.signal.throwIfAborted();
-    const launch = modelLaunch();
-    if (!existsSync(launch.path))
-      throw new Error(`Missing model file: ${launch.path}`);
-    mkdirSync(dirname(logPath), { recursive: true });
-    logFile = openSync(logPath, 'a');
-    const model = scope.start(launch.executable, launch.args, {
-      stdio: ['ignore', logFile, logFile],
-    });
-    ownedModel = model;
-    void model.exited.then((result) => {
-      if (scope.stopping || releasingModel) return;
-      console.error(
-        result.error
-          ? `Could not start llama-server: ${result.error.message}`
-          : `llama-server stopped unexpectedly. See ${logPath}`,
-      );
-      return scope.stop(exitStatus(result) || 1);
-    });
-    await waitForModel(localModelIsReady, scope.signal);
-  }
+  supportModelHeaders(config);
+  console.info(
+    `Live tests use OpenRouter ${config.model}; API requests are billed.`,
+  );
   scope.signal.throwIfAborted();
   const { code, transcriptPath } = await runVitest();
   testExitCode = code;
   if (!scope.stopping) {
-    // Release only our own chatbot model before loading the larger judge.
-    if (ownedModel) {
-      releasingModel = true;
-      await ownedModel.stop();
-      await ownedModel.closed;
-    }
     const { listSamplingScenarios, getSamplingScenario } =
       await import('../tools/evaluation/sampling-results.mjs');
     const { readFileSync } = await import('node:fs');
@@ -153,7 +115,6 @@ try {
   }
 } finally {
   await scope.stop();
-  if (logFile !== undefined) closeSync(logFile);
   scope.dispose();
   process.exitCode = scope.exitCode;
 }

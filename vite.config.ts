@@ -43,8 +43,6 @@ export default defineConfig(async ({ command }) => {
           ...localBindingConfig,
           vars: {
             SABLE_LOCAL_DEMO: command === 'serve' ? 'true' : 'false',
-            SUPPORT_MODEL_PROVIDER:
-              process.env.SUPPORT_MODEL_PROVIDER || 'local',
             OPENROUTER_SUPPORT_MODEL:
               process.env.OPENROUTER_SUPPORT_MODEL || OPENROUTER_MODEL,
           },

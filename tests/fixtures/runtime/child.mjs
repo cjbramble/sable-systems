@@ -12,7 +12,7 @@ function report(event) {
 
 process.on('SIGTERM', () => {
   report('term');
-  if (scenario.endsWith('resistant') && role === 'model') return;
+  if (scenario.endsWith('resistant')) return;
   if (role === 'vitest') {
     // A delayed final chunk proves the parent drains streams before finishing.
     setTimeout(() => {
@@ -38,11 +38,7 @@ if (role === 'vitest') {
       if (message.event === 'ready') process.exit(0);
     });
   }
-  if (
-    scenario.endsWith('normal') ||
-    scenario.endsWith('borrowed') ||
-    scenario.endsWith('resistant')
-  ) {
+  if (scenario.endsWith('normal')) {
     setTimeout(
       () => process.stdout.write('final test verdict\n', () => process.exit(0)),
       40,

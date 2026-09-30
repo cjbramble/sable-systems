@@ -1005,8 +1005,8 @@ export default function SupportPage() {
             <div>
               <Check />
               <span>
-                <strong>Private cognition node</strong>
-                <small>Qwen3 4B · local inference</small>
+                <strong>Grounded support responses</strong>
+                <small>Authorized account records only</small>
               </span>
             </div>
             <div>

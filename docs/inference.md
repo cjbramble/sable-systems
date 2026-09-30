@@ -1,9 +1,11 @@
-# OpenRouter trial
+# OpenRouter inference
 
-This branch prepares COV-E and its independently configured advisory judge for
-`deepseek/deepseek-v4.1-flash` through OpenRouter. Initial verification is recorded
-below; broader production quality remains unproven.
-The previous local fixes are on `main` at `186a6e2`.
+COV-E and its advisory judge use `deepseek/deepseek-v4.1-flash` through OpenRouter.
+The default model and provider/privacy routing are shared in
+`lib/openrouter-config.json`. Model overrides and generation settings remain
+separate for chat and judging. Local inference launchers, provider switches,
+model downloads, and weights have been removed. Historical results below retain
+the evidence that informed this choice; production quality remains unproven.
 
 ## Start
 
@@ -13,15 +15,14 @@ in by the user during setup. Run `npm run dev`. A new checkout should first copy
 The file is Git-ignored. Never put the key in a `VITE_*` or `NEXT_PUBLIC_*`
 variable, a browser component, a commit, or a test transcript.
 
-Chat and judging both select OpenRouter in the example file. The two provider
-and model settings are independent; local mode remains available for comparison.
-Both hosted defaults pin the DeepInfra FP8 endpoint (`only: ['deepinfra/fp8']`), prohibit
+Chat and judging both use OpenRouter, with independent model and generation
+settings. Both defaults pin the DeepInfra FP8 endpoint (`only: ['deepinfra/fp8']`), prohibit
 provider fallback, and require supported parameters. COV-E disables reasoning
 and keeps its 600-token answer budget. The advisory judge enables reasoning
 with an 8,192-token limit, raised from 1,024; this total covers both reasoning
 and the JSON verdict. They enforce `data_collection: 'deny'`
-and `zdr: true`. For consistency across hosted routes, they omit the local seed
-parameter. Hosted model overrides must be available on that pinned endpoint.
+and `zdr: true`. They omit the seed parameter. Model overrides must be available
+on that pinned endpoint.
 
 The app sends only server-selected authorized records and saved history. It
 keeps deterministic incident/no-match replies, authentication, request quotas,
@@ -33,7 +34,7 @@ an exchange. No automatic switch to a different model is made.
 gateway reachability. It does not establish sufficient credits, inference
 capacity, or model quality. A blank key makes it unavailable without a request.
 
-## Run the experiment
+## Run evaluations
 
 Offline checks do not spend credits:
 
@@ -42,8 +43,7 @@ npm run check
 npm run test:python
 ```
 
-Prepare the judge's Python dependencies. With the hosted judge selected,
-setup does not download model weights:
+Prepare the judge's Python dependencies:
 
 ```sh
 npm run setup:judge
@@ -63,7 +63,7 @@ npm run test:model
 Retain the original outputs and failures. Do not change references or lower
 thresholds to fit hosted answers. Factual assertions remain mandatory; judge
 verdicts remain advisory, especially when the same model generates and judges.
-The new judge needs its own calibration against the authored labels.
+Calibrate a changed judge configuration against the authored labels.
 
 For the same 30 authored examples with reasoning off and on, respectively:
 
@@ -76,7 +76,7 @@ Both runs keep the same model, endpoint, rubric, fixtures, temperature, and tota
 output limit. Each makes 30 billed requests. Shell overrides take precedence
 over `.env`. `OPENROUTER_JUDGE_REASONING` accepts `true` or `false` (default
 `true`); `OPENROUTER_JUDGE_MAX_TOKENS` accepts integers from 256 to 32768 (default
-8192). These settings affect only the hosted judge. A truncated verdict remains
+8192). These settings affect only the judge. A truncated verdict remains
 an execution error; its response is retained instead of being treated as a pass.
 
 Transcripts are saved under `reports/model-runs/`; judge JSON/JSONL reports
@@ -151,7 +151,7 @@ tokens; the largest individual completion was 749 tokens. The off run used
 the raised limit; 8,192 provides headroom for harder judgments. Raising a cap
 does not itself consume that many tokens.
 
-Keep hosted judge reasoning enabled and COV-E reasoning disabled. These are
+Keep judge reasoning enabled and COV-E reasoning disabled. These are
 reused calibration examples and one observation per setting, so 30/30 does not
 establish general judge accuracy or qualify it as a gate. The measured costs
 come from response usage and exclude platform fees. Timing and prompt-cache
@@ -171,16 +171,54 @@ reports/judge-runs/validation-2026-09-30T02-08-39-787Z-3c6459bb-338b-4008-9e80-6
 reports/judge-runs/validation-2026-09-30T02-09-35-791Z-3715f2dc-8ea1-4245-bb7a-56a4dd95342a.json
 ```
 
+## API-only consolidation (2026-09-29)
+
+Removed the local model launch/setup code, model manifests, provider switches,
+and both project GGUF files (11,499,033,696 bytes, approximately 11.5 GB). The
+app launcher is now `scripts/dev.mjs`; Python judging uses
+`tools/evaluation/openrouter_judge.py`. `npm run setup:judge` only installs the
+locked Python dependencies. Both adapters read the default model and privacy
+routing from `lib/openrouter-config.json`. There is no local inference fallback.
+The ignored `.env` retains the configured key and supported model/reasoning
+settings; obsolete provider and local-runtime variables have been removed.
+
+Verification after removal:
+
+- `npm run check`: 303 application tests, lint, formatting, type checks, seed
+  validation, and production build pass. Local-runtime-only tests were removed;
+  process cleanup and interruption tests remain for the app and live-test runner.
+- `npm run test:python`: 42 adapter/report tests pass. The network guard rejects
+  all connections outside an explicit OpenRouter request, including loopback.
+- Production-build browser suite: all 36 tests pass using dummy credentials and
+  mocked OpenRouter transport; no inference charges.
+- Six live authenticated topic-switch/return-refusal samples pass, with one
+  request each and no reasoning tokens. The return record remains unchanged.
+- The API-only judge matches all eight selected calibration labels, including
+  rejection of the 320-unit stock overclaim. This remains advisory validation.
+- Actual development startup returns HTTP 200 for the home page and
+  `/api/status` with `ready: true`. The verification server was stopped cleanly.
+- The key is absent from the Git diff, client build, and retained verification
+  evidence; `.env` remains ignored with owner-only permissions.
+
+Retained live evidence (Git-ignored):
+
+```text
+reports/model-runs/2026-09-30T03-15-36-813Z-1dcca493-76e1-4c62-ac48-87643431e57d.log
+reports/judge-runs/validation-2026-09-30T03-15-35-891Z-716747ef-62d3-417b-acbb-c7650f2ff9ad.json
+```
+
+Historical local transcripts, judge reports, and the existing demonstration
+recording are retained as evidence; the README marks that recording as historical.
+Current judge reports also hash the shared configuration to detect routing drift.
+
 ## Cloud environment
 
 Install Node dependencies with `npm ci`. Set the following environment variables,
 and store the key as a secret available to the task runtime:
 
 ```text
-SUPPORT_MODEL_PROVIDER=openrouter
 OPENROUTER_API_KEY=<secret>
 OPENROUTER_SUPPORT_MODEL=deepseek/deepseek-v4.1-flash
-JUDGE_PROVIDER=openrouter
 OPENROUTER_JUDGE_MODEL=deepseek/deepseek-v4.1-flash
 OPENROUTER_JUDGE_REASONING=true
 OPENROUTER_JUDGE_MAX_TOKENS=8192
@@ -188,7 +226,7 @@ OPENROUTER_JUDGE_MAX_TOKENS=8192
 
 Allow outbound HTTPS to `openrouter.ai` for live inference. Dependency installation
 also needs its package registries. Python setup is needed only for judge tests.
-No model downloads, GPU, or inference service on port 8017 are required.
+No model downloads, GPU, or local inference service are required.
 `npm run check` and mocked tests work without the key; live tests need it in
 their runtime, not solely in an environment's installation phase.
 

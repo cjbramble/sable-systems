@@ -6,13 +6,13 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "node scripts/dev-local.mjs",
+    "dev": "node scripts/dev.mjs",
     "dev:web": "vinext dev --hostname 127.0.0.1 --port 8016",
     "build": "vinext build",
     "validate:data": "node --experimental-strip-types scripts/validate-seed.mjs",
     "test": "vitest run",
     "test:model": "node scripts/test-support-model.mjs",
-    "setup:judge": "uv sync --project tools/evaluation --locked && node scripts/setup-judge.mjs",
+    "setup:judge": "uv sync --project tools/evaluation --locked",
     "test:judge": "node scripts/test-support-judge.mjs",
     "test:python": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --project tools/evaluation --locked --offline python -m pytest -c tools/evaluation/pyproject.toml tests/unit/judge-python",
     "test:e2e": "npm run build && playwright test",

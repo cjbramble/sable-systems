@@ -48,7 +48,7 @@ export const test = base.extend<Fixtures>({
       );
     const responseSequence = modelResponses?.slice() ?? null;
     const modelRequests: unknown[] = [];
-    let modelMetadata: unknown = { data: [{ id: 'customer-support-local' }] };
+    let modelMetadata: unknown = { data: { limit_remaining: 1 } };
     const unexpectedRequests: string[] = [];
     const serverPath = projectPath('dist/server');
     const files = await readdir(serverPath, { recursive: true });
@@ -73,7 +73,10 @@ export const test = base.extend<Fixtures>({
         compatibilityFlags: ['nodejs_compat'],
         d1Databases: ['DB'],
         d1Persist: false,
-        bindings: { SABLE_LOCAL_DEMO: String(localDemo) },
+        bindings: {
+          SABLE_LOCAL_DEMO: String(localDemo),
+          OPENROUTER_API_KEY: 'browser-test-key',
+        },
         assets: {
           directory: projectPath('dist/client'),
           binding: 'ASSETS',
@@ -83,13 +86,13 @@ export const test = base.extend<Fixtures>({
         outboundService: async (request: WorkerRequest) => {
           if (
             request.method === 'GET' &&
-            request.url === 'http://127.0.0.1:8017/v1/models'
+            request.url === 'https://openrouter.ai/api/v1/key'
           ) {
             return Response.json(modelMetadata);
           }
           if (
             request.method === 'POST' &&
-            request.url === 'http://127.0.0.1:8017/v1/chat/completions'
+            request.url === 'https://openrouter.ai/api/v1/chat/completions'
           ) {
             modelRequests.push(await request.json());
             if (responseSequence !== null) {

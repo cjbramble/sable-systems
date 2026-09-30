@@ -1,14 +1,13 @@
 # Model evaluation
 
-For setup and commands, see [Testing](../README.md#testing). Model identity and
-download details are in the [judge model record](../models/judge/README.md).
-This branch adds independently selectable hosted generation and judging;
-see [OpenRouter trial](openrouter-trial.md) for routing, configuration, and
-retained live verification. Historical local results below remain unchanged.
+For setup and commands, see [Testing](../README.md#testing) and
+[OpenRouter inference](inference.md). COV-E and the advisory judge use the
+external API; historical local results below remain as evidence of earlier
+experiments. Their runtimes and model weights have been removed.
 
 ## Validation status
 
-Both local and hosted judges remain advisory and are not approved as a pass/fail gate for
+The judge remains advisory and are not approved as a pass/fail gate for
 chatbot responses. It has accepted incorrect claims, rejected correct answers,
 and produced faulty explanations for otherwise correct verdicts.
 
@@ -18,18 +17,17 @@ The eight selected by `--holdout` are no longer an untouched validation set.
 
 ## Evaluation method
 
-With local providers selected, the runner generates chatbot responses, unloads that model, then loads the local
-Qwen3-14B judge with an 8,192-token context and one processing slot. Evaluation
-code, model configuration, and the locked Python project live in
-`tools/evaluation/`; tests, assertions, and reference fixtures remain in `tests/`.
+The runner generates chatbot responses and judges retained samples through
+OpenRouter. Code and the locked Python project live in `tools/evaluation/`;
+the shared default model and privacy routing live in `lib/openrouter-config.json`.
+Tests, assertions, and reference fixtures remain in `tests/`.
 
 - **Normal evaluation:** DeepEval GEval applies fixed steps to the customer
   question, answer, and authored reference. Verdicts are schema-constrained and
-  binary, at temperature 0. Local requests use non-thinking generation, seed 42,
-  and a 1,024-token output limit. The hosted judge enables reasoning with an
-  8,192-token limit shared by reasoning and the JSON verdict; it omits the seed
-  and requires structured-output support. Environment overrides allow a
-  controlled reasoning comparison; see [OpenRouter trial](openrouter-trial.md).
+  binary, at temperature 0. The judge enables reasoning with an 8,192-token
+  limit shared by reasoning and the JSON verdict, omits the seed, and requires
+  structured-output support. Environment overrides allow a controlled reasoning
+  comparison; see [OpenRouter inference](inference.md).
 - **Claim-level diagnostic:** Extracts claims from two labeled answers and checks
   each separately against the verbatim reference. An answer is judged faithful
   only when every claim receives `yes`; missing verdicts are errors. This does
@@ -69,9 +67,9 @@ Equivalent wording has produced opposite judge verdicts. Adding the product name
 did not resolve the tested overclaims; the earlier missing-identity hypothesis
 was not supported by that experiment.
 
-## Known intermittent failure
+## Historical local intermittent failure
 
-The chatbot model is not fully deterministic between runs, even at temperature 0
+The former local chatbot model was not fully deterministic between runs, even at temperature 0
 with a fixed seed: llama-server prompt caching and batching can change a close
 token choice. One case exposes a real weakness this way.
 
@@ -95,7 +93,7 @@ The hosted V4.1 Flash comparison on 2026-09-29 matched 28/30 labels with reasoni
 off and 30/30 with reasoning on, using the same 8,192-token limits and fixed
 rubric. Reasoning corrected both the false rejection and the 320-unit stock
 overclaim. The judge remains advisory; these reused examples do not establish
-general accuracy. See [comparison results](openrouter-trial.md#judge-reasoning-comparison-2026-09-29)
+general accuracy. See [comparison results](inference.md#judge-reasoning-comparison-2026-09-29)
 for timing, usage, configuration, and retained evidence.
 
 The historical local prompt, reasoning-mode, and claim-level experiments are
@@ -156,15 +154,18 @@ seed validation and the production build. The unchanged 14B advisory judge
 accepted all ten case-pack/comparison answers without execution errors; this
 does not qualify it as a gate. Evidence: [final judge report][response-fixes-judge].
 
-The model configuration stays 4B for COV-E and 14B for the advisory judge.
+At that point, the local configuration stayed 4B for COV-E and 14B for the
+advisory judge. Current inference is through OpenRouter as described above.
 These are local regression results, not a general accuracy measurement.
 
 All linked run artifacts are local and Git-ignored, under `reports/model-runs/`
 and `reports/judge-runs/`. They are not included in a fresh clone.
 
-Each judge report records SHA-256 hashes of `local_judge.py`, `evaluate.py`, and
-`uv.lock` under `evaluatorSha256`. Compare them with the current files in
-`tools/evaluation/` before treating a report as a result for the current commit.
+Current judge reports record SHA-256 hashes of `openrouter_judge.py`,
+`evaluate.py`, `uv.lock`, and the shared `openrouter-config.json` under
+`evaluatorSha256`. Historical reports refer to the former `local_judge.py`.
+Compare the recorded hashes with the matching Git revision before treating a
+report as a result for the current code.
 
 [prompt]: ../reports/judge-runs/validation-2026-09-13T04-39-29-267Z-fda8550b-5254-447e-9292-4ca2c3024076.json
 [reasoning]: ../reports/judge-runs/validation-2026-09-13T10-49-54-842Z-16336bcd-f72c-4698-bf4e-54049bf79177.json

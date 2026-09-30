@@ -61,16 +61,6 @@ yarn-error.log*
 /.turbo/
 *.tsbuildinfo
 
-# local model weights
-/models/judge/*.partial
-/models/**/*.gguf
-/models/**/*.safetensors
-/models/**/*.onnx
-/models/**/*.bin
-/models/**/*.ckpt
-/models/**/*.pt
-/models/**/*.pth
-
 # deployment and generated files
 .vercel
 next-env.d.ts

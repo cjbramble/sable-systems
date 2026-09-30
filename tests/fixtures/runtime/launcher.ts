@@ -32,13 +32,6 @@ export function alive(pid: number) {
 
 export function launchFixture(scenario: string) {
   const directory = mkdtempSync(join(tmpdir(), 'support-launcher-'));
-  const borrowed =
-    scenario === 'test-borrowed'
-      ? spawn(process.execPath, [here('./child.mjs'), 'borrowed'], {
-          detached: true,
-          stdio: 'ignore',
-        })
-      : null;
   writeFileSync(
     join(directory, 'package.json'),
     JSON.stringify({
@@ -47,7 +40,7 @@ export function launchFixture(scenario: string) {
     }),
   );
   const script = scenario.startsWith('dev-')
-    ? 'dev-local.mjs'
+    ? 'dev.mjs'
     : 'test-support-model.mjs';
   const child = spawn(
     process.execPath,
@@ -57,14 +50,9 @@ export function launchFixture(scenario: string) {
       detached: true,
       env: {
         ...process.env,
-        SUPPORT_MODEL_PROVIDER: scenario.includes('openrouter')
-          ? 'openrouter'
-          : 'local',
         OPENROUTER_API_KEY: scenario.includes('missing-key')
           ? ''
           : 'launcher-test-key',
-        LLAMA_SERVER: 'launcher-test-model',
-        CUSTOMER_SUPPORT_MODEL_PATH: here('./child.mjs'),
         LAUNCHER_TEST_CASE: scenario,
       },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
@@ -115,11 +103,7 @@ export function launchFixture(scenario: string) {
   ];
   onTestFinished(async () => {
     // Only fixture-owned PIDs/groups, never a user service or a port-based target.
-    for (const pid of [
-      child.pid!,
-      ...pids(),
-      ...(borrowed?.pid ? [borrowed.pid] : []),
-    ]) {
+    for (const pid of [child.pid!, ...pids()]) {
       if (!alive(pid)) continue;
       try {
         process.kill(-pid, 'SIGKILL');
@@ -134,10 +118,7 @@ export function launchFixture(scenario: string) {
     }
     await closed;
     await waitFor(
-      () =>
-        [...pids(), ...(borrowed?.pid ? [borrowed.pid] : [])].every(
-          (pid) => !alive(pid),
-        ),
+      () => pids().every((pid) => !alive(pid)),
       'fixture cleanup stopped all descendants',
     );
     rmSync(directory, { recursive: true });
@@ -146,7 +127,6 @@ export function launchFixture(scenario: string) {
     child,
     events,
     waitFor,
-    borrowedPid: borrowed?.pid,
     async stopped(code: number) {
       await waitFor(() => exit !== null, 'launcher exited');
       expect(exit).toEqual({ code, signal: null });
@@ -163,13 +143,6 @@ export function launchFixture(scenario: string) {
             (event) => event.event === 'ready' && event.role === role,
           ),
         `${role} ready`,
-      );
-    },
-    async releaseReadiness() {
-      await new Promise<void>((resolve, reject) =>
-        child.send('release-readiness', (error) =>
-          error ? reject(error) : resolve(),
-        ),
       );
     },
     transcripts() {

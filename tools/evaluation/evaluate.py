@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 import time
 
-from local_judge import ROOT, STEPS, judge_metadata, judge_answer, judge_claims, judge_direct_claim
+from openrouter_judge import ROOT, STEPS, judge_metadata, judge_answer, judge_claims, judge_direct_claim
 
 
 def main():
@@ -44,7 +44,11 @@ def main():
                    "strictMode": True, "penalizeAmbiguousClaims": True if pilot else None,
                    "evaluationSteps": None if pilot else STEPS},
         "generation": generation,
-        "evaluatorSha256": {name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest() for name in ("local_judge.py", "evaluate.py", "uv.lock")},
+        "evaluatorSha256": {
+            **{name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
+               for name in ("openrouter_judge.py", "evaluate.py", "uv.lock")},
+            "openrouter-config.json": hashlib.sha256((ROOT / "lib/openrouter-config.json").read_bytes()).hexdigest(),
+        },
         "sourceTranscript": payload.get("sourceTranscript"),
         "sourceSha256": payload.get("sourceSha256"),
         "results": [],

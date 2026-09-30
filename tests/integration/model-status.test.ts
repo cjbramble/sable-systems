@@ -7,35 +7,23 @@ afterEach(() => vi.restoreAllMocks());
 describe('model status endpoint', () => {
   it.each([
     {
-      name: 'expected model',
-      response: () =>
-        Response.json({ data: [{ id: 'customer-support-local' }] }),
+      name: 'valid key metadata',
+      response: () => Response.json({ data: { limit_remaining: 1 } }),
       ready: true,
     },
     {
-      name: 'expected model among other entries',
-      response: () =>
-        Response.json({
-          data: [null, { id: 'other' }, { id: 'customer-support-local' }],
-        }),
-      ready: true,
-    },
-    {
-      name: 'unrelated and similarly named models',
-      response: () =>
-        Response.json({
-          data: [{ id: 'other' }, { id: 'customer-support-local-extra' }],
-        }),
-      ready: false,
-    },
-    {
-      name: 'missing model list',
+      name: 'missing key metadata',
       response: () => Response.json({}),
       ready: false,
     },
     {
-      name: 'non-array model list',
-      response: () => Response.json({ data: { id: 'customer-support-local' } }),
+      name: 'array instead of key metadata',
+      response: () => Response.json({ data: [] }),
+      ready: false,
+    },
+    {
+      name: 'scalar key metadata',
+      response: () => Response.json({ data: 'not metadata' }),
       ready: false,
     },
     {
@@ -49,12 +37,8 @@ describe('model status endpoint', () => {
       ready: false,
     },
     {
-      name: 'HTTP failure with an expected-model body',
-      response: () =>
-        Response.json(
-          { data: [{ id: 'customer-support-local' }] },
-          { status: 503 },
-        ),
+      name: 'HTTP failure',
+      response: () => Response.json({ data: {} }, { status: 503 }),
       ready: false,
     },
   ])('reports readiness for $name', async ({ response, ready }) => {
@@ -65,9 +49,11 @@ describe('model status endpoint', () => {
     expect(result.status).toBe(ready ? 200 : 503);
     expect(await result.json()).toEqual({ ready });
     expect(transport).toHaveBeenCalledExactlyOnceWith(
-      'http://127.0.0.1:8017/v1/models',
+      'https://openrouter.ai/api/v1/key',
       expect.objectContaining({
-        headers: { Accept: 'application/json' },
+        headers: expect.objectContaining({
+          Authorization: 'Bearer offline-test-key',
+        }),
         signal: expect.any(AbortSignal),
       }),
     );

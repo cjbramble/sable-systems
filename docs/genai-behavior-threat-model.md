@@ -2,7 +2,7 @@
 
 Approved by the project owner on 2026-09-15 and revised on 2026-09-29 to describe
 the current implementation. The contract and threat tables are requirements, not implemented guarantees.
-The OpenRouter trial changes inference transport; the support scope stays read-only.
+Inference uses OpenRouter; the support scope stays read-only.
 
 ## System boundary
 
@@ -14,13 +14,13 @@ latest customer message, looking back through saved incident history for
 follow-ups → distributor- or user-scoped SQL retrieval → a system message with the
 policy prompt, then a JSON data message labeled `authorized_support_records`, then
 up to 11 saved incident messages and the current customer message → the configured
-support model (local Qwen3-4B or DeepSeek V4.1 Flash through OpenRouter) →
+support model (DeepSeek V4.1 Flash through OpenRouter) →
 identifier validation → response and optional incident persistence. This is
 structured-data RAG. The model does not write SQL or modify business records. Only
 the latest customer message and its reply are saved per exchange; chat
 persistence is not an order-management capability.
 
-The independently configured evaluator (local Qwen3-14B or hosted V4.1 Flash) is
+The independently configured evaluator (V4.1 Flash with reasoning) is
 advisory and not approved as a pass/fail gate;
 see [Model evaluation](model-evaluation.md). Evaluator failures must not be
 reported as measured COV-E failures.
@@ -156,7 +156,7 @@ Known gaps, from the 2026-09-24 code review:
   authenticated API-path cases rather than only direct model calls.
 - **Playwright:** a few error/success workflows with page objects and controlled replies.
 - **pytest/DeepEval:** evaluator contracts and rubric judgments. Validate each
-  metric/local-judge combination independently before blocking use.
+  metric/model combination independently before blocking use.
 
 Start with one distinct challenging case and a benign control per behavior;
 use paired variants for bias. Freeze reviewed expectations first. Propose three

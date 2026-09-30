@@ -976,7 +976,7 @@ describe('support response safety', () => {
           failure === 'context-overflow' ||
           failure === 'other-bad-request'
         ) {
-          // llama-server's error shape for a prompt beyond --ctx-size.
+          // OpenRouter's error shape for a prompt beyond the context window.
           modelResponse = Response.json(
             {
               error:
@@ -984,10 +984,8 @@ describe('support response safety', () => {
                   ? {
                       code: 400,
                       message:
-                        'the request exceeds the available context size, try increasing it',
-                      type: 'exceed_context_size_error',
-                      n_prompt_tokens: 5120,
-                      n_ctx: 4096,
+                        'This request exceeds the maximum context length.',
+                      type: 'invalid_request_error',
                     }
                   : {
                       code: 400,

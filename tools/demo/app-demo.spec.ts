@@ -10,15 +10,16 @@ import {
   Response as WorkerResponse,
   type Request as WorkerRequest,
 } from 'miniflare';
-import { mkdir, open, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createProcessScope } from '../../scripts/lib/process-scope.mjs';
+import { loadLocalEnvironment } from '../../scripts/lib/environment.mjs';
 import {
-  localModelIsReady,
-  modelLaunch,
-  waitForModel,
-} from '../../scripts/lib/local-model.mjs';
+  getSupportModelConfig,
+  OPENROUTER_KEY_URL,
+  supportModelHeaders,
+} from '../../lib/support-model-config.mjs';
 import { ShopPage } from '../../tests/e2e/pages/shop-page';
 import { SupportPage } from '../../tests/e2e/pages/support-page';
 
@@ -30,7 +31,12 @@ test('landing to checkout to live COV-E order lookup', async ({
   const directory = info.outputPath('capture');
   const viewport = { width: 1440, height: 900 };
   await mkdir(directory, { recursive: true });
-  const log = await open(resolve(directory, 'model-server.log'), 'a');
+  loadLocalEnvironment();
+  const config = getSupportModelConfig({
+    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+    OPENROUTER_SUPPORT_MODEL: process.env.OPENROUTER_SUPPORT_MODEL,
+  });
+  const headers = supportModelHeaders(config);
   const calls: { request: unknown; response: unknown }[] = [];
   const stages: { name: string; seconds: number }[] = [];
   const errors: string[] = [];
@@ -46,16 +52,6 @@ test('landing to checkout to live COV-E order lookup', async ({
   const pause = (ms: number) => delay(ms, undefined, { signal: scope.signal });
 
   try {
-    if (!(await localModelIsReady(scope.signal))) {
-      const launch = modelLaunch();
-      const model = scope.start(launch.executable, launch.args, {
-        stdio: ['ignore', log.fd, log.fd],
-      });
-      void model.exited.then(() => {
-        if (!scope.stopping) void scope.stop(1);
-      });
-      await waitForModel(localModelIsReady, scope.signal);
-    }
     const serverPath = resolve('dist/server');
     const files = await readdir(serverPath, { recursive: true });
     // A disposable production-build instance. No working database is read or written.
@@ -78,7 +74,11 @@ test('landing to checkout to live COV-E order lookup', async ({
         compatibilityFlags: ['nodejs_compat'],
         d1Databases: ['DB'],
         d1Persist: false,
-        bindings: { SABLE_LOCAL_DEMO: 'true' },
+        bindings: {
+          SABLE_LOCAL_DEMO: 'true',
+          OPENROUTER_API_KEY: config.apiKey,
+          OPENROUTER_SUPPORT_MODEL: config.model,
+        },
         assets: {
           directory: resolve('dist/client'),
           binding: 'ASSETS',
@@ -86,10 +86,8 @@ test('landing to checkout to live COV-E order lookup', async ({
         },
         outboundService: async (request: WorkerRequest) => {
           const allowed =
-            (request.method === 'GET' &&
-              request.url === 'http://127.0.0.1:8017/v1/models') ||
-            (request.method === 'POST' &&
-              request.url === 'http://127.0.0.1:8017/v1/chat/completions');
+            (request.method === 'GET' && request.url === OPENROUTER_KEY_URL) ||
+            (request.method === 'POST' && request.url === config.url);
           if (!allowed)
             throw new Error(
               `Unexpected outbound request: ${request.method} ${request.url}`,
@@ -99,7 +97,7 @@ test('landing to checkout to live COV-E order lookup', async ({
           const response = await fetch(request.url, {
             method: request.method,
             body,
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             signal: AbortSignal.any([
               scope.signal,
               AbortSignal.timeout(90_000),
@@ -291,7 +289,6 @@ test('landing to checkout to live COV-E order lookup', async ({
         } finally {
           await scope.stop();
           scope.dispose();
-          await log.close();
         }
       }
     }

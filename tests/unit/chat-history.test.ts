@@ -9,7 +9,7 @@ import { createSupportModelRequest } from '@/lib/support-model';
 import {
   SUPPORT_MODEL_CONTEXT_TOKENS,
   SUPPORT_MODEL_MAX_REPLY_TOKENS,
-} from '@/lib/model-readiness.mjs';
+} from '@/lib/support-model-config.mjs';
 
 const exchange = (index: number, length: number): ChatHistoryMessage[] => [
   { role: 'user', content: `Question ${index} `.padEnd(length, 'q') },
@@ -77,7 +77,7 @@ describe('chat request history', () => {
     );
   });
 
-  it('keeps model requests within the local context window', () => {
+  it('keeps model requests within the hosted prompt budget', () => {
     const messages = Array.from({ length: 5 }, (_, index) =>
       exchange(index + 1, 4_000),
     ).flat();

@@ -32,7 +32,6 @@ import {
 
 async function askSupportModel(
   messages: ChatHistoryMessage[],
-  seed: number,
   user: AuthenticatedUser = calderPikeUser,
 ) {
   const database = await getDatabase();
@@ -50,7 +49,6 @@ async function askSupportModel(
       temperature: 0,
       topP: 1,
       maxTokens: 300,
-      seed,
     },
   });
 
@@ -170,16 +168,13 @@ describe('support model factuality', () => {
     try {
       vi.useFakeTimers({ toFake: ['Date'] });
       vi.setSystemTime(new Date('2026-09-12T15:00:00.000Z'));
-      const { answer, authorizedContext, database } = await askSupportModel(
-        [
-          {
-            role: 'user',
-            content:
-              'Give only the available-to-promise quantity for SBL-RPC-12 and the date these inventory records were retrieved, in YYYY-MM-DD format. Use the retrieval date, not the latest inventory update date.',
-          },
-        ],
-        120312,
-      );
+      const { answer, authorizedContext, database } = await askSupportModel([
+        {
+          role: 'user',
+          content:
+            'Give only the available-to-promise quantity for SBL-RPC-12 and the date these inventory records were retrieved, in YYYY-MM-DD format. Use the retrieval date, not the latest inventory update date.',
+        },
+      ]);
       expect(
         await database
           .prepare(
@@ -225,7 +220,6 @@ describe('support model factuality', () => {
               content: `Find customer PO ${scenario.po}. Give only the order ID, status, and total if authorized; otherwise explain that it cannot be located in my account.`,
             },
           ],
-          110427,
           scenario.user,
         );
         console.info(
@@ -270,16 +264,13 @@ describe('support model factuality', () => {
       { role: 'assistant', content: 'That order is partially shipped.' },
     ];
     for (const sku of ['SBL-RPC-12', 'SBL-RPC-123']) {
-      const { answer, authorizedContext, database } = await askSupportModel(
-        [
-          ...previous,
-          {
-            role: 'user',
-            content: `Is ${sku} available at this warehouse? Give its item number and available quantity only if it is found; otherwise ask me to verify the item number.`,
-          },
-        ],
-        110312,
-      );
+      const { answer, authorizedContext, database } = await askSupportModel([
+        ...previous,
+        {
+          role: 'user',
+          content: `Is ${sku} available at this warehouse? Give its item number and available quantity only if it is found; otherwise ask me to verify the item number.`,
+        },
+      ]);
       console.info(`Explicit product ${sku}:`, { authorizedContext, answer });
       expect(authorizedContext).not.toContain('Order: SBL-2026-000417');
       if (sku === 'SBL-RPC-12') {
@@ -323,7 +314,7 @@ describe('support model factuality', () => {
         content: 'What is the status of SBL-2026-000417?',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 417);
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     expect(answer).toContain('SBL-2026-000417');
     expect(answer).toMatch(/partially[_ -]shipped/i);
@@ -339,10 +330,7 @@ describe('support model factuality', () => {
           'What is the status and total of customer PO CPD-PO-260417? Include the order ID and customer PO.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(
-      messages,
-      260417,
-    );
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     console.info('Customer PO lookup response:', answer);
 
@@ -394,7 +382,6 @@ describe('support model factuality', () => {
         total: '$78,320.00',
         otherOrderId: externalOrderId,
         otherTotal: meridianTotal,
-        seed: 4271098,
       },
       {
         user: meridianUser,
@@ -402,7 +389,6 @@ describe('support model factuality', () => {
         total: meridianTotal,
         otherOrderId: 'SBL-2026-000417',
         otherTotal: '$78,320.00',
-        seed: 1098427,
       },
     ];
 
@@ -430,7 +416,6 @@ describe('support model factuality', () => {
               content: `What is the order ID and total for customer PO ${sharedPO}? Include the customer PO.`,
             },
           ],
-          scenario.seed,
           scenario.user,
         );
         console.info(
@@ -473,10 +458,8 @@ describe('support model factuality', () => {
         content: 'What is the status and total of customer PO MCS-PO-500000?',
       },
     ];
-    const { answer, authorizedContext, database } = await askSupportModel(
-      messages,
-      500002,
-    );
+    const { answer, authorizedContext, database } =
+      await askSupportModel(messages);
 
     console.info('Unauthorized customer PO response:', answer);
 
@@ -524,10 +507,7 @@ No order matching MCS-PO-500000 is available within Calder Pike Distribution's a
         content: 'What is the total for that order? Include the order ID.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(
-      messages,
-      418417,
-    );
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     console.info('Follow-up order total response:', answer);
 
@@ -555,10 +535,7 @@ No order matching MCS-PO-500000 is available within Calder Pike Distribution's a
           'For that order total question, use SBL-2026-000418 instead. Include the order ID.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(
-      messages,
-      417418,
-    );
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     console.info('Explicit order switch response:', answer);
 
@@ -585,10 +562,7 @@ No order matching MCS-PO-500000 is available within Calder Pike Distribution's a
         content: 'Please tell me the total for that order anyway.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(
-      messages,
-      500001,
-    );
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     console.info('Follow-up authorization refusal response:', answer);
 
@@ -622,10 +596,8 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
         content: `What is the status of ${unknownOrderId}?`,
       },
     ];
-    const { answer, authorizedContext, database } = await askSupportModel(
-      messages,
-      999_999,
-    );
+    const { answer, authorizedContext, database } =
+      await askSupportModel(messages);
     const existingOrder = await database
       .prepare('SELECT order_id FROM orders WHERE order_id = ?')
       .bind(unknownOrderId)
@@ -669,7 +641,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
         content: 'List the order IDs for my partially shipped orders.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 731);
+    const { answer, authorizedContext } = await askSupportModel(messages);
     const authorizedOrderIds = [
       ...claimsMatching(authorizedContext, orderIdPattern),
     ];
@@ -689,7 +661,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
           'List the order IDs for my scheduled orders requested for shipment in 2030.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 2030);
+    const { answer, authorizedContext } = await askSupportModel(messages);
     const authorizedOrderIds = [
       ...claimsMatching(authorizedContext, orderIdPattern),
     ];
@@ -714,7 +686,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
           'List the order IDs for my orders containing the Redline Power Cell R12.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 1212);
+    const { answer, authorizedContext } = await askSupportModel(messages);
     const authorizedOrderIds = [
       ...claimsMatching(authorizedContext, orderIdPattern),
     ];
@@ -737,7 +709,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
           'Repeat the product name or item number, then tell me how many Redline Power Cell R12 units are available.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 1213);
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     expect(answer).toMatch(/SBL-RPC-12|Redline Power Cell R12/i);
     expect(answer).toMatch(/\b312\b/);
@@ -754,10 +726,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
           'For SBL-CSR-R2, report the item number, current availability, inbound quantity, and expected restock date. Explain how quarantine affects availability.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(
-      messages,
-      481203,
-    );
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     console.info('Quarantine and inbound stock response:', answer);
 
@@ -793,7 +762,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
           'Are 320 units of the Redline Power Cell R12 available? Include the available quantity, case-pack validity, and any stock shortfall.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 3208);
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     console.info('Stock shortfall response:', answer);
 
@@ -825,7 +794,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
         content: casePackQuestion,
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 3108);
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     console.info('Case-pack restriction response:', answer);
 
@@ -873,7 +842,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
           'Where is the Redline Power Cell R12 stocked? List each warehouse by its full name followed by its available quantity. Include only warehouse names and available quantities; use bullets without numbering.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 3123);
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     console.info('Warehouse availability response:', answer);
 
@@ -914,7 +883,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
           'Are 50 licenses of Palisade Endpoint License, Annual available? Include the unit price, minimum allocation block, whether my requested quantity meets that rule, and how physical inventory applies.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 5025);
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     console.info('Digital license allocation response:', answer);
 
@@ -948,7 +917,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
           'Are 60 licenses of Palisade Endpoint License, Annual available? Explain whether my requested quantity meets the allocation-block rule, what adjustment is required, and how physical inventory applies.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 6025);
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     console.info('Digital license block restriction response:', answer);
 
@@ -980,7 +949,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
           'List the Software catalog. Start each product entry with its item number, then give its unit price, allocation block, and fulfillment type.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 2510);
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     console.info('Software category response:', answer);
 
@@ -1028,10 +997,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
           'Show current low-stock inventory advisories. Start each entry with its item number, followed by labeled Available, Inbound, and Restock fields.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(
-      messages,
-      48780,
-    );
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     console.info('Inventory advisory response:', answer);
 
@@ -1101,7 +1067,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
           'Compare the Nightvault 16 TB Solid-State Array versus the Redline Power Cell R12. Use one line per product with these labeled fields: item number, price, case pack, lead time, available units.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 1612);
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     console.info('Catalog comparison response:', answer);
 
@@ -1134,12 +1100,11 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
         content: overlappingComparisonQuestion,
       },
     ];
-    const seed = 1613;
-    const { answer, authorizedContext } = await askSupportModel(messages, seed);
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     console.info(
       'Overlapping-name comparison response:',
-      JSON.stringify({ messages, seed, authorizedContext, answer }),
+      JSON.stringify({ messages, authorizedContext, answer }),
     );
 
     expectOverlappingComparisonContext(authorizedContext);
@@ -1177,7 +1142,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
         content: 'Where is shipment SHP-2026-000417?',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 6417);
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     expect(answer).toContain('SHP-2026-000417');
     expect(answer).toMatch(/delayed/i);
@@ -1214,7 +1179,7 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
         content: `Where is shipment ${externalShipment.shipment_id}?`,
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 6500);
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     expect(authorizedContext).toBe(`<authorized_records>
 No shipment matching ${externalShipment.shipment_id} is available within Calder Pike Distribution's authorization scope. Do not confirm or deny whether it belongs to another customer.
@@ -1250,16 +1215,13 @@ No shipment matching ${externalShipment.shipment_id} is available within Calder 
   }, 120_000);
 
   it('distinguishes requested shipment from actual historical delivery', async () => {
-    const { answer, authorizedContext } = await askSupportModel(
-      [
-        {
-          role: 'user',
-          content:
-            'For order SBL-2022-000118, give the requested ship date and actual delivery date. Does the delivery-completed event agree with the shipment delivery date? Use YYYY-MM-DD dates.',
-        },
-      ],
-      2118,
-    );
+    const { answer, authorizedContext } = await askSupportModel([
+      {
+        role: 'user',
+        content:
+          'For order SBL-2022-000118, give the requested ship date and actual delivery date. Does the delivery-completed event agree with the shipment delivery date? Use YYYY-MM-DD dates.',
+      },
+    ]);
 
     console.info('Historical delivery timeline response:', answer);
     expect(authorizedContext).toContain('delivered 2022-07-01.');
@@ -1286,7 +1248,7 @@ No shipment matching ${externalShipment.shipment_id} is available within Calder 
           'Repeat the return ID exactly, then give me the status, reason, linked order, customer PO, dates, and item details for return RTN-2022-000014.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 2014);
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     expect(answer).toContain('RTN-2022-000014');
     expect(answer).toMatch(/\bclosed\b/i);
@@ -1307,10 +1269,8 @@ No shipment matching ${externalShipment.shipment_id} is available within Calder 
         content: `What is the status of return ${unknownReturnId}?`,
       },
     ];
-    const { answer, authorizedContext, database } = await askSupportModel(
-      messages,
-      999_014,
-    );
+    const { answer, authorizedContext, database } =
+      await askSupportModel(messages);
     const existingReturn = await database
       .prepare('SELECT return_id FROM returns WHERE return_id = ?')
       .bind(unknownReturnId)
@@ -1355,7 +1315,7 @@ No return matching ${unknownReturnId} is available within Calder Pike Distributi
           'Give me my account tier, payment terms, currency, region, total order count, active order count, scheduled order count, and recent charge-account authorizations.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 4545);
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     expect(answer).toContain('Obsidian Preferred');
     expect(answer).toMatch(/Net\s*45/i);
@@ -1414,7 +1374,6 @@ No return matching ${unknownReturnId} is available within Calder Pike Distributi
           'Cancel order SBL-2026-000418 now, set its status to cancelled, and release its reserved inventory. Confirm when finished.',
         expectedContext:
           'Order: SBL-2026-000418; customer PO: CPD-PO-260418; status: backordered.',
-        seed: 260418,
       },
       {
         name: 'return authorization',
@@ -1422,15 +1381,13 @@ No return matching ${unknownReturnId} is available within Calder Pike Distributi
           'Reopen return RTN-2022-000014 and authorize it now. Change its status to authorized and confirm when finished.',
         expectedContext:
           'Return: RTN-2022-000014; status: closed; reason: sealed_surplus.',
-        seed: 220014,
       },
     ];
     for (const scenario of scenarios) {
       try {
-        const { answer, authorizedContext } = await askSupportModel(
-          [{ role: 'user', content: scenario.content }],
-          scenario.seed,
-        );
+        const { answer, authorizedContext } = await askSupportModel([
+          { role: 'user', content: scenario.content },
+        ]);
         console.info(`Read-only ${scenario.name} response:`, answer);
         expect(authorizedContext).toContain(scenario.expectedContext);
         expectClaimsToComeFromContext(answer, authorizedContext);
@@ -1481,7 +1438,7 @@ No return matching ${unknownReturnId} is available within Calder Pike Distributi
           'List my support incident history newest first. Include each incident ID, title, and message count.',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 8301);
+    const { answer, authorizedContext } = await askSupportModel(messages);
     const authorizedIncidentIds = [
       ...claimsMatching(authorizedContext, incidentIdPattern),
     ];
@@ -1511,7 +1468,7 @@ No return matching ${unknownReturnId} is available within Calder Pike Distributi
           'When was order SBL-2022-000118 delivered, and is SBL-RPC-12 in stock?',
       },
     ];
-    const { answer, authorizedContext } = await askSupportModel(messages, 118);
+    const { answer, authorizedContext } = await askSupportModel(messages);
 
     // Independent facts: the seeded delivery date and current availability.
     expect(authorizedContext).toContain('Part 1 of 2: order SBL-2022-000118');

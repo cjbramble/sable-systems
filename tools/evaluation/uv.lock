@@ -829,7 +829,7 @@ wheels = [
 ]
 
 [[package]]
-name = "support-local-judge"
+name = "support-api-judge"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

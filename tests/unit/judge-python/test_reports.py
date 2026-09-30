@@ -26,7 +26,7 @@ def test_live_reports_preserve_factual_failures_and_judge_errors(
 ):
     def judge(*args):
         if error:
-            raise RuntimeError("Local model unavailable")
+            raise RuntimeError("API unavailable")
         return {"score": int(judge_passed), "passed": judge_passed, "reason": "Test verdict"}
 
     monkeypatch.setattr(evaluation, "judge_answer", judge)

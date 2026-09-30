@@ -2,24 +2,19 @@ import {
   fitChatHistoryToBudget,
   type ChatHistoryMessage,
 } from './chat-history';
-import { SUPPORT_MODEL_MAX_REPLY_TOKENS } from './model-readiness.mjs';
 import {
   OPENROUTER_ROUTING,
+  SUPPORT_MODEL_MAX_REPLY_TOKENS,
   supportModelHeaders,
 } from './support-model-config.mjs';
 import { supportModelConfig } from './support-model-runtime';
 
-export { SUPPORT_MODEL_ALIAS } from './model-readiness.mjs';
-
 export const SUPPORT_RECORDS_SOURCE = 'authorized_support_records';
-export const SUPPORT_MODEL_SERVER_URL =
-  'http://127.0.0.1:8017/v1/chat/completions';
 
 type SupportModelGeneration = {
   temperature: number;
   topP: number;
   maxTokens: number;
-  seed?: number;
 };
 
 type SupportModelRequest = {
@@ -42,9 +37,8 @@ const defaultGeneration: SupportModelGeneration = {
   maxTokens: SUPPORT_MODEL_MAX_REPLY_TOKENS,
 };
 
-// Conservative estimate: Qwen tokenizes digits individually, so record IDs and
-// amounts use fewer characters per token than prose. The reserve covers the
-// chat template. llama-server still rejects any request that overflows.
+// Conservatively budget identifiers and amounts as well as prose. The reserve
+// covers message formatting; upstream context errors still fail safely.
 const ESTIMATED_CHARACTERS_PER_TOKEN = 2.5;
 const CHAT_TEMPLATE_TOKEN_RESERVE = 128;
 
@@ -119,14 +113,8 @@ export function createSupportModelRequest({
         top_p: settings.topP,
         max_tokens: settings.maxTokens,
         stream: false,
-        ...(config.provider === 'openrouter'
-          ? {
-              provider: OPENROUTER_ROUTING,
-              reasoning: { enabled: false },
-            }
-          : settings.seed === undefined
-            ? {}
-            : { seed: settings.seed }),
+        provider: OPENROUTER_ROUTING,
+        reasoning: { enabled: false },
       }),
       signal: AbortSignal.timeout(120_000),
     },
@@ -163,19 +151,18 @@ export function isIncompleteSupportModelReply(payload: unknown) {
   return choice !== null && choice.finishReason !== 'stop';
 }
 
-// llama-server rejects prompts beyond --ctx-size with a 400. History is already
-// trimmed, so this means the latest message and records alone do not fit.
+// History is already trimmed, so an upstream context error means the latest
+// message and records alone do not fit.
 export async function isContextOverflowResponse(response: Response) {
   if (response.status !== 400) return false;
   try {
     const error = ((await response.json()) as { error?: unknown })?.error;
     if (!error || typeof error !== 'object') return false;
-    const { type, message } = error as Record<string, unknown>;
+    const { message } = error as Record<string, unknown>;
     return (
-      type === 'exceed_context_size_error' ||
-      (typeof message === 'string' &&
-        (message.includes('exceeds the available context size') ||
-          /(?:maximum context length|context length exceeded)/i.test(message)))
+      typeof message === 'string' &&
+      (message.includes('exceeds the available context size') ||
+        /(?:maximum context length|context length exceeded)/i.test(message))
     );
   } catch {
     return false;

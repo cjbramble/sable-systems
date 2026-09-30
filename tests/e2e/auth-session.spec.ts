@@ -3,7 +3,7 @@ import type { Frame } from '@playwright/test';
 import { expect, test } from './fixtures/app';
 
 // This journey must not generate a model reply. An empty sequence rejects any
-// unexpected completion request instead of silently using the local model.
+// unexpected completion request instead of issuing a billed inference request.
 test.use({ modelResponses: [[], { scope: 'test' }] });
 
 const email = 'mara.venn@calderpike.example';

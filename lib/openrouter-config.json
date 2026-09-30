@@ -1,0 +1,10 @@
+{
+  "model": "deepseek/deepseek-v4.1-flash",
+  "provider": {
+    "only": ["deepinfra/fp8"],
+    "allow_fallbacks": false,
+    "require_parameters": true,
+    "data_collection": "deny",
+    "zdr": true
+  }
+}

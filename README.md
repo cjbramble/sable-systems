@@ -3,7 +3,7 @@
 A local web application for the fictional SABLE Systems wholesale business.
 The portal provides inventory-aware ordering, charge-account checkout, order
 history, and COV-E customer support. This branch trials DeepSeek V4.1 Flash
-through OpenRouter, with the local Qwen3 4B runtime still selectable.
+through OpenRouter. No local model weights or inference server are required.
 
 Built with React, Vinext, and Tailwind CSS, with a Cloudflare Workers backend
 and a D1/SQLite database.
@@ -12,10 +12,10 @@ and a D1/SQLite database.
 
 Select a thumbnail to open the video.
 
-| Order to support · 36 seconds                                                                                 | Playwright checkout test · 21 seconds                                                                                                                         |
-| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [![SABLE landing page](docs/media/app-demo.png)](docs/media/app-demo.mp4)                                     | [![Playwright checkout recording](docs/media/checkout-test.png)](docs/media/checkout-test.mp4)                                                                |
-| Place an order, then ask COV-E for its details and shipment status. Responses come from the local Qwen model. | Watch the existing checkout test run and its passing report. Checks cover cart removal, account charges, inventory reservations, and persisted order history. |
+| Order to support · 36 seconds                                                                                                    | Playwright checkout test · 21 seconds                                                                                                                         |
+| -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![SABLE landing page](docs/media/app-demo.png)](docs/media/app-demo.mp4)                                                        | [![Playwright checkout recording](docs/media/checkout-test.png)](docs/media/checkout-test.mp4)                                                                |
+| Place an order, then ask COV-E for its details and shipment status. This recording shows the historical local inference version. | Watch the existing checkout test run and its passing report. Checks cover cart removal, account charges, inventory reservations, and persisted order history. |
 
 ## Setup
 
@@ -42,58 +42,36 @@ Fill in `OPENROUTER_API_KEY=` in `.env`, then start:
 npm run dev
 ```
 
-Open [http://127.0.0.1:8016](http://127.0.0.1:8016). With
-`SUPPORT_MODEL_PROVIDER=openrouter`, the launcher starts only the web app;
-no model weights or `llama-server` are required. The key is used server-side.
-Press Control-C to stop the web app and its child processes.
+Open [http://127.0.0.1:8016](http://127.0.0.1:8016). The launcher starts the web
+app and uses the OpenRouter key server-side. Press Control-C to stop it.
 
-The trial pins `deepseek/deepseek-v4.1-flash` to the DeepInfra FP8 endpoint, disables
+Inference pins `deepseek/deepseek-v4.1-flash` to the DeepInfra FP8 endpoint, disables
 provider fallback, and retains the authorization, grounding, and corrective-retry
 checks. COV-E disables reasoning; the advisory judge enables it with an
 8,192-token budget. Hosted requests send the question, scoped records,
 and saved conversation history to OpenRouter and DeepInfra. See
-[OpenRouter trial](docs/openrouter-trial.md) for testing and Cloud setup.
-
-### Local inference
-
-For the Qwen baseline, set `SUPPORT_MODEL_PROVIDER=local` and
-`JUDGE_PROVIDER=local` in `.env`. Install `llama-server` on `PATH` (or set
-`LLAMA_SERVER`) and place the support model at:
-
-```text
-models/customer-support/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf
-```
-
-The [model reference](models/customer-support/README.md) includes its expected
-checksum. Model weights are Git-ignored.
-
-`npm run dev` then starts `llama-server` on port 8017, waits for readiness,
-and starts the web app. Control-C stops both processes and their children.
+[OpenRouter inference](docs/inference.md) for testing and Cloud setup.
 
 ## Configuration
 
-The application listens on `127.0.0.1:8016`; local inference uses port 8017.
+The application listens on `127.0.0.1:8016`. Inference uses OpenRouter HTTPS.
 The launchers read `.env`; shell values take precedence. Unconfigured checkouts
-retain the local baseline. `.env.example` selects the hosted trial.
+require an API key for inference. `.env.example` contains the supported settings.
 
 | Variable                      | Purpose                                   | Default                               |
 | ----------------------------- | ----------------------------------------- | ------------------------------------- |
-| `SUPPORT_MODEL_PROVIDER`      | `local` or `openrouter`                   | `local` when unset                    |
 | `OPENROUTER_API_KEY`          | Server-side OpenRouter secret             | No key; required for hosted inference |
 | `OPENROUTER_SUPPORT_MODEL`    | Hosted COV-E model ID                     | `deepseek/deepseek-v4.1-flash`        |
-| `JUDGE_PROVIDER`              | Independent `local` or `openrouter` judge | `local` when unset                    |
 | `OPENROUTER_JUDGE_MODEL`      | Hosted advisory judge model ID            | `deepseek/deepseek-v4.1-flash`        |
 | `OPENROUTER_JUDGE_REASONING`  | Hosted judge reasoning, `true` or `false` | `true`                                |
 | `OPENROUTER_JUDGE_MAX_TOKENS` | Hosted judge reasoning plus verdict limit | `8192` (range `256`–`32768`)          |
-| `CUSTOMER_SUPPORT_MODEL_PATH` | Path to the GGUF model                    | Model path shown above                |
-| `LLAMA_SERVER`                | Path or command for the model server      | `llama-server`                        |
 | `SITE_URL`                    | Base URL for site metadata                | `http://127.0.0.1:8016`               |
 
-Pass overrides to the launcher:
-
-```sh
-CUSTOMER_SUPPORT_MODEL_PATH=/absolute/path/to/model.gguf LLAMA_SERVER=/absolute/path/to/llama-server npm run dev
-```
+The default model and pinned provider/privacy policy are shared by COV-E and
+the judge in `lib/openrouter-config.json`. COV-E uses an 8,192-token prompt
+budget with a 600-token reply limit and reasoning disabled. The judge uses
+reasoning and an 8,192-token completion limit. Model overrides must be supported
+by the pinned DeepInfra FP8 endpoint; there is no provider fallback.
 
 ## Usage
 
@@ -179,8 +157,8 @@ remove it when the application adopts a Vinext release that no longer needs it.
 | Cloudflare Vitest plugin | Runs Vitest tests in the Workers runtime                              |
 | Miniflare                | Local Workers runtime setup and disposable D1 databases               |
 | Playwright               | Chromium browser workflows using page objects                         |
-| pytest                   | Python judge-adapter and local-only transport tests                   |
-| DeepEval                 | Rubric-based response judging with a local Qwen3-14B model            |
+| pytest                   | Python judge-adapter and mocked HTTPS tests                           |
+| DeepEval                 | Advisory rubric judgments using OpenRouter with reasoning             |
 
 Oxlint provides lint checks, TypeScript checks types, and a custom validator checks
 the seed dataset.
@@ -193,32 +171,18 @@ Install Chromium for browser tests:
 npx playwright install chromium
 ```
 
-For Python-only tests, install `uv` and prepare the locked environment:
-
-```sh
-uv sync --project tools/evaluation --locked
-```
-
-This prepares Python 3.12 and its dependencies. No model download or server is needed.
-
-For live model evaluation, also run:
+For Python judging and its offline tests, install `uv` and prepare the locked
+environment:
 
 ```sh
 npm run setup:judge
 ```
 
-Judge setup prepares the same environment. With `JUDGE_PROVIDER=openrouter`,
-it skips model downloads. With `JUDGE_PROVIDER=local`, it downloads the
-checksum-verified Qwen3-14B Q4_K_M model (9 GB) to `models/judge/`.
-DeepEval telemetry and cloud reporting are disabled in both modes; hosted
-judging makes explicitly configured, billed OpenRouter requests.
-
-For local judging, stop the app before running full model evaluations. The runner uses port 8017
-sequentially: generate responses with the chatbot, unload its model, then load
-the judge. It never stops an externally started server; an occupied port prevents
-judge startup. Interrupted runs retain partial evidence.
-Hosted generation and judging do not use port 8017. Live suites use the provider
-settings in `.env`; ordinary tests never forward the API key or use a hosted model.
+This installs Python 3.12 and the judge dependencies. DeepEval telemetry and
+cloud reporting are disabled; live judging makes explicit, billed OpenRouter
+requests. Interrupted runs retain partial evidence. Ordinary unit/integration
+and browser tests use dummy credentials and mocked responses; they do not
+forward your real key or incur inference charges.
 
 ### Commands
 
@@ -275,9 +239,9 @@ response checks live in `tests/assertions/`. Browser tests use
 Python judge tests live in `tests/unit/judge-python/`. Authored reference answers
 and labeled judge-validation examples live in `tests/fixtures/judge/`.
 
-Command entry points live in `scripts/`, with shared process and model-launch
-helpers in `scripts/lib/`. Transcript parsing, judge implementation, model
-configuration, and the locked Python project live in `tools/evaluation/`.
+Command entry points live in `scripts/`, with shared process and environment
+helpers in `scripts/lib/`. Transcript parsing, judge implementation, and the locked Python project live in `tools/evaluation/`.
+Shared model and provider configuration lives in `lib/openrouter-config.json`.
 The evaluator's virtual environment is Git-ignored.
 
 Model tests check factual accuracy and authorization, with five responses per
@@ -296,7 +260,8 @@ report with `npx playwright show-report`.
 
 ### Demo recordings
 
-`npm run demo:record` records the app workflow with the local model.
+`npm run demo:record` records the app workflow with live OpenRouter inference
+and incurs API charges.
 `npm run demo:record:tests` records the existing checkout test and generates its
 report. Both commands build the app and use disposable databases. Recording
 configuration lives in `tools/demo/`; raw videos, traces, and reports are saved
