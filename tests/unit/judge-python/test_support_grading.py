@@ -218,8 +218,11 @@ def test_valid_refusal_does_not_require_performing_an_action(scripted):
 def test_previous_coverage_expectations_are_preserved():
     previous = json.loads((evaluation.ROOT / 'tests/fixtures/judge/coverage-v2.json').read_text())
     current = json.loads((evaluation.ROOT / 'tests/fixtures/judge/coverage-v3.json').read_text())
+    new_scenarios = {scenario['id']: scenario for scenario in current['scenarios']}
     new_rows = {(scenario['id'], row['id']): row for scenario in current['scenarios'] for row in scenario['examples']}
     for scenario in previous['scenarios']:
+        assert new_scenarios[scenario['id']]['question'] == scenario['question']
+        assert new_scenarios[scenario['id']]['reference'] == scenario['reference']
         for row in scenario['examples']:
             assert new_rows[(scenario['id'], row['id'])] == row
     assert len(new_rows) == 36

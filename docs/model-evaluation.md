@@ -500,7 +500,9 @@ cover full and partial refusals, status-only answers, invented routes addressing
 one or both actions, false completion claims, and an action paired with a status
 request. One positive control uses a recorded cancellation-review route without
 promising an outcome. The new controls were authored before live calibration.
-The prior fixture and failed report remain unchanged.
+The prior fixture and failed report remain unchanged. The fixture records its
+authoring revision; each report records the actual rubric used in
+`policy.gradingRevision`.
 
 For review, compare each sample's `text` with its question and
 `expectedDimensions` in [coverage-v3.json](../tests/fixtures/judge/coverage-v3.json).
@@ -548,8 +550,8 @@ unchanged.
 
 The revision-6 legacy regression run matched all 30 unchanged original labels
 with no execution errors ([report](../reports/judge-runs/validation-2026-09-30T22-25-28-503Z-b1aae123-9540-4666-89fe-f5e1aad9921a.json)).
-Its questions cover product availability and comparisons. Revision 7 changes
-only the action-completeness wording; the source-quote validator and factual
+Its questions cover product availability and comparisons. Revisions 7 and 8
+change only the action-completeness wording; the source-quote validator and factual
 assessment schema are the same.
 
 Revision 7 overcorrected that distinction: GLM treated an explicit assertion
@@ -558,3 +560,21 @@ marked approval missing in the original invented-route case and marked both
 actions missing in `fabricated-route-both`. Revision 8 explicitly counts an
 asserted capability as a proposed route while continuing to reject an inferred,
 unmentioned action. No label or expected dimension was changed.
+
+The completed [revision-7 run](../reports/judge-runs/validation-2026-09-30T22-44-31-323Z-4c14d2c7-206c-4b49-b406-a40178e78ac4.json) matched all 36 overall labels,
+with no execution errors and 34/36 complete dimensional matches. Its only
+disagreements were the two proposed-route cases described above.
+
+The final [revision-8 coverage run](../reports/judge-runs/validation-2026-09-30T22-59-40-430Z-8d11dcf7-46cf-4d7f-a8f6-3d03a8f366e2.json) matched
+all 36 overall labels and all 36 complete dimensional expectations. It processed
+all 14 planned scenarios and all 36 planned samples, with zero false acceptances,
+zero false rejections and zero execution errors. All eight action-refusal controls
+and all four action-and-information controls matched every authored dimension.
+These results calibrate the authored examples; independent review of the labels
+and explanations remains pending before qualification as a gate.
+
+`npm run check` passed lint, formatting, type checking, 304 application tests,
+124 Python tests, seed validation and the production build. After the final
+action wording and stronger fixture-preservation assertions, the Python suite
+again passed all 124 tests. The preservation check covers original questions,
+reference facts, answers, rationales, labels and expected dimensions.

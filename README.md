@@ -211,7 +211,7 @@ not GLM judgment accuracy. Historical DeepSeek results do not validate GLM.
 
 | Phase                                  | Implemented                                                                                                                                                           | Remaining validation                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| 1: coverage and benchmark              | 36 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | One completeness disagreement; independent human review of labels remains pending                     |
+| 1: coverage and benchmark              | 36 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | GLM matches all 36 dimensional controls; independent human review of labels remains pending           |
 | 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 124 Python tests pass                                       |
 | 3: claim diagnostics and qualification | 16 direct-verdict controls; 26 extraction cases with 40 expected source claims and separate coverage/truth results                                                    | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending |
 
@@ -319,11 +319,17 @@ request to change it.
 `coverage-v3.json` preserves all 26 prior expected outcomes and adds ten action
 response controls. It includes a refusal of only one requested action, a missing
 requested status, false completion claims, invented routes, and a recorded request
-route. Factual assessments now quote the answer itself; plain advice is not treated
-as an assertion of a record error, and omitted reference facts cannot enter the
-assessment. The ordinary answer rules are version 8; claim verification and extraction
+route. Factual assessments must quote the answer itself; source validation rejects
+assessed text absent from the answer. The rubric distinguishes plain advice from
+an assertion of a record error, and missing information from asserted facts.
+The ordinary answer rules are version 8; claim verification and extraction
 retain their existing rules. See [action-response completeness](docs/model-evaluation.md#action-response-completeness)
 for the exact cases and live results.
+
+The final GLM coverage run matched all 36 overall verdicts and all 36 complete
+dimensional expectations, with no execution errors. The original product
+regression matched 30/30 labels under revision 6; revisions 7 and 8 change only
+action-completeness wording. Independent human review remains pending.
 
 For the managed cloud runtime, see the [proxy, Chromium and process-reaping setup](docs/inference.md#managed-cloud-test-runtime-2026-09-30).
 
