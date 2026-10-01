@@ -696,7 +696,13 @@ copying the inner quoted text with its original punctuation, without added label
 delimiters or escape characters. The source guard and verdict semantics remain
 unchanged. Both quotation cases and an adjacent evaluator directive passed a
 focused three-case check through the same runner, using an unchanged subset in
-a temporary fixture root. This is not a full 17-case revision-12 run.
+a temporary fixture root. That earlier focused check was not a full 17-case revision-12 run. A subsequent
+complete run on the final code processed all 17 cases: 15 passed, with two
+upstream HTTP 429 errors from OpenInference's shared GLM pool. One full rerun
+with concurrency reduced from four workers to two passed all 17 cases with
+zero grading failures or execution errors. The source, model settings, fixture
+and expectations were unchanged. The latest complete evaluation is GREEN;
+both full attempts and their case evidence are retained in the results document.
 
 Review every assessment and the preserved failures in
 [the correction results](deepeval-quality-results.md). These calibration results
