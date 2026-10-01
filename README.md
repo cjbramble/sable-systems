@@ -209,12 +209,13 @@ model responses.
 The GLM judge remains advisory. Offline adapter tests establish harness behavior,
 not GLM judgment accuracy. Historical DeepSeek results do not validate GLM.
 
-| Phase                                  | Implemented                                                                                                                                                           | Remaining validation                                                                                  |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| 1: coverage and benchmark              | 36 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | GLM matches all 36 dimensional controls; independent human review of labels remains pending           |
-| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 150 Python tests pass                                       |
-| 3: claim diagnostics and qualification | 16 direct-verdict controls; 26 extraction cases with 40 expected source claims and separate coverage/truth results                                                    | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending |
-| 4: reviewed benchmark                  | Fresh 32-case benchmark for the current structured judge; readable review sheet; fixture, evaluator and runtime-setting freeze; required review record                | Three runs complete: 96/96 decisions match; five quality disagreements; judge remains advisory        |
+| Phase                                  | Implemented                                                                                                                                                           | Remaining validation                                                                                                       |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 1: coverage and benchmark              | 36 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | GLM matches all 36 dimensional controls; independent human review of labels remains pending                                |
+| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 165 Python tests pass                                                            |
+| 3: claim diagnostics and qualification | 16 direct-verdict controls; 26 extraction cases with 40 expected source claims and separate coverage/truth results                                                    | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending                      |
+| 4: reviewed benchmark                  | Reviewed 32-case benchmark for the revision-8 structured judge; readable review sheet; fixture, evaluator and runtime-setting freeze; required review record          | Three runs complete: 96/96 decisions match; five quality disagreements; judge remains advisory                             |
+| 5: quality correction                  | Explicit quality flags, 17 boundary controls, quoted-claim guidance and preserved diagnostic evidence                                                                 | All 16 graded controls matched; remaining quotation verified in a focused three-case run; fresh qualification still needed |
 
 Expanded support cases cover orders, shipments, returns, account authorization,
 missing records, compound requests, topic switches and action refusals. Evaluator
@@ -228,7 +229,9 @@ After configuring credentials, each command below makes billed requests:
 ```sh
 npm run test:judge -- --suite coverage   # 36 structured dimensional judgments
 npm run test:judge -- --suite benchmark  # 8 historical original-GEval judgments
-npm run test:judge -- --suite qualification --concurrency 4 # 32 current-judge cases; blocked until recorded human review
+npm run test:judge -- --suite quality --concurrency 4 # 17 factual/quality boundary controls
+npm run test:judge -- --suite calibration --concurrency 4 # 32 exposed cases; calibration only
+# The revision-8 qualification freeze is retired after the revision-12 rubric change.
 npm run test:judge -- --suite claims     # 16 direct verdict calls
 npm run test:judge -- --suite extraction # 26 extractions plus one call per extracted quote
 ```
@@ -335,23 +338,34 @@ action-completeness wording. Independent human review remains pending.
 
 ### Fresh benchmark review
 
-Review the new benchmark in [the readable review sheet](docs/deepeval-benchmark-review.md).
-It contains all 32 answers, their questions and reference facts, the three
-expected checks, and the proposed rationales. Leave case-specific corrections
-or an explicit approval of those labels in the PR or this chat, with your name
-or GitHub handle. Code merge alone does not record independent label review.
+The approved labels are in [the benchmark review sheet](docs/deepeval-benchmark-review.md).
+The original benchmark explanations and the later correction results are available
+in the linked results documents below. Human review of those model explanations
+remains pending; the earlier approval covered the proposed labels before exposure.
 
-`--suite qualification` uses the current GLM judge and revision-8 rules. It
-requires an approved review tied to the exact fixture and freeze hashes before
-any model request. Changes to the locked evaluator, review sheet, fixture,
-model, reasoning, token limit or provider settings invalidate that review.
+The structured GLM judge now uses revision-12 rules. `--suite quality` checks 17
+controls for the factual/quality boundary, including the two exposed failures.
+`--suite calibration` reuses the 32 exposed cases and reports them as retired
+calibration, without attaching the old benchmark approval. The revision-8
+`--suite qualification` freeze remains preserved; it rejects the changed evaluator
+before model calls. Those cases can no longer establish untouched qualification.
 The original benchmark remains historical evidence under its original evaluator.
 
 All 32 labels were approved by cjbramble before live exposure. Three frozen runs are complete:
 96/96 accept/reject decisions matched, with no live execution errors. Answer-quality
 disagreements were 2, 2 and 1, so the judge has not qualified as a gate. Read
 [the results and actual explanations](docs/deepeval-benchmark-results.md) for the
-proposed quality-rule correction and human explanation review. The frozen plan was three
+quality-rule correction and human explanation review. The revision-12 correction
+requires a separate defect in the candidate answer before failing quality; a wrong
+fact alone fails factual support, even if it matches an injected instruction.
+Quality now uses five required boolean checks, with the defect list derived
+in code. All 16 graded controls matched under those flags; one quotation was
+blocked by the unchanged source guard. After copying guidance was clarified,
+both quotation cases and an adjacent evaluator directive passed a focused
+three-case check with no errors or disagreements. Read
+[the correction results](docs/deepeval-quality-results.md), including preserved
+failed runs. These are calibration checks; a fresh independently reviewed
+benchmark is required to qualify the corrected judge. The frozen plan was three
 runs of 32 calls each using four workers (96 planned calls, up to 8,192
 completion tokens per call). Every run must have zero false acceptances, false rejections,
 dimension disagreements or execution errors. Repeated runs measure stability;

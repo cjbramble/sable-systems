@@ -667,3 +667,50 @@ Review all actual structured explanations in
 [the committed results document](deepeval-benchmark-results.md). Human review
 of those explanations remains pending; the earlier approval covered proposed
 labels before exposure. The offline Python suite passed again: 150 tests.
+
+### Revision-12 quality correction
+
+The current judge requires a separate defect in the candidate answer before
+failing quality. A false fact does not additionally fail quality merely because
+it matches an attack in the question or an untrusted reference note. The model
+must return five strict boolean flags: evaluator instruction, off-topic text,
+unauthorized action, foreign-account disclosure and invented resource. The report
+derives `defects` and the quality verdict from those flags. The model cannot
+supply a contradictory defect list; missing or non-boolean flags are errors with
+retained call evidence. Relevant but incomplete answers can pass quality.
+
+`npm run test:judge -- --suite quality --concurrency 4` runs 17 authored controls.
+Two triplets hold wrong stock/status answers constant while varying plain
+context, a question attack and a reference attack. Other controls check correct
+facts, directives beside correct and wrong facts, requested quotations beside
+correct and wrong facts, unauthorized completion, foreign-account disclosure,
+invented resources and off-topic text. The two original exposed failures retain
+their original labels. No expectations were relaxed.
+
+The revision-9 and revision-10 runs each matched all overall decisions but missed
+two quality labels. In revision 10, explanations named an evaluator directive
+and an off-topic answer while the defect lists were empty. Revision 11 introduced
+the required flags: all 16 graded controls matched every dimension, while one
+quotation response was rejected by the literal source guard. Revision 12 clarifies
+copying the inner quoted text with its original punctuation, without added labels,
+delimiters or escape characters. The source guard and verdict semantics remain
+unchanged. Both quotation cases and an adjacent evaluator directive passed a
+focused three-case check through the same runner, using an unchanged subset in
+a temporary fixture root. This is not a full 17-case revision-12 run.
+
+Review every assessment and the preserved failures in
+[the correction results](deepeval-quality-results.md). These calibration results
+do not establish untouched qualification; the judge remains advisory. Final
+`npm run check` passed: 304 application tests, 165 Python tests, lint, formatting,
+type checks, data validation and build.
+
+`--suite calibration --concurrency 4` reuses all 32 exposed cases under current
+rules, reports `retired-calibration`, and never attaches benchmark approval.
+The original fixture, review sheet, approval and freeze remain unchanged.
+Revision-8 code is preserved at
+[commit 22ef9b3](https://github.com/cjbramble/sable-systems/tree/22ef9b38a5c235adaf13f97aaa33ead0a768e650).
+The qualification guard rejects the changed evaluator against that original
+freeze before calls or artifacts. A new independently reviewed benchmark is
+required for qualification of the corrected judge. Offline review-gate tests
+build fictional current-code freezes only in temporary directories and never
+update production approval.

@@ -18,10 +18,18 @@ def frozen_root(tmp_path):
         destination = tmp_path / name
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(evaluation.ROOT / name, destination)
+    # Build a fictional current-code freeze only in the temporary test root.
+    # The approved production revision-8 freeze remains unchanged after tuning.
+    freeze_path = tmp_path / review_gate.FREEZE
+    freeze = json.loads(freeze_path.read_text())
+    freeze['gradingRevision'] = 12
+    freeze['sha256'] = {name: review_gate.digest(tmp_path / name) for name in review_gate.LOCK_FILES}
+    freeze_path.write_text(json.dumps(freeze))
     path = tmp_path / review_gate.REVIEW
     review = json.loads(path.read_text())
     review.update(decision='pending', reviewer=None, reviewedAt=None,
-                  independentHumanReview=False, reviewedBeforeLiveExposure=False)
+                  independentHumanReview=False, reviewedBeforeLiveExposure=False,
+                  freezeSha256=review_gate.digest(freeze_path))
     path.write_text(json.dumps(review))
     return tmp_path
 
@@ -133,7 +141,7 @@ def test_reviewed_run_withholds_labels_and_reports_every_dimension(monkeypatch, 
     assert report['coverage']['expectedSamples'] == report['coverage']['processedSamples'] == 32
     assert len(report['coverage']['processedScenarios']) == 16
     assert report['benchmarkFreeze']['independentReview'] == approved
-    assert report['policy']['gradingRevision'] == 8
+    assert report['policy']['gradingRevision'] == 12
     assert report['summary']['overall']['falseAcceptances'] == report['summary']['overall']['falseRejections'] == 0
     assert report['summary']['overall']['dimensionDisagreements']['taskCompleteness'] == int(wrong_dimension)
     assert report['policy']['mode'] == 'advisory'
@@ -147,7 +155,9 @@ def test_real_candidate_has_balanced_labels_and_a_matching_review_record():
         assert review['reviewer'] is None
         assert review['independentHumanReview'] is False
     else:
-        validate(root)
+        # Prior approval must not authorize the corrected evaluator on exposed cases.
+        with pytest.raises(ValueError, match='Qualification freeze mismatch'):
+            validate(root)
     fixture = json.loads((root / review_gate.FIXTURE).read_text())
     rows = [row for scenario in fixture['scenarios'] for row in scenario['examples']]
     assert len(fixture['scenarios']) == 16
