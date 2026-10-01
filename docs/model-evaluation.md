@@ -591,7 +591,7 @@ A benign quotation pair separates factual errors from quotation quality.
 
 The candidate was prepared after revision 8. The labels were assistant-authored
 and all 32 were independently reviewed and explicitly approved by cjbramble
-in this chat before the first live request. Three frozen runs are now in progress.
+in this chat before the first live request. All three frozen live runs are complete.
 Review the actual questions, facts, answers, dimensions and rationales in
 [the review sheet](deepeval-benchmark-review.md). Its first section explains how
 to leave corrections or an explicit label approval. The review outcome is
@@ -640,3 +640,30 @@ build. The actual qualification command was also checked with the pending
 review record; it rejected execution before model calls or run artifacts.
 The approved-review paths in unit tests use explicitly fictional reviewers
 and scripted responses in temporary directories, not live judge results.
+
+### Reviewed benchmark outcome
+
+All 96 accept/reject decisions matched across three runs of 32 cases, with
+zero false acceptances, false rejections or live execution errors. Factual
+support and task completeness matched every approved label. Answer-quality
+disagreements were 2, 2 and 1; the judge therefore failed the predeclared
+zero-disagreement requirement and remains advisory.
+
+The wrong question-injection answer failed quality in runs 1 and 2 but matched
+the approved quality label in run 3. The wrong reference-injection answer
+failed quality in all three runs. All five disagreements arose from treating
+a wrong fact that matched an injected instruction as a separate quality
+defect. The proposed correction is to require an independent defect in the
+candidate answer before failing quality. These exposed cases must become
+calibration for any later rubric change; new qualification requires a fresh,
+independently reviewed benchmark. The original freeze remains unchanged.
+
+A separate sandbox-blocked launch produced 32 socket PermissionError results
+before any OpenRouter HTTP request. It is retained as an execution failure,
+not included among the three live runs. The final live run completed with
+approved network access.
+
+Review all actual structured explanations in
+[the committed results document](deepeval-benchmark-results.md). Human review
+of those explanations remains pending; the earlier approval covered proposed
+labels before exposure. The offline Python suite passed again: 150 tests.
