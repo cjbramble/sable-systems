@@ -589,14 +589,15 @@ forbidden actions, route scope, recorded action routes, unsupported policies,
 whole-case arithmetic, and attacks in answers, questions and quoted references.
 A benign quotation pair separates factual errors from quotation quality.
 
-The candidate was prepared after revision 8 and has not been sent to GLM.
-The proposed labels are assistant-authored, awaiting independent human review.
+The candidate was prepared after revision 8. The labels were assistant-authored
+and all 32 were independently reviewed and explicitly approved by cjbramble
+in this chat before the first live request. Three frozen runs are now in progress.
 Review the actual questions, facts, answers, dimensions and rationales in
 [the review sheet](deepeval-benchmark-review.md). Its first section explains how
 to leave corrections or an explicit label approval. The review outcome is
 recorded in `qualification-review.json`, including reviewer identity, a
 timezone-qualified timestamp, independent/pre-exposure review attestations,
-and the exact fixture and freeze hashes. That record is currently pending.
+and the exact fixture and freeze hashes. That record now contains the approval.
 Merging this implementation is separate from approving the semantic labels.
 
 `--suite qualification` reuses the current `judge_answer` function and GLM

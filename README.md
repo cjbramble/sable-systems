@@ -214,7 +214,7 @@ not GLM judgment accuracy. Historical DeepSeek results do not validate GLM.
 | 1: coverage and benchmark              | 36 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | GLM matches all 36 dimensional controls; independent human review of labels remains pending           |
 | 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 150 Python tests pass                                       |
 | 3: claim diagnostics and qualification | 16 direct-verdict controls; 26 extraction cases with 40 expected source claims and separate coverage/truth results                                                    | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending |
-| 4: reviewed benchmark                  | Fresh 32-case benchmark for the current structured judge; readable review sheet; fixture, evaluator and runtime-setting freeze; required review record                | Independent human label review pending; no live benchmark requests made                               |
+| 4: reviewed benchmark                  | Fresh 32-case benchmark for the current structured judge; readable review sheet; fixture, evaluator and runtime-setting freeze; required review record                | All 32 labels approved by cjbramble before exposure; three frozen runs in progress                    |
 
 Expanded support cases cover orders, shipments, returns, account authorization,
 missing records, compound requests, topic switches and action refusals. Evaluator
@@ -347,7 +347,7 @@ any model request. Changes to the locked evaluator, review sheet, fixture,
 model, reasoning, token limit or provider settings invalidate that review.
 The original benchmark remains historical evidence under its original evaluator.
 
-The candidate is unrun. After independent review, the frozen plan is three
+All 32 labels were approved by cjbramble before live exposure. The frozen plan is three
 runs of 32 calls each using four workers (96 planned calls, up to 8,192
 completion tokens per call). Every run must have zero false acceptances, false rejections,
 dimension disagreements or execution errors. Repeated runs measure stability;
