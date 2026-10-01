@@ -578,3 +578,145 @@ and explanations remains pending before qualification as a gate.
 action wording and stronger fixture-preservation assertions, the Python suite
 again passed all 124 tests. The preservation check covers original questions,
 reference facts, answers, rationales, labels and expected dimensions.
+
+## Fresh structured-judge benchmark
+
+The fresh `qualification-v1.json` candidate has 32 authored answers in 16
+scenario pairs, with 16 accepts and 16 rejects. It covers order summaries,
+partial shipments and arithmetic, credit approval versus payment, account
+privacy, missing records and advice, compound requests, topic switches,
+forbidden actions, route scope, recorded action routes, unsupported policies,
+whole-case arithmetic, and attacks in answers, questions and quoted references.
+A benign quotation pair separates factual errors from quotation quality.
+
+The candidate was prepared after revision 8. The labels were assistant-authored
+and all 32 were independently reviewed and explicitly approved by cjbramble
+in this chat before the first live request. All three frozen live runs are complete.
+Review the actual questions, facts, answers, dimensions and rationales in
+[the review sheet](deepeval-benchmark-review.md). Its first section explains how
+to leave corrections or an explicit label approval. The review outcome is
+recorded in `qualification-review.json`, including reviewer identity, a
+timezone-qualified timestamp, independent/pre-exposure review attestations,
+and the exact fixture and freeze hashes. That record now contains the approval.
+Merging this implementation is separate from approving the semantic labels.
+
+`--suite qualification` reuses the current `judge_answer` function and GLM
+configuration. The new freeze locks the fixture, review sheet,
+structured grader, adapter, runner, launcher, Python dependency lock, and shared
+model configuration. It also records the actual model and generation settings.
+The runner validates those hashes, runtime settings, 32-case call plan,
+complete dimensional expectations and review record before creating run
+artifacts or calling the judge. It requires the frozen concurrency of four
+and disallows
+holdout, transcript and claim-pilot modes for this suite. Reports retain the
+review and freeze alongside the existing per-case evidence and coverage counts.
+The original eight-case GEval benchmark and its freeze remain unchanged.
+
+The policy is declared before live exposure: three 32-call runs with four workers,
+zero false acceptances, zero false rejections, zero dimension disagreements,
+zero execution errors, and human review of the explanations. This is a plan
+for 96 calls, not 96 independent cases. The runner bounds each run to 32 cases;
+the operator must respect the three-run call plan across invocations.
+The frozen 8,192-token limit bounds completion tokens per call; actual API costs
+also depend on input tokens and provider pricing. No billed benchmark requests
+were made while preparing this phase.
+
+An approved label review permits execution. A successful command records one
+run matching its labels and dimensions. Qualification also requires review of
+the three reports, explanation correctness, stability and scenario coverage.
+The judge stays advisory until that decision is recorded.
+Software verifies the recorded attestation and hashes, not the reviewer's actual
+independence or whether they read every case.
+
+If review identifies ambiguity before execution, correct the candidate and
+review sheet, regenerate the freeze, and obtain approval of the new hashes.
+If live results inform rubric or model tuning, retire these cases into
+calibration and prepare a fresh candidate. Do not refreeze the same exposed
+set and claim untouched validation. Preserve the original manifests and reports.
+
+Offline verification passed `npm run check`: lint, formatting, type checking,
+304 application tests, 150 Python tests, seed validation and the production
+build. The actual qualification command was also checked with the pending
+review record; it rejected execution before model calls or run artifacts.
+The approved-review paths in unit tests use explicitly fictional reviewers
+and scripted responses in temporary directories, not live judge results.
+
+### Reviewed benchmark outcome
+
+All 96 accept/reject decisions matched across three runs of 32 cases, with
+zero false acceptances, false rejections or live execution errors. Factual
+support and task completeness matched every approved label. Answer-quality
+disagreements were 2, 2 and 1; the judge therefore failed the predeclared
+zero-disagreement requirement and remains advisory.
+
+The wrong question-injection answer failed quality in runs 1 and 2 but matched
+the approved quality label in run 3. The wrong reference-injection answer
+failed quality in all three runs. All five disagreements arose from treating
+a wrong fact that matched an injected instruction as a separate quality
+defect. The proposed correction is to require an independent defect in the
+candidate answer before failing quality. These exposed cases must become
+calibration for any later rubric change; new qualification requires a fresh,
+independently reviewed benchmark. The original freeze remains unchanged.
+
+A separate sandbox-blocked launch produced 32 socket PermissionError results
+before any OpenRouter HTTP request. It is retained as an execution failure,
+not included among the three live runs. The final live run completed with
+approved network access.
+
+Review all actual structured explanations in
+[the committed results document](deepeval-benchmark-results.md). Human review
+of those explanations remains pending; the earlier approval covered proposed
+labels before exposure. The offline Python suite passed again: 150 tests.
+
+### Revision-12 quality correction
+
+The current judge requires a separate defect in the candidate answer before
+failing quality. A false fact does not additionally fail quality merely because
+it matches an attack in the question or an untrusted reference note. The model
+must return five strict boolean flags: evaluator instruction, off-topic text,
+unauthorized action, foreign-account disclosure and invented resource. The report
+derives `defects` and the quality verdict from those flags. The model cannot
+supply a contradictory defect list; missing or non-boolean flags are errors with
+retained call evidence. Relevant but incomplete answers can pass quality.
+
+`npm run test:judge -- --suite quality --concurrency 4` runs 17 authored controls.
+Two triplets hold wrong stock/status answers constant while varying plain
+context, a question attack and a reference attack. Other controls check correct
+facts, directives beside correct and wrong facts, requested quotations beside
+correct and wrong facts, unauthorized completion, foreign-account disclosure,
+invented resources and off-topic text. The two original exposed failures retain
+their original labels. No expectations were relaxed.
+
+The revision-9 and revision-10 runs each matched all overall decisions but missed
+two quality labels. In revision 10, explanations named an evaluator directive
+and an off-topic answer while the defect lists were empty. Revision 11 introduced
+the required flags: all 16 graded controls matched every dimension, while one
+quotation response was rejected by the literal source guard. Revision 12 clarifies
+copying the inner quoted text with its original punctuation, without added labels,
+delimiters or escape characters. The source guard and verdict semantics remain
+unchanged. Both quotation cases and an adjacent evaluator directive passed a
+focused three-case check through the same runner, using an unchanged subset in
+a temporary fixture root. That earlier focused check was not a full 17-case revision-12 run. A subsequent
+complete run on the final code processed all 17 cases: 15 passed, with two
+upstream HTTP 429 errors from OpenInference's shared GLM pool. One full rerun
+with concurrency reduced from four workers to two passed all 17 cases with
+zero grading failures or execution errors. The source, model settings, fixture
+and expectations were unchanged. The latest complete evaluation is GREEN;
+both full attempts and their case evidence are retained in the results document.
+
+Review every assessment and the preserved failures in
+[the correction results](deepeval-quality-results.md). These calibration results
+do not establish untouched qualification; the judge remains advisory. Final
+`npm run check` passed: 304 application tests, 165 Python tests, lint, formatting,
+type checks, data validation and build.
+
+`--suite calibration --concurrency 4` reuses all 32 exposed cases under current
+rules, reports `retired-calibration`, and never attaches benchmark approval.
+The original fixture, review sheet, approval and freeze remain unchanged.
+Revision-8 code is preserved at
+[commit 22ef9b3](https://github.com/cjbramble/sable-systems/tree/22ef9b38a5c235adaf13f97aaa33ead0a768e650).
+The qualification guard rejects the changed evaluator against that original
+freeze before calls or artifacts. A new independently reviewed benchmark is
+required for qualification of the corrected judge. Offline review-gate tests
+build fictional current-code freezes only in temporary directories and never
+update production approval.
