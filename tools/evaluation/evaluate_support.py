@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 import time
 
-from openrouter_judge import ROOT, judge_metadata
+from openrouter_judge import ROOT, judge_metadata, RETRY_POLICY, summarize_requests
 from benchmark_review import validate_qualification
 from support_grading import ANSWER_RULES, CLAIM_RULES, judge_answer, judge_claims, judge_direct_claim, EXTRACTION_RULES, assess_claim_coverage
 
@@ -26,11 +26,11 @@ def main():
     if type(concurrency) is not int or not 1 <= concurrency <= 4:
         raise ValueError("Judge concurrency must be an integer from 1 to 4")
     suite = payload.get("suite", "legacy")
-    if suite not in ("legacy", "coverage", "benchmark", "claims", "extraction", "qualification", "qualification-v2", "calibration", "calibration-v2", "quality"):
+    if suite not in ("legacy", "coverage", "benchmark", "claims", "extraction", "qualification", "qualification-v2", "qualification-v3", "calibration", "calibration-v2", "quality"):
         raise ValueError("Unknown judge suite")
     if suite != "legacy" and (mode != "validation" or payload.get("validationSet", "all") != "all"):
         raise ValueError("Expanded suites require normal validation mode")
-    suite_path = ROOT / "tests/fixtures/judge" / ({"qualification-v2": "qualification-v2.json", "calibration-v2": "qualification-v2.json", "qualification": "qualification-v1.json", "calibration": "qualification-v1.json", "quality": "quality-controls-v1.json", "coverage": "coverage-v3.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "extraction-controls-v1.json"}.get(suite, "coverage.json"))
+    suite_path = ROOT / "tests/fixtures/judge" / ({"qualification-v3": "qualification-v3.json", "qualification-v2": "qualification-v2.json", "calibration-v2": "qualification-v2.json", "qualification": "qualification-v1.json", "calibration": "qualification-v1.json", "quality": "quality-controls-v1.json", "coverage": "coverage-v3.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "extraction-controls-v1.json"}.get(suite, "coverage.json"))
     suite_fixture = json.loads(suite_path.read_text()) if suite != "legacy" else None
     freeze = None
     if suite == "benchmark":
@@ -99,9 +99,9 @@ def main():
     if not planned:
         raise ValueError("No scenarios selected")
     model_metadata, generation = judge_metadata()
-    if suite in ("qualification", "qualification-v2"):
+    if suite in ("qualification", "qualification-v2", "qualification-v3"):
         freeze = validate_qualification(ROOT, model_metadata, generation, concurrency,
-                                        version=2 if suite == "qualification-v2" else 1)
+                                        version={"qualification": 1, "qualification-v2": 2, "qualification-v3": 3}[suite])
     report = {
         "schemaVersion": 4, "mode": mode, "model": model_metadata,
         "concurrency": concurrency,
@@ -124,6 +124,7 @@ def main():
                    "extractionRules": EXTRACTION_RULES if suite == "extraction" or mode == "claims-pilot" else None,
                    "assessmentRules": CLAIM_RULES if claim_diagnostic else ANSWER_RULES},
         "generation": generation,
+        "retryPolicy": RETRY_POLICY,
         "evaluatorSha256": {
             **{name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
                for name in ("openrouter_judge.py", "evaluate.py", "evaluate_support.py", "support_grading.py", "uv.lock")},
@@ -190,7 +191,7 @@ def main():
                                "processedSamples": len(results)})
     def summarize(rows):
         completed = [row for row in rows if "error" not in row]
-        return {"samples": len(rows), "executionErrors": len(rows) - len(completed),
+        return {**summarize_requests(rows), "samples": len(rows), "executionErrors": len(rows) - len(completed),
                 "falseAcceptances": sum(row.get("expectedPassed") is False and row.get("passed") is True for row in completed),
                 "falseRejections": sum(row.get("expectedPassed") is True and row.get("passed") is False for row in completed),
                 "labelDisagreements": sum(row.get("agrees") is False for row in completed),
@@ -222,6 +223,10 @@ def main():
     with destination.open("x") as output:
         json.dump(report, output, indent=2)
         output.write("\n")
+    summary = report["summary"]["overall"]
+    print(f"Judge HTTP attempts: {summary['requestAttempts']}; retries: {summary['retryAttempts']}; "
+          f"rate-limited requests recovered: {summary['recoveredRateLimitedRequests']}; "
+          f"unresolved: {summary['unresolvedRateLimitedRequests']}")
     print(f"Judge report: {destination}")
     # Live judge verdicts are advisory; harness errors and factual failures are not.
     return 0 if report["successful"] else 1

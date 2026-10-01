@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "decision": "pending",
+  "reviewer": null,
+  "reviewedAt": null,
+  "independentHumanReview": false,
+  "reviewedBeforeLiveExposure": false,
+  "fixtureSha256": "689ae0026f6901f79980113a256faebd061d7646173b42a20855214038e2fb45",
+  "freezeSha256": "076a349e6d4b50932e0da3b4038c7991cec8fcadcaaeb677fe3f3ca5f07d2e9c",
+  "notes": "Human review of all 40 questions, references, answers, dimensions and rationales is required before live qualification. A merge is not label approval. No model calls have been made on this set."
+}

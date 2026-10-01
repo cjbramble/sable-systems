@@ -803,3 +803,69 @@ freeze before calls or artifacts. A new independently reviewed benchmark is
 required for qualification of the corrected judge. Offline review-gate tests
 build fictional current-code freezes only in temporary directories and never
 update production approval.
+
+## Bounded rate-limit retries and revision-13 candidate
+
+The adapter retries complete HTTP 429 responses at most three times per logical
+request (four total HTTP attempts). It honors valid `Retry-After` integer seconds
+or HTTP dates up to 60 seconds. A larger provider-requested wait ends as an error
+rather than retrying early. Missing or invalid headers use 4, 8 and 16 seconds
+plus uniform 0–1 second jitter. Responses above the evidence-size bound and
+response-read failures are not retried. Neither are other HTTP errors, transport
+errors, malformed/truncated verdicts or grading failures. Connections and network
+scope are closed/reset before waiting. Request contents, model, reasoning,
+privacy routing and generation settings remain identical across retries.
+
+Each attempt retains its logical request and attempt numbers, HTTP status,
+redacted failure body and error type; attempts scheduled for retry record their
+delay. A final 429 records budget exhaustion or a skipped overly long server
+wait. Successful HTTP/schema completion is recorded separately from the grading
+decision. Reports include the retry policy apart from API generation parameters.
+Overall and per-scenario summaries count HTTP attempts, retries, 429 attempts,
+recovered rate-limited requests and unresolved rate-limited requests. A recovered
+request can still fail grading; retries do not erase that failure. A terminal
+error remains an execution error. Incremental JSONL saves a case's complete
+attempt list when that case finishes; an interruption during an in-flight case
+can still prevent those in-memory attempts from reaching the file.
+
+[The new review sheet](deepeval-benchmark-v3-review.md) prepares 40 newly authored
+synthetic answers in 20 pairs for revision 13. It is not a human-authored or
+qualified benchmark. Its expected labels require independent human review before
+live exposure, and its approval record remains pending. No model calls have been
+made on this candidate. The proposed plan is three consecutive complete runs,
+two workers, GLM reasoning enabled and 16,384 output tokens. Forty logical
+requests per run allow at most 160 HTTP attempts with the frozen retry policy:
+120 logical requests and at most 480 attempts across the three runs. This is a
+request budget, not a guaranteed dollar budget or 120 independent cases.
+
+The v3 freeze locks the fixture, readable review sheet, evaluator source,
+launcher, dependencies, model/generation settings, retry policy and run budget.
+Matching review attestation is required before calls or artifacts. Changed hashes,
+model settings, retry settings, grading revision, concurrency, budgets or old
+approval records cannot authorize the run. Old v1/v2 approvals and frozen files
+remain unchanged and reject current code.
+
+Every run must have zero false acceptances, false rejections, dimension
+disagreements and terminal execution errors. Recovered 429s can coexist with a
+successful run but remain disclosed. No replacement fourth run is authorized.
+Human review of actual explanations is required afterward; a label approval or
+merge is not that review. Any evaluator tuning based on results retires the new
+set into calibration. The judge remains advisory.
+
+After explicit label and run-plan approval:
+
+```bash
+OPENROUTER_JUDGE_MAX_TOKENS=16384 npm run test:judge -- --suite qualification-v3 --concurrency 2
+```
+
+The command currently blocks before calls and report artifacts because review is
+pending. The explicit cap prevents an older environment override from selecting
+8,192 tokens instead of the frozen 16,384. Review and actual run results will be
+recorded after those steps occur; offline scripted tests are not live judgment
+evidence. The previous revision-12 three-run results are unchanged.
+
+Current offline verification for this phase: **GREEN — 304 application tests and
+206 Python tests passed**, plus lint, formatting, type checking, seed validation
+and production build. The real pending-review entry point was checked to reject
+v3 before model calls or JSON/JSONL report artifacts. These checks validate retry
+and approval behavior; they do not establish GLM accuracy on the new benchmark.
