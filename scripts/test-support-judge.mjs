@@ -46,12 +46,17 @@ try {
       'Choose only one of --transcript, --holdout, --claims-pilot, or --direct-claim-pilot.',
     );
   if (
-    !['legacy', 'coverage', 'benchmark', 'claims', 'extraction'].includes(
-      values.suite,
-    )
+    ![
+      'legacy',
+      'coverage',
+      'benchmark',
+      'claims',
+      'extraction',
+      'qualification',
+    ].includes(values.suite)
   )
     throw new Error(
-      'Choose --suite legacy, coverage, benchmark, claims, or extraction.',
+      'Choose --suite legacy, coverage, benchmark, claims, extraction, or qualification.',
     );
   if (
     values.suite !== 'legacy' &&

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "decision": "pending",
+  "reviewer": null,
+  "reviewedAt": null,
+  "independentHumanReview": false,
+  "reviewedBeforeLiveExposure": false,
+  "fixtureSha256": "735e52e36723ab9b602e3c8ddfade2eb6c706c2fce167767feffeec842b4dd44",
+  "freezeSha256": "1500111147086bb3d971903563249c81061cd990c061a376f96840f7a3f453ac",
+  "notes": null
+}

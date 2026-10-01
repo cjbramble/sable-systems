@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "gradingRevision": 8,
+  "exposureAtFreeze": "no-live-judge-runs",
+  "purpose": "Freeze the current structured judge, fresh benchmark, and human review sheet before live exposure. Do not tune against its results.",
+  "model": {
+    "provider": "openrouter",
+    "alias": "z-ai/glm-5.3-flash"
+  },
+  "generation": {
+    "temperature": 0,
+    "top_p": 1,
+    "max_tokens": 8192,
+    "stream": false,
+    "reasoning": {
+      "enabled": true
+    },
+    "provider": {
+      "allow_fallbacks": false,
+      "require_parameters": true,
+      "data_collection": "deny",
+      "zdr": true
+    }
+  },
+  "qualificationPolicy": {
+    "plannedRuns": 3,
+    "concurrency": 4,
+    "maxModelCallsPerRun": 32,
+    "maxFalseAcceptances": 0,
+    "maxFalseRejections": 0,
+    "maxDimensionDisagreements": 0,
+    "maxExecutionErrors": 0,
+    "humanExplanationReviewRequired": true
+  },
+  "sha256": {
+    "tests/fixtures/judge/qualification-v1.json": "735e52e36723ab9b602e3c8ddfade2eb6c706c2fce167767feffeec842b4dd44",
+    "docs/deepeval-benchmark-review.md": "efb7cf00e83983c4fcc2e060bc2a4b722f9d5b948fc78f82ca44fcb7ff25849e",
+    "tools/evaluation/benchmark_review.py": "39bd9edca21046983a9b6d02d263df3f6902326bac09f8884afaf55bab71c595",
+    "tools/evaluation/evaluate_support.py": "ab64b14631449dc5cc830669b4f9840a58e64a9328aae8f862b3d775fc37ee70",
+    "tools/evaluation/support_grading.py": "e0c7822bc4235ae8592383d53fb012c35985867bef1e798a8c5d1670c0c435c7",
+    "tools/evaluation/openrouter_judge.py": "616d5404488c5edde2deeecbde57450e5cbba257e8bb04ae6c7cfe4c26049b4c",
+    "tools/evaluation/uv.lock": "3d5b04c8ec6a1a6d409c2c8abb0a54ace08f8f99a30b24d16a15f279446d839f",
+    "lib/openrouter-config.json": "34bb65ec19ce7ed1464d82b8d6edd5abe3744fabd7c7d859cb048eacc97ae1aa",
+    "scripts/test-support-judge.mjs": "2bdee851893a4520cdfec59020e6c670eff70bce15627f2c3038cdfb86a0a763"
+  }
+}

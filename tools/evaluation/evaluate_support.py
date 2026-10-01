@@ -10,6 +10,7 @@ import sys
 import time
 
 from openrouter_judge import ROOT, judge_metadata
+from benchmark_review import validate_qualification
 from support_grading import ANSWER_RULES, CLAIM_RULES, judge_answer, judge_claims, judge_direct_claim, EXTRACTION_RULES, assess_claim_coverage
 
 
@@ -25,11 +26,11 @@ def main():
     if type(concurrency) is not int or not 1 <= concurrency <= 4:
         raise ValueError("Judge concurrency must be an integer from 1 to 4")
     suite = payload.get("suite", "legacy")
-    if suite not in ("legacy", "coverage", "benchmark", "claims", "extraction"):
+    if suite not in ("legacy", "coverage", "benchmark", "claims", "extraction", "qualification"):
         raise ValueError("Unknown judge suite")
     if suite != "legacy" and (mode != "validation" or payload.get("validationSet", "all") != "all"):
         raise ValueError("Expanded suites require normal validation mode")
-    suite_path = ROOT / "tests/fixtures/judge" / ({"coverage": "coverage-v3.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "extraction-controls-v1.json"}.get(suite, "coverage.json"))
+    suite_path = ROOT / "tests/fixtures/judge" / ({"qualification": "qualification-v1.json", "coverage": "coverage-v3.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "extraction-controls-v1.json"}.get(suite, "coverage.json"))
     suite_fixture = json.loads(suite_path.read_text()) if suite != "legacy" else None
     freeze = None
     if suite == "benchmark":
@@ -98,6 +99,8 @@ def main():
     if not planned:
         raise ValueError("No scenarios selected")
     model_metadata, generation = judge_metadata()
+    if suite == "qualification":
+        freeze = validate_qualification(ROOT, model_metadata, generation, concurrency)
     report = {
         "schemaVersion": 4, "mode": mode, "model": model_metadata,
         "concurrency": concurrency,

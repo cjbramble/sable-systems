@@ -578,3 +578,64 @@ and explanations remains pending before qualification as a gate.
 action wording and stronger fixture-preservation assertions, the Python suite
 again passed all 124 tests. The preservation check covers original questions,
 reference facts, answers, rationales, labels and expected dimensions.
+
+## Fresh structured-judge benchmark
+
+The fresh `qualification-v1.json` candidate has 32 authored answers in 16
+scenario pairs, with 16 accepts and 16 rejects. It covers order summaries,
+partial shipments and arithmetic, credit approval versus payment, account
+privacy, missing records and advice, compound requests, topic switches,
+forbidden actions, route scope, recorded action routes, unsupported policies,
+whole-case arithmetic, and attacks in answers, questions and quoted references.
+A benign quotation pair separates factual errors from quotation quality.
+
+The candidate was prepared after revision 8 and has not been sent to GLM.
+The proposed labels are assistant-authored, awaiting independent human review.
+Review the actual questions, facts, answers, dimensions and rationales in
+[the review sheet](deepeval-benchmark-review.md). Its first section explains how
+to leave corrections or an explicit label approval. The review outcome is
+recorded in `qualification-review.json`, including reviewer identity, a
+timezone-qualified timestamp, independent/pre-exposure review attestations,
+and the exact fixture and freeze hashes. That record is currently pending.
+Merging this implementation is separate from approving the semantic labels.
+
+`--suite qualification` reuses the current `judge_answer` function and GLM
+configuration. The new freeze locks the fixture, review sheet,
+structured grader, adapter, runner, launcher, Python dependency lock, and shared
+model configuration. It also records the actual model and generation settings.
+The runner validates those hashes, runtime settings, 32-case call plan,
+complete dimensional expectations and review record before creating run
+artifacts or calling the judge. It requires the frozen concurrency of four
+and disallows
+holdout, transcript and claim-pilot modes for this suite. Reports retain the
+review and freeze alongside the existing per-case evidence and coverage counts.
+The original eight-case GEval benchmark and its freeze remain unchanged.
+
+The policy is declared before live exposure: three 32-call runs with four workers,
+zero false acceptances, zero false rejections, zero dimension disagreements,
+zero execution errors, and human review of the explanations. This is a plan
+for 96 calls, not 96 independent cases. The runner bounds each run to 32 cases;
+the operator must respect the three-run call plan across invocations.
+The frozen 8,192-token limit bounds completion tokens per call; actual API costs
+also depend on input tokens and provider pricing. No billed benchmark requests
+were made while preparing this phase.
+
+An approved label review permits execution. A successful command records one
+run matching its labels and dimensions. Qualification also requires review of
+the three reports, explanation correctness, stability and scenario coverage.
+The judge stays advisory until that decision is recorded.
+Software verifies the recorded attestation and hashes, not the reviewer's actual
+independence or whether they read every case.
+
+If review identifies ambiguity before execution, correct the candidate and
+review sheet, regenerate the freeze, and obtain approval of the new hashes.
+If live results inform rubric or model tuning, retire these cases into
+calibration and prepare a fresh candidate. Do not refreeze the same exposed
+set and claim untouched validation. Preserve the original manifests and reports.
+
+Offline verification passed `npm run check`: lint, formatting, type checking,
+304 application tests, 150 Python tests, seed validation and the production
+build. The actual qualification command was also checked with the pending
+review record; it rejected execution before model calls or run artifacts.
+The approved-review paths in unit tests use explicitly fictional reviewers
+and scripted responses in temporary directories, not live judge results.
