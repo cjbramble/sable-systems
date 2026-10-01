@@ -53,12 +53,13 @@ try {
       'claims',
       'extraction',
       'qualification',
+      'qualification-v2',
       'calibration',
       'quality',
     ].includes(values.suite)
   )
     throw new Error(
-      'Choose --suite legacy, coverage, benchmark, claims, extraction, qualification, calibration, or quality.',
+      'Choose --suite legacy, coverage, benchmark, claims, extraction, qualification, qualification-v2, calibration, or quality.',
     );
   if (
     values.suite !== 'legacy' &&

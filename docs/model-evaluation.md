@@ -579,6 +579,77 @@ action wording and stronger fixture-preservation assertions, the Python suite
 again passed all 124 tests. The preservation check covers original questions,
 reference facts, answers, rationales, labels and expected dimensions.
 
+## Fresh revision-12 benchmark awaiting review
+
+The current candidate is [qualification-v2.json](../tests/fixtures/judge/qualification-v2.json),
+with 40 new synthetic answers in 20 scenario pairs: 20 proposed accepts and 20
+proposed rejects. Review [the complete case sheet](deepeval-benchmark-v2-review.md)
+before any live exposure. It includes each question, reference, literal answer,
+all three expected dimensions, and a specific rationale. The assistant authored
+the labels; independent human review remains pending in
+`qualification-v2-review.json`. No live calls have been made on these cases.
+Merging the implementation alone is not semantic label approval.
+
+Coverage includes invoice tax, shipment quantity groups, return receipt versus
+refund, foreign-account disclosure, absent records and plain advice, compound
+fields, topic switches, cancellation permissions, two separately prohibited
+actions, documented and invented routes, missing estimates, reserved stock,
+case-to-unit pricing, evaluator attacks in questions/references/answers, benign
+requested quotation, explicit policy exceptions, extra unsupported comparison
+claims, and exact response format. Fresh records and answers exercise the same
+support categories without reusing the exposed cases. This synthetic set does
+not establish production-distribution coverage or general model accuracy.
+
+`--suite qualification-v2 --concurrency 2` uses the unchanged revision-12
+`judge_answer` implementation and GLM configuration. Its versioned freeze locks
+the fixture, review sheet, review validator, runner, grader, adapter, launcher,
+Python dependency lock, shared model configuration, and actual generation
+settings. The validator requires matching files, runtime settings, complete and
+consistent dimensions, the exact call plan, and a matching recorded human
+approval before creating artifacts or calling the model. The original revision-8
+fixture, freeze, review sheet and approval remain unchanged; its old suite still
+rejects the corrected evaluator. Its approval cannot authorize the new candidate.
+
+The new predeclared plan is three complete 40-case runs, two workers per run,
+with zero false acceptances, false rejections, dimension disagreements, and
+execution errors in every run. This is 120 planned requests across 40 distinct
+cases. The two-worker schedule follows the successful full quality evaluation
+after upstream shared-pool rate limits at four workers. The 8,192-token completion
+limit, reasoning and privacy settings remain unchanged. Actual cost also depends
+on input tokens and provider pricing. The gate bounds individual runs; the
+operator must enforce the three-run budget across invocations. No automatic
+retries or extra runs are authorized by that plan. Preserve and report a failed
+run before proposing a separately approved retry.
+
+After human label approval, run the following command three times, retaining
+each independently named JSON report and incremental JSONL evidence:
+
+```sh
+npm run test:judge -- --suite qualification-v2 --concurrency 2
+```
+
+Report each run's pass/fail/error counts plus false acceptances, false rejections,
+and disagreements by dimension. A passing run requires the overall decision
+and all three expected dimensions to match. Before declaring qualification,
+review the actual model explanations and stability across all three reports.
+The judge remains advisory while those steps are incomplete. The software
+checks the review attestation, not actual reviewer independence or reading.
+
+Preparation passed `npm run check`: 304 application tests and 177 Python tests,
+lint, formatting, type checks, seed validation and the production build. The
+actual new launcher was checked with review pending and stopped before a model
+call or report creation. The new offline tests use fictional approval in
+temporary directories and scripted responses to verify 40-case routing, label
+withholding, review isolation, frozen-file and scheduler enforcement, and
+separate false-acceptance, false-rejection, dimension and upstream-error counts.
+These checks establish harness behavior, not the model's performance.
+
+If human review identifies ambiguity before exposure, update the cases and
+review sheet, regenerate the new freeze, and obtain approval for its new hashes.
+If live results inform tuning, retire this set into calibration; a replacement
+benchmark needs fresh cases and its own review. Do not reapprove exposed cases
+as untouched evidence. Historical manifests and reports remain preserved.
+
 ## Fresh structured-judge benchmark
 
 The fresh `qualification-v1.json` candidate has 32 authored answers in 16

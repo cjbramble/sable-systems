@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "decision": "pending",
+  "reviewer": null,
+  "reviewedAt": null,
+  "independentHumanReview": false,
+  "reviewedBeforeLiveExposure": false,
+  "fixtureSha256": "4b9117c54e2776bb95fb5f94df88de17d4f04e2031995f6777068c432af7fb8a",
+  "freezeSha256": "ce80622bfe0437e0192843c48e6a5e9fd7d0eb820e72bb913abed9d8c3d83913",
+  "notes": "Awaiting explicit independent human review of all 40 questions, references, answers, dimensions and rationales in docs/deepeval-benchmark-v2-review.md before any live evaluation. Merging the PR alone does not approve these labels."
+}

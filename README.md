@@ -212,10 +212,11 @@ not GLM judgment accuracy. Historical DeepSeek results do not validate GLM.
 | Phase                                  | Implemented                                                                                                                                                           | Remaining validation                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | 1: coverage and benchmark              | 36 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | GLM matches all 36 dimensional controls; independent human review of labels remains pending           |
-| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 165 Python tests pass                                       |
+| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 177 Python tests pass                                       |
 | 3: claim diagnostics and qualification | 16 direct-verdict controls; 26 extraction cases with 40 expected source claims and separate coverage/truth results                                                    | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending |
 | 4: reviewed benchmark                  | Reviewed 32-case benchmark for the revision-8 structured judge; readable review sheet; fixture, evaluator and runtime-setting freeze; required review record          | Three runs complete: 96/96 decisions match; five quality disagreements; judge remains advisory        |
 | 5: quality correction                  | Explicit quality flags, 17 boundary controls, quoted-claim guidance and preserved diagnostic evidence                                                                 | GREEN: complete final-code run 17 passed, 0 failed, 0 errors; fresh qualification still needed        |
+| 6: fresh revision-12 benchmark         | 40 new answers across 20 scenario pairs; separate review sheet, freeze, and pending review record; three planned runs with two workers                                | Human label review pending; 0 live runs performed                                                     |
 
 Expanded support cases cover orders, shipments, returns, account authorization,
 missing records, compound requests, topic switches and action refusals. Evaluator
@@ -232,6 +233,8 @@ npm run test:judge -- --suite benchmark  # 8 historical original-GEval judgments
 npm run test:judge -- --suite quality --concurrency 4 # 17 factual/quality boundary controls
 npm run test:judge -- --suite calibration --concurrency 4 # 32 exposed cases; calibration only
 # The revision-8 qualification freeze is retired after the revision-12 rubric change.
+# After explicit approval of all 40 new labels, run this three times and preserve every report:
+npm run test:judge -- --suite qualification-v2 --concurrency 2
 npm run test:judge -- --suite claims     # 16 direct verdict calls
 npm run test:judge -- --suite extraction # 26 extractions plus one call per extracted quote
 ```
@@ -338,6 +341,30 @@ action-completeness wording. Independent human review remains pending.
 
 ### Fresh benchmark review
 
+**Next action:** review [all 40 new answers and proposed labels](docs/deepeval-benchmark-v2-review.md).
+The revision-12 candidate is frozen in `qualification-v2-freeze.json`; its
+separate review record is pending. No live calls have been made on it. Comment
+with any corrections, or explicitly approve the questions, references, answers,
+all three dimensions and rationales, with your reviewer name or handle. Merging
+the PR alone does not approve labels. The runner blocks unapproved execution
+before model calls or report creation.
+
+After approval, the plan is three complete runs of 40 calls each with two workers:
+120 planned requests over 40 distinct cases. Two workers retain the setting that
+passed the final 17-case evaluation after the four-worker attempt hit provider
+rate limits. The judge, GLM model, reasoning, token limit, and privacy routing
+are unchanged. Each run must have zero false acceptances, false rejections,
+dimension disagreements and execution errors; explanation review is required
+before qualification. Preserve any failed run rather than silently replacing it.
+The new candidate is not yet evaluated, and the judge remains advisory.
+Offline verification is **GREEN: 304 application tests and 177 Python tests
+passed**, with lint, formatting, type checks, seed validation and the production
+build passing. The real new benchmark command was checked with review pending:
+it stopped before any model call or report creation. Scripted test responses
+verify routing, stale-approval rejection, frozen inputs, and separate grading
+failure/error reporting; they are not live evaluation results.
+
+The following results describe the earlier, exposed benchmark and correction.
 The approved labels are in [the benchmark review sheet](docs/deepeval-benchmark-review.md).
 The original benchmark explanations and the later correction results are available
 in the linked results documents below. Human review of those model explanations
