@@ -73,7 +73,7 @@ from deepeval.test_case import LLMTestCase, SingleTurnParams
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULTS = json.loads((ROOT / "lib/openrouter-config.json").read_text())
-GENERATION = {"temperature": 0, "top_p": 1, "max_tokens": 8192, "stream": False}
+GENERATION = {"temperature": 0, "top_p": 1, "max_tokens": 16384, "stream": False}
 
 
 def judge_config():
@@ -82,7 +82,7 @@ def judge_config():
     if reasoning not in ("true", "false"):
         raise ValueError("OPENROUTER_JUDGE_REASONING must be true or false")
     try:
-        max_tokens = int(os.environ.get("OPENROUTER_JUDGE_MAX_TOKENS", "").strip() or "8192")
+        max_tokens = int(os.environ.get("OPENROUTER_JUDGE_MAX_TOKENS", "").strip() or GENERATION["max_tokens"])
     except ValueError:
         raise ValueError("OPENROUTER_JUDGE_MAX_TOKENS must be an integer from 256 to 32768") from None
     if not 256 <= max_tokens <= 32768:

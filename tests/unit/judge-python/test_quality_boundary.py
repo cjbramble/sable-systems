@@ -10,6 +10,7 @@ import evaluate_support as evaluation
 @pytest.mark.parametrize('suite,filename,count,status', [
     ('quality', 'quality-controls-v1.json', 17, 'authored-calibration'),
     ('calibration', 'qualification-v1.json', 32, 'retired-calibration'),
+    ('calibration-v2', 'qualification-v2.json', 40, 'retired-calibration'),
 ])
 def test_calibration_reports_current_rubric_without_benchmark_approval(monkeypatch, tmp_path, suite, filename, count, status):
     fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge' / filename).read_text())
@@ -33,7 +34,7 @@ def test_calibration_reports_current_rubric_without_benchmark_approval(monkeypat
     assert report['coverage']['expectedSamples'] == report['coverage']['processedSamples'] == count
     assert report['suiteStatus'] == status
     assert report['benchmarkFreeze'] is None
-    assert report['policy']['gradingRevision'] == 12
+    assert report['policy']['gradingRevision'] == 13
     assert report['policy']['mode'] == 'advisory'
 
 

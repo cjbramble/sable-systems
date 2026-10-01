@@ -126,6 +126,22 @@ def test_direct_claim_pilot_preserves_controlled_pairs_and_requires_an_explicit_
 
 @pytest.mark.parametrize("suite,count", [("coverage", 24), ("benchmark", 8)])
 def test_expanded_suites_withhold_labels_and_retain_review_status(monkeypatch, tmp_path, suite, count):
+    if suite == 'benchmark':
+        # Scripted routing needs a fictional current-adapter freeze in a temp
+        # root; the historical production freeze must remain unchanged.
+        import hashlib
+        import shutil
+        freeze_name = 'tests/fixtures/judge/benchmark-freeze.json'
+        freeze = json.loads((evaluation.ROOT / freeze_name).read_text())
+        temporary = tmp_path / 'scripted-root'
+        for name in (*freeze['sha256'], freeze_name, 'tests/fixtures/judge/holdout.json'):
+            path = temporary / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(evaluation.ROOT / name, path)
+        freeze['sha256'] = {name: hashlib.sha256((temporary / name).read_bytes()).hexdigest()
+                            for name in freeze['sha256']}
+        (temporary / freeze_name).write_text(json.dumps(freeze))
+        monkeypatch.setattr(evaluation, 'ROOT', temporary)
     calls = []
     def judge(*args):
         calls.append(args)
