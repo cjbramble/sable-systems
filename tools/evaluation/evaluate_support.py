@@ -26,11 +26,11 @@ def main():
     if type(concurrency) is not int or not 1 <= concurrency <= 4:
         raise ValueError("Judge concurrency must be an integer from 1 to 4")
     suite = payload.get("suite", "legacy")
-    if suite not in ("legacy", "coverage", "benchmark", "claims", "extraction", "qualification", "qualification-v2", "calibration", "quality"):
+    if suite not in ("legacy", "coverage", "benchmark", "claims", "extraction", "qualification", "qualification-v2", "calibration", "calibration-v2", "quality"):
         raise ValueError("Unknown judge suite")
     if suite != "legacy" and (mode != "validation" or payload.get("validationSet", "all") != "all"):
         raise ValueError("Expanded suites require normal validation mode")
-    suite_path = ROOT / "tests/fixtures/judge" / ({"qualification-v2": "qualification-v2.json", "qualification": "qualification-v1.json", "calibration": "qualification-v1.json", "quality": "quality-controls-v1.json", "coverage": "coverage-v3.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "extraction-controls-v1.json"}.get(suite, "coverage.json"))
+    suite_path = ROOT / "tests/fixtures/judge" / ({"qualification-v2": "qualification-v2.json", "calibration-v2": "qualification-v2.json", "qualification": "qualification-v1.json", "calibration": "qualification-v1.json", "quality": "quality-controls-v1.json", "coverage": "coverage-v3.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "extraction-controls-v1.json"}.get(suite, "coverage.json"))
     suite_fixture = json.loads(suite_path.read_text()) if suite != "legacy" else None
     freeze = None
     if suite == "benchmark":
@@ -106,7 +106,7 @@ def main():
         "schemaVersion": 4, "mode": mode, "model": model_metadata,
         "concurrency": concurrency,
         "suite": suite,
-        "suiteStatus": "retired-calibration" if suite == "calibration" else suite_fixture["status"] if suite_fixture else "reused-calibration",
+        "suiteStatus": "retired-calibration" if suite in ("calibration", "calibration-v2") else suite_fixture["status"] if suite_fixture else "reused-calibration",
         "suiteSha256": hashlib.sha256(suite_path.read_bytes()).hexdigest() if suite_fixture else None,
         "benchmarkFreeze": freeze,
         "validationSet": validation_set if mode == "validation" else None,
@@ -119,7 +119,7 @@ def main():
                    "claimVerification": "one-at-a-time" if claim_diagnostic else None,
                    "strictMode": True, "penalizeAmbiguousClaims": True if claim_diagnostic else None,
                    "evaluationSteps": None,
-                   "gradingRevision": 3 if claim_diagnostic else 12,
+                   "gradingRevision": 3 if claim_diagnostic else 13,
                    "extractionRevision": 1 if suite == "extraction" or mode == "claims-pilot" else None,
                    "extractionRules": EXTRACTION_RULES if suite == "extraction" or mode == "claims-pilot" else None,
                    "assessmentRules": CLAIM_RULES if claim_diagnostic else ANSWER_RULES},

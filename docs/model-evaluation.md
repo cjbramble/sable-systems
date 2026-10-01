@@ -23,7 +23,9 @@ the separate chat/judge model defaults and privacy routing live in
 `lib/openrouter-config.json`. The current judge is `z-ai/glm-5.3-flash` with
 reasoning enabled. GLM live calibration began on 2026-09-30; the current
 results are recorded below. Historical DeepSeek results do not validate this
-configuration.
+configuration. The current default judge output cap is 16,384 tokens, shared
+by reasoning and the structured verdict. Explicit environment overrides remain
+in effect; an existing 8,192-token override must be raised to use the larger cap.
 Tests, assertions, and reference fixtures remain in `tests/`.
 
 - **Current evaluation:** the DeepEval model adapter produces independent per-claim
@@ -579,76 +581,86 @@ action wording and stronger fixture-preservation assertions, the Python suite
 again passed all 124 tests. The preservation check covers original questions,
 reference facts, answers, rationales, labels and expected dimensions.
 
-## Fresh revision-12 benchmark awaiting review
+## Reviewed revision-12 benchmark and topic correction
 
-The current candidate is [qualification-v2.json](../tests/fixtures/judge/qualification-v2.json),
-with 40 new synthetic answers in 20 scenario pairs: 20 proposed accepts and 20
-proposed rejects. Review [the complete case sheet](deepeval-benchmark-v2-review.md)
-before any live exposure. It includes each question, reference, literal answer,
-all three expected dimensions, and a specific rationale. The assistant authored
-the labels; independent human review remains pending in
-`qualification-v2-review.json`. No live calls have been made on these cases.
-Merging the implementation alone is not semantic label approval.
+The 40-case [qualification-v2 fixture](../tests/fixtures/judge/qualification-v2.json)
+was human-approved by cjbramble before exposure. All three planned runs finished
+with the same frozen revision-12 grader, GLM model, reasoning, 8,192-token cap,
+privacy routing and two-worker schedule. The fixture, draft case sheet, approval
+and freeze are unchanged. Their preparation status text is historical; the
+actual decision is in `qualification-v2-review.json`.
 
-Coverage includes invoice tax, shipment quantity groups, return receipt versus
-refund, foreign-account disclosure, absent records and plain advice, compound
-fields, topic switches, cancellation permissions, two separately prohibited
-actions, documented and invented routes, missing estimates, reserved stock,
-case-to-unit pricing, evaluator attacks in questions/references/answers, benign
-requested quotation, explicit policy exceptions, extra unsupported comparison
-claims, and exact response format. Fresh records and answers exercise the same
-support categories without reusing the exposed cases. This synthetic set does
-not establish production-distribution coverage or general model accuracy.
+| Run   | Processed | Passed | Failed grading checks | Execution errors |
+| ----- | --------- | ------ | --------------------- | ---------------- |
+| 1     | 40/40     | 36     | 0                     | 4                |
+| 2     | 40/40     | 36     | 1                     | 3                |
+| 3     | 40/40     | 40     | 0                     | 0                |
+| Total | 120/120   | 112    | 1                     | 7                |
 
-`--suite qualification-v2 --concurrency 2` uses the unchanged revision-12
-`judge_answer` implementation and GLM configuration. Its versioned freeze locks
-the fixture, review sheet, review validator, runner, grader, adapter, launcher,
-Python dependency lock, shared model configuration, and actual generation
-settings. The validator requires matching files, runtime settings, complete and
-consistent dimensions, the exact call plan, and a matching recorded human
-approval before creating artifacts or calling the model. The original revision-8
-fixture, freeze, review sheet and approval remain unchanged; its old suite still
-rejects the corrected evaluator. Its approval cannot authorize the new candidate.
+The overall three-run result is **RED** under the declared policy, even though
+Run 3 alone is green. There were zero false acceptances, one false rejection,
+one completeness disagreement, zero fact or quality disagreements, and seven
+execution errors. Six errors were provider shared-pool HTTP 429 limits. One
+quotation verdict used 8,192 completion tokens, including 8,084 reasoning tokens,
+and ended with `finish_reason: length`; it was rejected as an execution error.
+See [all case outcomes, actual explanations and sanitized evidence](deepeval-benchmark-v2-results.md)
+for every run, coverage, wall time, reported token usage, costs, and hashes.
+The source code before correction is preserved at
+[commit cffe37b](https://github.com/cjbramble/sable-systems/tree/cffe37b).
 
-The new predeclared plan is three complete 40-case runs, two workers per run,
-with zero false acceptances, false rejections, dimension disagreements, and
-execution errors in every run. This is 120 planned requests across 40 distinct
-cases. The two-worker schedule follows the successful full quality evaluation
-after upstream shared-pool rate limits at four workers. The 8,192-token completion
-limit, reasoning and privacy settings remain unchanged. Actual cost also depends
-on input tokens and provider pricing. The gate bounds individual runs; the
-operator must enforce the three-run budget across invocations. No automatic
-retries or extra runs are authorized by that plan. Preserve and report a failed
-run before proposing a separately approved retry.
+Coverage includes invoices, shipment groups, receipt versus refund, account
+privacy, missing records, compound fields, topic switches, prohibited actions,
+recorded and invented routes, unsupported estimates, stock reservations,
+unit pricing, attacks in all three input surfaces, requested quotations,
+policy exceptions, extra comparison claims, and exact output format. The 120
+assessments repeat 40 distinct synthetic cases; they do not establish general
+accuracy or production-distribution coverage.
 
-After human label approval, run the following command three times, retaining
-each independently named JSON report and incremental JSONL evidence:
+The grading error was a correct response to the new product question after an
+explicit topic switch. The model's explanation said the previous order was only
+background and not requested, but marked that background as missing. Revision 13
+makes the current-request boundary explicit in the rubric and requirement schema:
+previously mentioned topics must be omitted or excluded unless explicitly kept
+active; only an unaddressed current request is missing. Current compound requests
+still require every item. No expected label changed after exposure.
+
+The default judge completion cap is raised to 16,384 tokens after observing the
+8,192-token truncation. The provider advertises support for this cap; explicit
+`OPENROUTER_JUDGE_MAX_TOKENS` overrides remain supported and take precedence.
+The model IDs, reasoning setting, temperature, privacy routing and source-quote
+guard are unchanged. The three original runs retain their original 8,192-token
+cap in every report; the larger cap applies only to later execution.
+
+These results informed a correction, so the 40 cases now serve as
+`--suite calibration-v2` with `retired-calibration` status and no attached
+benchmark approval. The original `qualification-v2` guard intentionally rejects
+the changed files before calls or artifacts; its historical freeze and review
+must not be rewritten. The revision-8 and original GEval freezes are also
+preserved. Tests exercise approved paths only with fictional current-code
+freezes and scripted responses in temporary directories. They do not update
+production freeze records or establish live accuracy.
+
+For later billed calibration, explicitly use the larger cap if the environment
+still has an 8,192-token override:
 
 ```sh
-npm run test:judge -- --suite qualification-v2 --concurrency 2
+OPENROUTER_JUDGE_MAX_TOKENS=16384 npm run test:judge -- --suite calibration-v2 --concurrency 2
 ```
 
-Report each run's pass/fail/error counts plus false acceptances, false rejections,
-and disagreements by dimension. A passing run requires the overall decision
-and all three expected dimensions to match. Before declaring qualification,
-review the actual model explanations and stability across all three reports.
-The judge remains advisory while those steps are incomplete. The software
-checks the review attestation, not actual reviewer independence or reading.
+A separate three-case post-correction check uses one worker and the 16,384-token
+cap: both unchanged-label topic-switch answers, plus the correct quotation that
+truncated. This diagnostic is separate from the three complete frozen runs.
+It is **GREEN: 3 passed, 0 failed, 0 errors**; its actual assessments and usage
+are in the linked results document. It is not a complete 40-case run or untouched
+qualification. The diagnostic explicitly set the 16,384-token override; the
+configured cloud variable was not globally changed.
 
-Preparation passed `npm run check`: 304 application tests and 177 Python tests,
-lint, formatting, type checks, seed validation and the production build. The
-actual new launcher was checked with review pending and stopped before a model
-call or report creation. The new offline tests use fictional approval in
-temporary directories and scripted responses to verify 40-case routing, label
-withholding, review isolation, frozen-file and scheduler enforcement, and
-separate false-acceptance, false-rejection, dimension and upstream-error counts.
-These checks establish harness behavior, not the model's performance.
-
-If human review identifies ambiguity before exposure, update the cases and
-review sheet, regenerate the new freeze, and obtain approval for its new hashes.
-If live results inform tuning, retire this set into calibration; a replacement
-benchmark needs fresh cases and its own review. Do not reapprove exposed cases
-as untouched evidence. Historical manifests and reports remain preserved.
+The current full `npm run check` passed 304 application tests and 178 Python
+tests, lint, formatting, type checks, seed validation and production build.
+The real archived qualification command is checked to reject changed sources
+before calls and report creation. The judge remains advisory; human review of
+actual model explanations is still pending. Current revision-13 qualification
+requires a fresh independently reviewed set, not reuse of exposed cases.
 
 ## Fresh structured-judge benchmark
 

@@ -62,7 +62,7 @@ def test_openrouter_judge_uses_https_schema_routing_without_recording_credential
     assert body["model"] == "z-ai/glm-5.3-flash"
     assert body["provider"] == {"allow_fallbacks": False, "require_parameters": True, "data_collection": "deny", "zdr": True}
     assert body["reasoning"] == {"enabled": True}
-    assert body["max_tokens"] == 8192
+    assert body["max_tokens"] == 16384
     assert "seed" not in body and "chat_template_kwargs" not in body
     assert body["response_format"]["json_schema"]["strict"] is True
     assert "offline-test-key" not in json.dumps(judge.requests)
@@ -157,7 +157,7 @@ def test_deepeval_uses_the_fixed_rubric_in_one_binary_judgment(transport):
         assert text in prompt
     assert body["temperature"] == 0
     assert body["reasoning"] == {"enabled": True}
-    assert body["max_tokens"] == 8192
+    assert body["max_tokens"] == 16384
     assert "seed" not in body and "chat_template_kwargs" not in body
     assert result["score"] == 1
 

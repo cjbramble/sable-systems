@@ -19,11 +19,20 @@ def candidate_root(tmp_path):
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(evaluation.ROOT / name, path)
+    # Fictional current-code freeze only in the temporary test root. The actual
+    # reviewed revision-12 freeze remains unchanged after the topic correction.
+    freeze_path = tmp_path / gate.V2_FREEZE
+    freeze = json.loads(freeze_path.read_text())
+    freeze['gradingRevision'] = 13
+    freeze['model'], freeze['generation'] = judge_metadata()
+    freeze['sha256'] = {name: gate.digest(tmp_path / name) for name in gate.V2_LOCK_FILES}
+    freeze_path.write_text(json.dumps(freeze))
     # Exercise a pending review even after a real human approval is recorded.
     path = tmp_path / gate.V2_REVIEW
     review = json.loads(path.read_text())
     review.update(decision='pending', reviewer=None, reviewedAt=None,
-                  independentHumanReview=False, reviewedBeforeLiveExposure=False)
+                  independentHumanReview=False, reviewedBeforeLiveExposure=False,
+                  freezeSha256=gate.digest(freeze_path))
     path.write_text(json.dumps(review))
     return tmp_path
 
@@ -119,7 +128,7 @@ def test_v2_withholds_labels_and_separates_failures(monkeypatch, candidate_root,
     assert report['benchmarkFreeze']['independentReview'] == approval
     assert report['suite'] == 'qualification-v2'
     assert report['concurrency'] == 2
-    assert report['policy']['gradingRevision'] == 12
+    assert report['policy']['gradingRevision'] == 13
     assert report['policy']['mode'] == 'advisory'
     summary = report['summary']['overall']
     assert summary['executionErrors'] == int(fault == 'upstream')
@@ -149,9 +158,9 @@ def test_fresh_cases_are_balanced_and_not_copied_from_exposed_answers():
     assert freeze['qualificationPolicy'] == gate.V2_POLICY
     assert review['fixtureSha256'] == gate.digest(root / gate.V2_FIXTURE)
     assert review['freezeSha256'] == gate.digest(root / gate.V2_FREEZE)
-    assert all(gate.digest(root / name) == sha for name, sha in freeze['sha256'].items())
+    # Exposure informed the correction; old approval cannot authorize new code.
+    with pytest.raises(ValueError, match='Qualification freeze mismatch'):
+        validate(root)
     if review['decision'] == 'pending':
         assert review['reviewer'] is None
         assert review['independentHumanReview'] is False
-    else:
-        validate(root)

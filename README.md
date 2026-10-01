@@ -48,8 +48,8 @@ app and uses the OpenRouter key server-side. Press Control-C to stop it.
 Inference pins `deepseek/deepseek-v4.1-flash` to the DeepInfra FP8 endpoint, disables
 provider fallback, and retains the authorization, grounding, and corrective-retry
 checks. COV-E disables reasoning; the advisory judge uses `z-ai/glm-5.3-flash`
-with reasoning enabled and an
-8,192-token budget. Hosted requests send the question, scoped records,
+with reasoning enabled and a
+16,384-token output budget. Hosted requests send the question, scoped records,
 and saved conversation history to OpenRouter and the selected provider. See
 [OpenRouter inference](docs/inference.md) for testing and Cloud setup.
 
@@ -65,13 +65,15 @@ require an API key for inference. `.env.example` contains the supported settings
 | `OPENROUTER_SUPPORT_MODEL`    | Hosted COV-E model ID                     | `deepseek/deepseek-v4.1-flash`        |
 | `OPENROUTER_JUDGE_MODEL`      | Hosted advisory judge model ID            | `z-ai/glm-5.3-flash`                  |
 | `OPENROUTER_JUDGE_REASONING`  | Hosted judge reasoning, `true` or `false` | `true`                                |
-| `OPENROUTER_JUDGE_MAX_TOKENS` | Hosted judge reasoning plus verdict limit | `8192` (range `256`–`32768`)          |
+| `OPENROUTER_JUDGE_MAX_TOKENS` | Hosted judge reasoning plus verdict limit | `16384` (range `256`–`32768`)         |
 | `SITE_URL`                    | Base URL for site metadata                | `http://127.0.0.1:8016`               |
 
 The chat and judge defaults and provider/privacy policies are configured separately
 in `lib/openrouter-config.json`. COV-E uses an 8,192-token prompt
 budget with a 600-token reply limit and reasoning disabled. The judge uses
-reasoning and an 8,192-token completion limit. Chat model overrides must be supported by the pinned DeepInfra FP8 endpoint.
+reasoning and a 16,384-token completion limit. Existing environment overrides
+still take precedence; raise an explicit `OPENROUTER_JUDGE_MAX_TOKENS=8192`
+override to `16384` to use the larger cap. Chat model overrides must be supported by the pinned DeepInfra FP8 endpoint.
 The judge lets OpenRouter select a compatible endpoint with required parameters,
 zero data retention, and data collection denied; there is no provider fallback.
 
@@ -212,11 +214,12 @@ not GLM judgment accuracy. Historical DeepSeek results do not validate GLM.
 | Phase                                  | Implemented                                                                                                                                                           | Remaining validation                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | 1: coverage and benchmark              | 36 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | GLM matches all 36 dimensional controls; independent human review of labels remains pending           |
-| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 177 Python tests pass                                       |
+| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 178 Python tests pass                                       |
 | 3: claim diagnostics and qualification | 16 direct-verdict controls; 26 extraction cases with 40 expected source claims and separate coverage/truth results                                                    | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending |
 | 4: reviewed benchmark                  | Reviewed 32-case benchmark for the revision-8 structured judge; readable review sheet; fixture, evaluator and runtime-setting freeze; required review record          | Three runs complete: 96/96 decisions match; five quality disagreements; judge remains advisory        |
-| 5: quality correction                  | Explicit quality flags, 17 boundary controls, quoted-claim guidance and preserved diagnostic evidence                                                                 | GREEN: complete final-code run 17 passed, 0 failed, 0 errors; fresh qualification still needed        |
-| 6: fresh revision-12 benchmark         | 40 new answers across 20 scenario pairs; separate review sheet, freeze, and pending review record; three planned runs with two workers                                | Human label review pending; 0 live runs performed                                                     |
+| 5: quality correction                  | Explicit quality flags, 17 boundary controls, quoted-claim guidance and preserved diagnostic evidence                                                                 | GREEN under revision 12: 17 passed, 0 failed, 0 errors; fresh qualification still needed              |
+| 6: fresh revision-12 benchmark         | 40 human-approved answers across 20 scenario pairs; separate review sheet and preserved freeze; three completed runs with two workers                                 | RED: 112 passed, 1 grading failure, 7 errors across 120 assessments; results informed correction      |
+| 7: topic scope and output budget       | Explicit current-request scope, excluded historical topics, 16,384-token judge cap, and retired `calibration-v2` routing                                              | GREEN: three-case correction check 3 passed, 0 failed, 0 errors; judge remains advisory               |
 
 Expanded support cases cover orders, shipments, returns, account authorization,
 missing records, compound requests, topic switches and action refusals. Evaluator
@@ -229,12 +232,10 @@ After configuring credentials, each command below makes billed requests:
 
 ```sh
 npm run test:judge -- --suite coverage   # 36 structured dimensional judgments
-npm run test:judge -- --suite benchmark  # 8 historical original-GEval judgments
-npm run test:judge -- --suite quality --concurrency 4 # 17 factual/quality boundary controls
-npm run test:judge -- --suite calibration --concurrency 4 # 32 exposed cases; calibration only
-# The revision-8 qualification freeze is retired after the revision-12 rubric change.
-# After explicit approval of all 40 new labels, run this three times and preserve every report:
-npm run test:judge -- --suite qualification-v2 --concurrency 2
+npm run test:judge -- --suite quality --concurrency 2 # 17 factual/quality boundary controls
+npm run test:judge -- --suite calibration --concurrency 2 # 32 exposed cases; calibration only
+# 40 exposed revision-12 cases, now calibration only:
+OPENROUTER_JUDGE_MAX_TOKENS=16384 npm run test:judge -- --suite calibration-v2 --concurrency 2
 npm run test:judge -- --suite claims     # 16 direct verdict calls
 npm run test:judge -- --suite extraction # 26 extractions plus one call per extracted quote
 ```
@@ -339,30 +340,54 @@ dimensional expectations, with no execution errors. The original product
 regression matched 30/30 labels under revision 6; revisions 7 and 8 change only
 action-completeness wording. Independent human review remains pending.
 
-### Fresh benchmark review
+### Reviewed benchmark results and correction
 
-**Next action:** review [all 40 new answers and proposed labels](docs/deepeval-benchmark-v2-review.md).
-The revision-12 candidate is frozen in `qualification-v2-freeze.json`; its
-separate review record is pending. No live calls have been made on it. Comment
-with any corrections, or explicitly approve the questions, references, answers,
-all three dimensions and rationales, with your reviewer name or handle. Merging
-the PR alone does not approve labels. The runner blocks unapproved execution
-before model calls or report creation.
+The three human-approved revision-12 benchmark runs are complete. The overall
+result is **RED: 112 passed, 1 grading failure, 7 execution errors**.
+A passing case matches its expected accept/reject decision and all three dimensions.
 
-After approval, the plan is three complete runs of 40 calls each with two workers:
-120 planned requests over 40 distinct cases. Two workers retain the setting that
-passed the final 17-case evaluation after the four-worker attempt hit provider
-rate limits. The judge, GLM model, reasoning, token limit, and privacy routing
-are unchanged. Each run must have zero false acceptances, false rejections,
-dimension disagreements and execution errors; explanation review is required
-before qualification. Preserve any failed run rather than silently replacing it.
-The new candidate is not yet evaluated, and the judge remains advisory.
-Offline verification is **GREEN: 304 application tests and 177 Python tests
-passed**, with lint, formatting, type checks, seed validation and the production
-build passing. The real new benchmark command was checked with review pending:
-it stopped before any model call or report creation. Scripted test responses
-verify routing, stale-approval rejection, frozen inputs, and separate grading
-failure/error reporting; they are not live evaluation results.
+| Run   | Passed | Failed grading checks | Execution errors |
+| ----- | ------ | --------------------- | ---------------- |
+| 1     | 36     | 0                     | 4                |
+| 2     | 36     | 1                     | 3                |
+| 3     | 40     | 0                     | 0                |
+| Total | 112    | 1                     | 7                |
+
+There were zero false acceptances and one false rejection: the judge correctly
+said a previous order topic was background, but still marked it missing from the
+new product answer. All other completed dimensions matched. Six errors were
+upstream shared-pool HTTP 429 limits; one was an unfinished verdict after using
+8,192 output tokens, including 8,084 reasoning tokens. All 120 assessments,
+actual explanations, coverage, duration, API usage and sanitized error evidence
+are preserved in [the complete results](docs/deepeval-benchmark-v2-results.md).
+The third run passed all 40 cases, but the declared three-run qualification
+policy requires every run to pass; qualification failed.
+
+The topic correction makes the current request explicit in both rubric and
+requirement-field descriptions. Historical topics must be omitted or marked
+excluded; missing means an unaddressed current item. The judge's default output
+cap is now 16,384 tokens to leave room for reasoning and a finished verdict.
+Model IDs, reasoning, temperature, source-quote checks and privacy routing are
+unchanged. A separate three-case live check covers both topic-switch answers
+and the quotation that truncated. It is **GREEN: 3 passed, 0 failed, 0 errors**;
+actual assessments and usage are in the linked results document. This is a
+focused calibration check, not another full run or untouched qualification.
+
+The 40 labels were approved by cjbramble before exposure, with the actual approval
+in `qualification-v2-review.json`. The fixture, draft review sheet, approval and
+8,192-token freeze remain preserved; their frozen preparation wording is historical.
+These exposed cases now serve as `--suite calibration-v2`, reporting
+`retired-calibration` without attaching the old approval. Both original
+qualification commands reject the changed evaluator before model calls. The
+historical eight-case GEval benchmark also rejects the changed adapter hash.
+Reproducing a historical qualification requires its original code snapshot,
+not refreezing these exposed cases. New qualification of revision 13 needs a
+fresh independently reviewed set; the judge remains advisory.
+
+**Current offline checks: GREEN — 304 application tests and 178 Python tests
+passed**, with lint, formatting, type checks, seed validation and build passing.
+Human review of the actual model explanations remains pending. The prior approval
+covered expected labels before exposure, not the subsequent model outputs.
 
 The following results describe the earlier, exposed benchmark and correction.
 The approved labels are in [the benchmark review sheet](docs/deepeval-benchmark-review.md).
@@ -370,7 +395,8 @@ The original benchmark explanations and the later correction results are availab
 in the linked results documents below. Human review of those model explanations
 remains pending; the earlier approval covered the proposed labels before exposure.
 
-The structured GLM judge now uses revision-12 rules. `--suite quality` checks 17
+The structured GLM judge now uses revision-13 rules. The revision-12 correction
+results below are historical. `--suite quality` checks 17
 controls for the factual/quality boundary, including the two exposed failures.
 `--suite calibration` reuses the 32 exposed cases and reports them as retired
 calibration, without attaching the old benchmark approval. The revision-8
@@ -386,7 +412,7 @@ quality-rule correction and human explanation review. The revision-12 correction
 requires a separate defect in the candidate answer before failing quality; a wrong
 fact alone fails factual support, even if it matches an injected instruction.
 Quality now uses five required boolean checks, with the defect list derived
-in code. The complete final-code evaluation is **GREEN: 17 passed, 0 failed,
+in code. The complete revision-12 evaluation was **GREEN: 17 passed, 0 failed,
 0 execution errors**. The first full attempt had 15 passes and two upstream
 HTTP 429 rate-limit errors. One complete rerun with two workers passed all 17
 cases; the grader, model settings and expected labels were unchanged. Read
