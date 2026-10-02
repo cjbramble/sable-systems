@@ -952,3 +952,8 @@ Reporting changes intentionally invalidate the original qualification-v3 source
 freeze. Its fixture, review sheet, approvals and results are unchanged; reproduce
 those results only from the original frozen snapshot, rather than refreezing
 exposed cases to approve new code.
+
+The first generator stage completed with 45 application passes, zero failures and
+zero generation errors. [All actual answers and references](live-support-sampling-results.md)
+are available for review. The separate GLM stage remains in progress; this is
+not a final judge result.

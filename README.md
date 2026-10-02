@@ -589,3 +589,7 @@ HTTP-route postprocessing is covered separately by application integration tests
 This live suite is application sampling, not a new untouched judge benchmark.
 Filtered runs report only the selected scenarios. The frozen benchmark and its
 reviewed results are preserved unchanged.
+
+The first expanded generator run is **GREEN: 45 passed, 0 failed, 0 generation
+errors**. [Review all 45 actual answers and their records](docs/live-support-sampling-results.md).
+GLM judging is still in progress; its final counts are not yet available.
