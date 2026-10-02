@@ -208,5 +208,7 @@ model responses.
 
 ## Evaluation documentation
 
-- [Methods, suites, and validation history](docs/model-evaluation.md)
+- [Evaluation methods and commands](docs/model-evaluation.md)
 - [Chatbot behavior and threat model](docs/genai-behavior-threat-model.md)
+
+Evaluation results and history are in [reports/](reports/README.md).
