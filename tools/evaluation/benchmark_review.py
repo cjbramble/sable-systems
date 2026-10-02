@@ -35,6 +35,17 @@ V3_LOCK_FILES = (V3_FIXTURE, V3_SHEET, *LOCK_FILES[2:], 'tools/evaluation/evalua
 V3_POLICY = {**V2_POLICY, 'maxLogicalRequestsPerRun': 40, 'maxModelCallsPerRun': 160}
 
 
+def resolve_frozen_path(root, name):
+    """Keep original freeze keys while locating moved, unchanged review sheets."""
+    original = root / name
+    relocated = {SHEET: 'reports/deepeval-benchmark-review.md',
+                 V2_SHEET: 'reports/deepeval-benchmark-v2-review.md',
+                 V3_SHEET: 'reports/deepeval-benchmark-v3-review.md'}
+    if not original.exists() and name in relocated:
+        return root / relocated[name]
+    return original
+
+
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -53,7 +64,7 @@ def validate_qualification(root, model, generation, concurrency, *, version=1):
     if freeze.get('schemaVersion') != 1 or set(freeze.get('sha256', {})) != set(lock_files):
         raise ValueError('Invalid qualification freeze file list')
     for name, expected in freeze['sha256'].items():
-        if digest(root / name) != expected:
+        if digest(resolve_frozen_path(root, name)) != expected:
             raise ValueError(f'Qualification freeze mismatch: {name}')
     if freeze.get('model') != model or freeze.get('generation') != generation:
         raise ValueError('Qualification model or generation settings differ from the freeze')
