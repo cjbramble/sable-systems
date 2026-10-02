@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "gradingRevision": 13,
+  "exposureAtFreeze": "no-live-judge-runs",
+  "purpose": "Freeze fresh revision-13 cases, human review sheet, evaluator and bounded 429 retry policy before live exposure. Preserve older exposed benchmarks unchanged.",
+  "model": {
+    "provider": "openrouter",
+    "alias": "z-ai/glm-5.3-flash"
+  },
+  "generation": {
+    "temperature": 0,
+    "top_p": 1,
+    "max_tokens": 16384,
+    "stream": false,
+    "reasoning": {
+      "enabled": true
+    },
+    "provider": {
+      "allow_fallbacks": false,
+      "require_parameters": true,
+      "data_collection": "deny",
+      "zdr": true
+    }
+  },
+  "retryPolicy": {
+    "httpStatuses": [429],
+    "maxRetries": 3,
+    "backoffSeconds": [4, 8, 16],
+    "jitterSeconds": 1,
+    "maxDelaySeconds": 60,
+    "honorRetryAfter": true
+  },
+  "qualificationPolicy": {
+    "plannedRuns": 3,
+    "concurrency": 2,
+    "maxModelCallsPerRun": 160,
+    "maxFalseAcceptances": 0,
+    "maxFalseRejections": 0,
+    "maxDimensionDisagreements": 0,
+    "maxExecutionErrors": 0,
+    "humanExplanationReviewRequired": true,
+    "maxLogicalRequestsPerRun": 40
+  },
+  "sha256": {
+    "tests/fixtures/judge/qualification-v3.json": "689ae0026f6901f79980113a256faebd061d7646173b42a20855214038e2fb45",
+    "docs/deepeval-benchmark-v3-review.md": "2cc5e9cbc06ec034c91c1102a12593fdf92c3cc330b47d7ba4a020f43786733a",
+    "tools/evaluation/benchmark_review.py": "26fd03acaf9f08fc3d20eaa2c1e7697e99c3117390e9a32a2a1906f4fca3fa73",
+    "tools/evaluation/evaluate_support.py": "46d6a922ec4e7687019ff3361f0708028b6627fb7c8bbccc464e01b9b0e475c6",
+    "tools/evaluation/support_grading.py": "7b2f9eda476729ce2b81b346dd30ddeb67efa4c3b6dcc8f54dfc5b9cd01deb88",
+    "tools/evaluation/openrouter_judge.py": "150317f0f98a5e8613baf87560c22427b2c98f8d3001d1cb93e9b093a9d35404",
+    "tools/evaluation/uv.lock": "3d5b04c8ec6a1a6d409c2c8abb0a54ace08f8f99a30b24d16a15f279446d839f",
+    "lib/openrouter-config.json": "34bb65ec19ce7ed1464d82b8d6edd5abe3744fabd7c7d859cb048eacc97ae1aa",
+    "scripts/test-support-judge.mjs": "b947ae0aa4ce4f2e7710fc8c87764eccc41c4fcedcde3ec531c24e769120fbfe",
+    "tools/evaluation/evaluate.py": "685bc392dfce449c104131d95f12044834e989748f9f623262dba71f615cd6e8"
+  }
+}

@@ -4,6 +4,8 @@ from datetime import datetime
 import hashlib
 import json
 
+from openrouter_judge import RETRY_POLICY
+
 
 FIXTURE = 'tests/fixtures/judge/qualification-v1.json'
 FREEZE = 'tests/fixtures/judge/qualification-freeze.json'
@@ -24,6 +26,12 @@ V2_REVIEW = 'tests/fixtures/judge/qualification-v2-review.json'
 V2_SHEET = 'docs/deepeval-benchmark-v2-review.md'
 V2_LOCK_FILES = (V2_FIXTURE, V2_SHEET, *LOCK_FILES[2:])
 V2_POLICY = {**QUALIFICATION_POLICY, 'concurrency': 2, 'maxModelCallsPerRun': 40}
+V3_FIXTURE = 'tests/fixtures/judge/qualification-v3.json'
+V3_FREEZE = 'tests/fixtures/judge/qualification-v3-freeze.json'
+V3_REVIEW = 'tests/fixtures/judge/qualification-v3-review.json'
+V3_SHEET = 'docs/deepeval-benchmark-v3-review.md'
+V3_LOCK_FILES = (V3_FIXTURE, V3_SHEET, *LOCK_FILES[2:], 'tools/evaluation/evaluate.py')
+V3_POLICY = {**V2_POLICY, 'maxLogicalRequestsPerRun': 40, 'maxModelCallsPerRun': 160}
 
 
 def digest(path):
@@ -31,11 +39,12 @@ def digest(path):
 
 
 def validate_qualification(root, model, generation, concurrency, *, version=1):
-    if version not in (1, 2):
+    if version not in (1, 2, 3):
         raise ValueError('Unknown qualification version')
     fixture_name, freeze_name, review_name, sheet_name, lock_files, expected_policy = (
         (FIXTURE, FREEZE, REVIEW, SHEET, LOCK_FILES, QUALIFICATION_POLICY) if version == 1 else
-        (V2_FIXTURE, V2_FREEZE, V2_REVIEW, V2_SHEET, V2_LOCK_FILES, V2_POLICY))
+        (V2_FIXTURE, V2_FREEZE, V2_REVIEW, V2_SHEET, V2_LOCK_FILES, V2_POLICY) if version == 2 else
+        (V3_FIXTURE, V3_FREEZE, V3_REVIEW, V3_SHEET, V3_LOCK_FILES, V3_POLICY))
     if concurrency != expected_policy['concurrency']:
         raise ValueError(f"The reviewed benchmark requires its frozen concurrency of {expected_policy['concurrency']}")
     freeze_path = root / freeze_name
@@ -47,14 +56,19 @@ def validate_qualification(root, model, generation, concurrency, *, version=1):
             raise ValueError(f'Qualification freeze mismatch: {name}')
     if freeze.get('model') != model or freeze.get('generation') != generation:
         raise ValueError('Qualification model or generation settings differ from the freeze')
+    if version == 3 and freeze.get('retryPolicy') != RETRY_POLICY:
+        raise ValueError('Qualification retry settings differ from the freeze')
     fixture = json.loads((root / fixture_name).read_text())
+    if version == 3 and (freeze.get('gradingRevision') != 13 or fixture.get('gradingRevision') != 13):
+        raise ValueError('Qualification requires grading revision 13')
     examples = [row for scenario in fixture['scenarios'] for row in scenario['examples']]
     for row in examples:
         dims = row.get('expectedDimensions', {})
         if set(dims) != set(DIMENSIONS) or any(type(value) is not bool for value in dims.values()) or row.get('correct') is not all(dims.values()):
             raise ValueError('Qualification requires consistent labels for all three dimensions')
     policy = freeze.get('qualificationPolicy', {})
-    if policy != expected_policy or len(examples) != policy['maxModelCallsPerRun']:
+    logical_budget = policy.get('maxLogicalRequestsPerRun', policy.get('maxModelCallsPerRun'))
+    if policy != expected_policy or len(examples) != logical_budget:
         raise ValueError('Invalid qualification call plan')
     review = json.loads((root / review_name).read_text())
     if review.get('schemaVersion') != 1:

@@ -214,12 +214,13 @@ not GLM judgment accuracy. Historical DeepSeek results do not validate GLM.
 | Phase                                  | Implemented                                                                                                                                                           | Remaining validation                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | 1: coverage and benchmark              | 36 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | GLM matches all 36 dimensional controls; independent human review of labels remains pending           |
-| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 178 Python tests pass                                       |
+| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 206 Python tests pass                                       |
 | 3: claim diagnostics and qualification | 16 direct-verdict controls; 26 extraction cases with 40 expected source claims and separate coverage/truth results                                                    | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending |
 | 4: reviewed benchmark                  | Reviewed 32-case benchmark for the revision-8 structured judge; readable review sheet; fixture, evaluator and runtime-setting freeze; required review record          | Three runs complete: 96/96 decisions match; five quality disagreements; judge remains advisory        |
 | 5: quality correction                  | Explicit quality flags, 17 boundary controls, quoted-claim guidance and preserved diagnostic evidence                                                                 | GREEN under revision 12: 17 passed, 0 failed, 0 errors; fresh qualification still needed              |
 | 6: fresh revision-12 benchmark         | 40 human-approved answers across 20 scenario pairs; separate review sheet and preserved freeze; three completed runs with two workers                                 | RED: 112 passed, 1 grading failure, 7 errors across 120 assessments; results informed correction      |
 | 7: topic scope and output budget       | Explicit current-request scope, excluded historical topics, 16,384-token judge cap, and retired `calibration-v2` routing                                              | GREEN: three-case correction check 3 passed, 0 failed, 0 errors; judge remains advisory               |
+| 8: bounded retries and fresh benchmark | Up to three HTTP 429 retries; per-attempt evidence and recovered/unresolved counts; fresh 40-answer revision-13 candidate with frozen retry budget                    | GREEN: 120 passed, 0 failed, 0 terminal errors; actual explanation review pending                     |
 
 Expanded support cases cover orders, shipments, returns, account authorization,
 missing records, compound requests, topic switches and action refusals. Evaluator
@@ -340,6 +341,68 @@ dimensional expectations, with no execution errors. The original product
 regression matched 30/30 labels under revision 6; revisions 7 and 8 change only
 action-completeness wording. Independent human review remains pending.
 
+### Rate-limit retries and the next benchmark
+
+Judge requests now retry only HTTP 429, at most three times (four attempts total).
+Two-worker runs keep two workers. A valid `Retry-After` in seconds or HTTP-date
+form takes precedence. Missing or invalid headers use 4, 8 and 16 seconds plus
+0–1 second of random jitter. Each wait is bounded at 60 seconds; a provider asking
+for a longer wait ends the request as an error instead of retrying too early.
+Other HTTP errors, transport errors, malformed or truncated verdicts, and grading
+failures are not retried. Every retry sends the same request and retains redacted
+failure evidence; each connection closes before waiting.
+
+JSON/JSONL results retain every attempt with its logical request number, attempt
+number and retry delay. Summaries separately report `requestAttempts`,
+`retryAttempts`, `rateLimitedAttempts`, `recoveredRateLimitedRequests` and
+`unresolvedRateLimitedRequests`. Recovered limits do not count as terminal
+execution errors, but remain visible. Exhausted retries remain errors. This
+mitigates temporary shared-pool limits; it cannot guarantee provider capacity.
+The original three-run results below remain unchanged.
+
+The fresh 40-answer revision-13 benchmark and its three-run plan were reviewed
+and approved by cjbramble before live exposure. The actual approval is recorded
+in `qualification-v3-review.json`. **All three runs are complete: GREEN — 120
+passed, 0 failed grading checks, 0 terminal execution errors.** Each run matched
+all 40 decisions and all three dimensions, correctly accepting 20 acceptable
+answers and rejecting 20 defective answers. This is 40 distinct cases repeated
+three times, not 120 independent cases.
+
+| Run   | Passed | Failed | Terminal errors | HTTP attempts | Retries | Recovered limits |
+| ----- | ------ | ------ | --------------- | ------------- | ------- | ---------------- |
+| 1     | 40     | 0      | 0               | 41            | 1       | 1                |
+| 2     | 40     | 0      | 0               | 40            | 0       | 0                |
+| 3     | 40     | 0      | 0               | 40            | 0       | 0                |
+| Total | 120    | 0      | 0               | 121           | 1       | 1                |
+
+The single HTTP 429 recovered on its first retry in run 1. No other retries were
+needed. There were no false acceptances, false rejections, dimension disagreements
+or unresolved rate limits. All runs used the same frozen evaluator, two workers,
+GLM reasoning and 16,384-token allowance; no replacement fourth run was added.
+The retry recovered this observed temporary limit, without proving that every
+future rate limit will recover.
+
+**Your next step is to review [the actual model explanations](docs/deepeval-benchmark-v3-results.md).**
+That document contains all 120 structured assessments, question/reference/answer
+context, usage, timings, source hashes and the original 429/retry evidence. The
+execution and grading requirements are met. Human explanation review remains
+pending before qualification as a gate; the judge remains advisory. Label approval
+before exposure does not approve later model outputs. The original revision-12
+red results below remain unchanged.
+
+[The frozen review sheet](docs/deepeval-benchmark-v3-review.md) preserves the
+proposed labels and original plan. Its preparation wording is historical; the
+actual review record records approval. Reproducing the completed runs requires
+the same frozen files and settings:
+
+```bash
+OPENROUTER_JUDGE_MAX_TOKENS=16384 npm run test:judge -- --suite qualification-v3 --concurrency 2
+```
+
+An explicit older token override must be updated or overridden to match the new
+freeze. All earlier benchmark fixtures, approvals, freezes and results remain
+preserved.
+
 ### Reviewed benchmark results and correction
 
 The three human-approved revision-12 benchmark runs are complete. The overall
@@ -384,7 +447,7 @@ Reproducing a historical qualification requires its original code snapshot,
 not refreezing these exposed cases. New qualification of revision 13 needs a
 fresh independently reviewed set; the judge remains advisory.
 
-**Current offline checks: GREEN — 304 application tests and 178 Python tests
+**Current offline checks: GREEN — 304 application tests and 206 Python tests
 passed**, with lint, formatting, type checks, seed validation and build passing.
 Human review of the actual model explanations remains pending. The prior approval
 covered expected labels before exposure, not the subsequent model outputs.

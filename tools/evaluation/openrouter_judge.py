@@ -1,6 +1,9 @@
 """OpenRouter DeepEval adapter, without fallback or cloud reporting."""
 
 import asyncio
+from email.utils import parsedate_to_datetime
+import random
+import time
 from contextvars import ContextVar
 import http.client
 import json
@@ -75,6 +78,48 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULTS = json.loads((ROOT / "lib/openrouter-config.json").read_text())
 GENERATION = {"temperature": 0, "top_p": 1, "max_tokens": 16384, "stream": False}
 
+RETRY_POLICY = {"httpStatuses": [429], "maxRetries": 3,
+                "backoffSeconds": [4, 8, 16], "jitterSeconds": 1,
+                "maxDelaySeconds": 60, "honorRetryAfter": True}
+
+
+def retry_delay(retry_after, attempt):
+    """Honor a valid server delay; decline waits beyond our bounded budget."""
+    delay = None
+    if isinstance(retry_after, str):
+        value = retry_after.strip()
+        if value.isascii() and value.isdigit():
+            # Avoid converting arbitrarily large untrusted integers.
+            delay = int(value) if len(value) <= 9 else RETRY_POLICY["maxDelaySeconds"] + 1
+        else:
+            try:
+                date = parsedate_to_datetime(value)
+                if date.tzinfo is not None:
+                    delay = max(0, date.timestamp() - time.time())
+            except (TypeError, ValueError, OverflowError):
+                pass
+    if delay is None:
+        delay = RETRY_POLICY["backoffSeconds"][attempt - 1] + random.uniform(0, RETRY_POLICY["jitterSeconds"])
+    return delay if delay <= RETRY_POLICY["maxDelaySeconds"] else None
+
+
+def summarize_requests(rows):
+    """Count HTTP attempts separately from logical requests and case errors."""
+    calls = [call for row in rows for call in row.get("calls", [])]
+    groups = []
+    for row in rows:
+        requests = {}
+        for index, call in enumerate(row.get("calls", [])):
+            requests.setdefault(call.get("logicalRequest", index + 1), []).append(call)
+        groups.extend(requests.values())
+    limited = [group for group in groups if any(call.get("httpStatus") == 429 for call in group)]
+    recovered = sum(group[-1].get("completed") is True for group in limited)
+    return {"requestAttempts": len(calls),
+            "retryAttempts": sum(call.get("attempt", 1) > 1 for call in calls),
+            "rateLimitedAttempts": sum(call.get("httpStatus") == 429 for call in calls),
+            "recoveredRateLimitedRequests": recovered,
+            "unresolvedRateLimitedRequests": len(limited) - recovered}
+
 
 def judge_config():
     model = os.environ.get("OPENROUTER_JUDGE_MODEL", "").strip() or DEFAULTS["judgeModel"]
@@ -143,41 +188,57 @@ class OpenRouterJudge(DeepEvalBaseLLM):
             if proxy.scheme != "http" or not proxy.hostname or proxy.username or proxy.password or proxy.path not in ("", "/") or proxy.query or proxy.fragment:
                 raise ValueError("Judge HTTPS proxy must be an HTTP endpoint without credentials")
             destination = (proxy.hostname, proxy.port or 80)
-        connection = http.client.HTTPSConnection(*destination, timeout=180)
-        if proxy_url:
-            connection.set_tunnel("openrouter.ai", 443)
-        connection._create_connection = connect_openrouter
-        transport_scope = _openrouter_transport.set(destination)
-        network_scope = _openrouter_request.set(set())
-        record = {"request": body}
-        self.requests.append(record)
-        try:
-            connection.request("POST", "/api/v1/chat/completions", json.dumps(body), headers)
-            response = connection.getresponse()
-            record["httpStatus"] = response.status
-            raw = response.read(2_000_001)
-            record["responseBytes"] = len(raw)
-            record["rawResponse"] = raw[:2_000_000].decode("utf-8", errors="replace").replace(key, "[REDACTED]")[:2_000_000]
-            if response.status != 200 or len(raw) > 2_000_000:
-                raise RuntimeError(f"Judge HTTP failure: {response.status}")
-            data = json.loads(raw)
-            record["response"] = json.loads(json.dumps(data).replace(key, "[REDACTED]"))
-            record.pop("rawResponse", None)
-            if data.get("error"):
-                raise RuntimeError("Judge returned an upstream error")
-            choice = data["choices"][0]
-            if choice.get("error"):
-                raise RuntimeError("Judge returned an upstream error")
-            if choice.get("finish_reason") != "stop":
-                raise RuntimeError("Judge did not finish its verdict")
-            return schema.model_validate_json(choice["message"]["content"].replace(key, "[REDACTED]"))
-        except Exception as error:
-            record["errorType"] = type(error).__name__
-            raise
-        finally:
-            _openrouter_request.reset(network_scope)
-            _openrouter_transport.reset(transport_scope)
-            connection.close()
+        logical_request = len(self.requests) + 1
+        for attempt in range(1, RETRY_POLICY["maxRetries"] + 2):
+            connection = http.client.HTTPSConnection(*destination, timeout=180)
+            if proxy_url:
+                connection.set_tunnel("openrouter.ai", 443)
+            connection._create_connection = connect_openrouter
+            transport_scope = _openrouter_transport.set(destination)
+            network_scope = _openrouter_request.set(set())
+            record = {"request": body, "logicalRequest": logical_request, "attempt": attempt}
+            self.requests.append(record)
+            try:
+                connection.request("POST", "/api/v1/chat/completions", json.dumps(body), headers)
+                response = connection.getresponse()
+                record["httpStatus"] = response.status
+                raw = response.read(2_000_001)
+                record["responseBytes"] = len(raw)
+                # read(amt) may return short on premature Content-Length EOF.
+                record["responseComplete"] = getattr(response, "length", 0) in (0, None)
+                record["rawResponse"] = raw[:2_000_000].decode("utf-8", errors="replace").replace(key, "[REDACTED]")[:2_000_000]
+                if response.status != 200 or len(raw) > 2_000_000:
+                    raise RuntimeError(f"Judge HTTP failure: {response.status}")
+                data = json.loads(raw)
+                record["response"] = json.loads(json.dumps(data).replace(key, "[REDACTED]"))
+                record.pop("rawResponse", None)
+                if data.get("error"):
+                    raise RuntimeError("Judge returned an upstream error")
+                choice = data["choices"][0]
+                if choice.get("error"):
+                    raise RuntimeError("Judge returned an upstream error")
+                if choice.get("finish_reason") != "stop":
+                    raise RuntimeError("Judge did not finish its verdict")
+                verdict = schema.model_validate_json(choice["message"]["content"].replace(key, "[REDACTED]"))
+                record["completed"] = True
+                return verdict
+            except Exception as error:
+                record["errorType"] = type(error).__name__
+                if record.get("httpStatus") != 429 or record.get("responseComplete") is not True or record["responseBytes"] > 2_000_000:
+                    raise
+                if attempt > RETRY_POLICY["maxRetries"]:
+                    record["retryExhausted"] = True
+                    raise
+                delay = retry_delay(response.getheader("Retry-After"), attempt)
+                if delay is None:
+                    record["retrySkipped"] = "retry-after-exceeds-wait-budget"
+                    raise
+                record["retryDelaySeconds"] = delay
+            finally:
+                _openrouter_request.reset(network_scope)
+                _openrouter_transport.reset(transport_scope)
+                connection.close()
+            time.sleep(delay)
 
     async def a_generate(self, prompt, schema=None):
         return await asyncio.to_thread(self.generate, prompt, schema)

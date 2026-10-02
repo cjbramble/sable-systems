@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 import time
 
-from openrouter_judge import ROOT, STEPS, judge_metadata, judge_answer, judge_claims, judge_direct_claim
+from openrouter_judge import ROOT, STEPS, judge_metadata, judge_answer, judge_claims, judge_direct_claim, RETRY_POLICY, summarize_requests
 
 
 def main():
@@ -111,6 +111,7 @@ def main():
                    "strictMode": True, "penalizeAmbiguousClaims": True if claim_diagnostic else None,
                    "evaluationSteps": None if claim_diagnostic else STEPS},
         "generation": generation,
+        "retryPolicy": RETRY_POLICY,
         "evaluatorSha256": {
             **{name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
                for name in ("openrouter_judge.py", "evaluate.py", "uv.lock")},
@@ -161,7 +162,7 @@ def main():
                                "processedSamples": len(results)})
     def summarize(rows):
         completed = [row for row in rows if "error" not in row]
-        return {"samples": len(rows), "executionErrors": len(rows) - len(completed),
+        return {**summarize_requests(rows), "samples": len(rows), "executionErrors": len(rows) - len(completed),
                 "falseAcceptances": sum(row.get("expectedPassed") is False and row.get("passed") is True for row in completed),
                 "falseRejections": sum(row.get("expectedPassed") is True and row.get("passed") is False for row in completed),
                 "labelDisagreements": sum(row.get("agrees") is False for row in completed),
@@ -180,6 +181,10 @@ def main():
     with destination.open("x") as output:
         json.dump(report, output, indent=2)
         output.write("\n")
+    summary = report["summary"]["overall"]
+    print(f"Judge HTTP attempts: {summary['requestAttempts']}; retries: {summary['retryAttempts']}; "
+          f"rate-limited requests recovered: {summary['recoveredRateLimitedRequests']}; "
+          f"unresolved: {summary['unresolvedRateLimitedRequests']}")
     print(f"Judge report: {destination}")
     # Live judge verdicts are advisory; harness errors and factual failures are not.
     return 0 if report["successful"] else 1

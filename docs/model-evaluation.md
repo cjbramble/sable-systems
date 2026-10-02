@@ -803,3 +803,107 @@ freeze before calls or artifacts. A new independently reviewed benchmark is
 required for qualification of the corrected judge. Offline review-gate tests
 build fictional current-code freezes only in temporary directories and never
 update production approval.
+
+## Bounded rate-limit retries and revision-13 candidate
+
+The adapter retries complete HTTP 429 responses at most three times per logical
+request (four total HTTP attempts). It honors valid `Retry-After` integer seconds
+or HTTP dates up to 60 seconds. A larger provider-requested wait ends as an error
+rather than retrying early. Missing or invalid headers use 4, 8 and 16 seconds
+plus uniform 0–1 second jitter. Responses above the evidence-size bound and
+response-read failures are not retried. Neither are other HTTP errors, transport
+errors, malformed/truncated verdicts or grading failures. Connections and network
+scope are closed/reset before waiting. Request contents, model, reasoning,
+privacy routing and generation settings remain identical across retries.
+
+Each attempt retains its logical request and attempt numbers, HTTP status,
+redacted failure body and error type; attempts scheduled for retry record their
+delay. A final 429 records budget exhaustion or a skipped overly long server
+wait. Successful HTTP/schema completion is recorded separately from the grading
+decision. Reports include the retry policy apart from API generation parameters.
+Overall and per-scenario summaries count HTTP attempts, retries, 429 attempts,
+recovered rate-limited requests and unresolved rate-limited requests. A recovered
+request can still fail grading; retries do not erase that failure. A terminal
+error remains an execution error. Incremental JSONL saves a case's complete
+attempt list when that case finishes; an interruption during an in-flight case
+can still prevent those in-memory attempts from reaching the file.
+
+[The new review sheet](deepeval-benchmark-v3-review.md) prepares 40 newly authored
+synthetic answers in 20 pairs for revision 13. It is not a human-authored or
+qualified benchmark. Its expected labels and run plan were independently reviewed and approved by
+cjbramble before live exposure, with approval recorded in qualification-v3-review.json.
+All three live evaluations are complete: 120 passed, 0 failed grading checks and
+0 terminal execution errors. All three dimensions matched for every case. The
+actual model explanations still require human review. The proposed plan is three consecutive complete runs,
+two workers, GLM reasoning enabled and 16,384 output tokens. Forty logical
+requests per run allow at most 160 HTTP attempts with the frozen retry policy:
+120 logical requests and at most 480 attempts across the three runs. This is a
+request budget, not a guaranteed dollar budget or 120 independent cases.
+
+The v3 freeze locks the fixture, readable review sheet, evaluator source,
+launcher, dependencies, model/generation settings, retry policy and run budget.
+Matching review attestation is required before calls or artifacts. Changed hashes,
+model settings, retry settings, grading revision, concurrency, budgets or old
+approval records cannot authorize the run. Old v1/v2 approvals and frozen files
+remain unchanged and reject current code.
+
+Every run must have zero false acceptances, false rejections, dimension
+disagreements and terminal execution errors. Recovered 429s can coexist with a
+successful run but remain disclosed. No replacement fourth run is authorized.
+Human review of actual explanations is required afterward; a label approval or
+merge is not that review. Any evaluator tuning based on results retires the new
+set into calibration. The judge remains advisory.
+
+After explicit label and run-plan approval:
+
+```bash
+OPENROUTER_JUDGE_MAX_TOKENS=16384 npm run test:judge -- --suite qualification-v3 --concurrency 2
+```
+
+The command was verified to block before calls and report artifacts while review
+was pending. Actual human approval is recorded and all three runs are complete. The explicit cap prevents an older environment override from selecting
+8,192 tokens instead of the frozen 16,384. Actual run results are
+recorded in [the complete results](deepeval-benchmark-v3-results.md); offline scripted tests are not live judgment
+evidence. The previous revision-12 three-run results are unchanged.
+
+Current offline verification for this phase: **GREEN — 304 application tests and
+206 Python tests passed**, plus lint, formatting, type checking, seed validation
+and production build. Before approval, the real pending-review entry point was checked to reject
+v3 before model calls or JSON/JSONL report artifacts. These checks validate retry
+and approval behavior; they do not establish GLM accuracy on the new benchmark.
+
+### Completed revision-13 live results
+
+**GREEN: three complete runs, each 40 passed, 0 failed grading checks and 0
+terminal execution errors.** There were no false acceptances, false rejections or
+dimension disagreements. Each run correctly accepted 20 acceptable answers and
+rejected 20 defective answers. Forty distinct cases were repeated three times;
+the 120 decisions are not 120 independent cases.
+
+| Run   | Passed | Failed | Errors | HTTP attempts | Retries | Recovered 429 requests | Unresolved 429 requests |
+| ----- | ------ | ------ | ------ | ------------- | ------- | ---------------------- | ----------------------- |
+| 1     | 40     | 0      | 0      | 41            | 1       | 1                      | 0                       |
+| 2     | 40     | 0      | 0      | 40            | 0       | 0                      | 0                       |
+| 3     | 40     | 0      | 0      | 40            | 0       | 0                      | 0                       |
+| Total | 120    | 0      | 0      | 121           | 1       | 1                      | 0                       |
+
+The sole 429 recovered after one retry. All frozen hashes, approval records,
+model settings and retry settings matched across the three runs; source and
+labels did not change. The budget allowed at most 480 HTTP attempts; actual
+usage was 121. All runs finished with exit 0, and no fourth or replacement run
+was made. No correction was made using these results. Original revision-12
+failures remain unchanged.
+
+[Review all actual explanations here](deepeval-benchmark-v3-results.md). Every
+case includes its question, reference, answer, expected dimensions and all three
+actual structured assessments, plus timing and HTTP/usage metadata. The document
+also preserves the original rate-limit evidence, raw report hashes, approved
+source snapshot and aggregate API-reported cost. Score agreement does not prove
+that every substantive assertion was extracted or every explanation is correct.
+
+The execution and grading requirements are satisfied. Human review of actual
+explanations remains pending before qualification as an automated gate; the
+judge remains advisory. The prior review approved authored labels and the plan
+before exposure, not later model outputs. The frozen review sheet retains its
+historical preparation wording; the actual approval and completed results are
+the current evidence. No new live runs are needed merely to repeat these results.
