@@ -220,7 +220,7 @@ not GLM judgment accuracy. Historical DeepSeek results do not validate GLM.
 | 5: quality correction                  | Explicit quality flags, 17 boundary controls, quoted-claim guidance and preserved diagnostic evidence                                                                 | GREEN under revision 12: 17 passed, 0 failed, 0 errors; fresh qualification still needed              |
 | 6: fresh revision-12 benchmark         | 40 human-approved answers across 20 scenario pairs; separate review sheet and preserved freeze; three completed runs with two workers                                 | RED: 112 passed, 1 grading failure, 7 errors across 120 assessments; results informed correction      |
 | 7: topic scope and output budget       | Explicit current-request scope, excluded historical topics, 16,384-token judge cap, and retired `calibration-v2` routing                                              | GREEN: three-case correction check 3 passed, 0 failed, 0 errors; judge remains advisory               |
-| 8: bounded retries and fresh benchmark | Up to three HTTP 429 retries; per-attempt evidence and recovered/unresolved counts; fresh 40-answer revision-13 candidate with frozen retry budget                    | Labels and plan approved; three live runs in progress; final counts pending                           |
+| 8: bounded retries and fresh benchmark | Up to three HTTP 429 retries; per-attempt evidence and recovered/unresolved counts; fresh 40-answer revision-13 candidate with frozen retry budget                    | GREEN: 120 passed, 0 failed, 0 terminal errors; actual explanation review pending                     |
 
 Expanded support cases cover orders, shipments, returns, account authorization,
 missing records, compound requests, topic switches and action refusals. Evaluator
@@ -360,21 +360,40 @@ execution errors, but remain visible. Exhausted retries remain errors. This
 mitigates temporary shared-pool limits; it cannot guarantee provider capacity.
 The original three-run results below remain unchanged.
 
-The fresh 40-answer revision-13 candidate and its three-run plan were reviewed
+The fresh 40-answer revision-13 benchmark and its three-run plan were reviewed
 and approved by cjbramble before live exposure. The actual approval is recorded
-in `qualification-v3-review.json`. **Three live evaluations are now in progress**;
-final grading, execution and retry counts remain pending. The supervisor starts
-runs 2 and 3 after the preceding run completes. No extra run is added to replace
-a failure.
+in `qualification-v3-review.json`. **All three runs are complete: GREEN — 120
+passed, 0 failed grading checks, 0 terminal execution errors.** Each run matched
+all 40 decisions and all three dimensions, correctly accepting 20 acceptable
+answers and rejecting 20 defective answers. This is 40 distinct cases repeated
+three times, not 120 independent cases.
 
-[The frozen review sheet](docs/deepeval-benchmark-v3-review.md) contains each
-question, authoritative reference, answer, three expected dimensions and rationale.
-Its preparation wording is historical; the actual review record records approval.
-The plan uses two workers, GLM reasoning and a 16,384-token allowance: 120 logical
-requests, at most 480 HTTP attempts across three runs. Each run must have zero
-false acceptances, false rejections, dimension disagreements and terminal errors.
-Recovered 429s remain reported. Actual model explanations still need human review
-after the runs; the judge remains advisory.
+| Run   | Passed | Failed | Terminal errors | HTTP attempts | Retries | Recovered limits |
+| ----- | ------ | ------ | --------------- | ------------- | ------- | ---------------- |
+| 1     | 40     | 0      | 0               | 41            | 1       | 1                |
+| 2     | 40     | 0      | 0               | 40            | 0       | 0                |
+| 3     | 40     | 0      | 0               | 40            | 0       | 0                |
+| Total | 120    | 0      | 0               | 121           | 1       | 1                |
+
+The single HTTP 429 recovered on its first retry in run 1. No other retries were
+needed. There were no false acceptances, false rejections, dimension disagreements
+or unresolved rate limits. All runs used the same frozen evaluator, two workers,
+GLM reasoning and 16,384-token allowance; no replacement fourth run was added.
+The retry recovered this observed temporary limit, without proving that every
+future rate limit will recover.
+
+**Your next step is to review [the actual model explanations](docs/deepeval-benchmark-v3-results.md).**
+That document contains all 120 structured assessments, question/reference/answer
+context, usage, timings, source hashes and the original 429/retry evidence. The
+execution and grading requirements are met. Human explanation review remains
+pending before qualification as a gate; the judge remains advisory. Label approval
+before exposure does not approve later model outputs. The original revision-12
+red results below remain unchanged.
+
+[The frozen review sheet](docs/deepeval-benchmark-v3-review.md) preserves the
+proposed labels and original plan. Its preparation wording is historical; the
+actual review record records approval. Reproducing the completed runs requires
+the same frozen files and settings:
 
 ```bash
 OPENROUTER_JUDGE_MAX_TOKENS=16384 npm run test:judge -- --suite qualification-v3 --concurrency 2
