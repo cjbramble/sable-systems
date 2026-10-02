@@ -955,5 +955,11 @@ exposed cases to approve new code.
 
 The first generator stage completed with 45 application passes, zero failures and
 zero generation errors. [All actual answers and references](live-support-sampling-results.md)
-are available for review. The separate GLM stage remains in progress; this is
-not a final judge result.
+are available for review, along with all completed GLM assessments and HTTP
+evidence. Final judge result: **RED — 43 passed, 1 rejected, 1 execution error**.
+All 45 samples were processed; 44 received verdicts. The authorization-scope
+refusal was accepted on facts and quality but rejected for unavailable status
+and total fields. One order-action assessment failed with an incomplete HTTP
+response. There were no 429s or retries; current retry policy covers 429 only.
+The original run remains unchanged, and the PR remains draft pending correction
+investigation.
