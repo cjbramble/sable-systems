@@ -211,17 +211,17 @@ model responses.
 The GLM judge remains advisory. Offline adapter tests establish harness behavior,
 not GLM judgment accuracy. Historical DeepSeek results do not validate GLM.
 
-| Phase                                  | Implemented                                                                                                                                                           | Remaining validation                                                                                                 |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| 1: coverage and benchmark              | 36 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | GLM matches all 36 dimensional controls; independent human review of labels remains pending                          |
-| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Standard application and Python checks run in `npm run check`                                                        |
-| 3: claim diagnostics and qualification | 16 direct-verdict controls; 26 extraction cases with 40 expected source claims and separate coverage/truth results                                                    | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending                |
-| 4: reviewed benchmark                  | Reviewed 32-case benchmark for the revision-8 structured judge; readable review sheet; fixture, evaluator and runtime-setting freeze; required review record          | Three runs complete: 96/96 decisions match; five quality disagreements; judge remains advisory                       |
-| 5: quality correction                  | Explicit quality flags, 17 boundary controls, quoted-claim guidance and preserved diagnostic evidence                                                                 | GREEN under revision 12: 17 passed, 0 failed, 0 errors; fresh qualification still needed                             |
-| 6: fresh revision-12 benchmark         | 40 human-approved answers across 20 scenario pairs; separate review sheet and preserved freeze; three completed runs with two workers                                 | RED: 112 passed, 1 grading failure, 7 errors across 120 assessments; results informed correction                     |
-| 7: topic scope and output budget       | Explicit current-request scope, excluded historical topics, 16,384-token judge cap, and retired `calibration-v2` routing                                              | GREEN: three-case correction check 3 passed, 0 failed, 0 errors; judge remains advisory                              |
-| 8: bounded retries and fresh benchmark | Up to three HTTP 429 retries; per-attempt evidence and recovered/unresolved counts; fresh 40-answer revision-13 candidate with frozen retry budget                    | GREEN: 120 passed, 0 failed, 0 terminal errors; actual explanation review confirmed                                  |
-| 9: expanded live application coverage  | Nine support scenarios with five retained samples each; exact history and authorized context; separate app/judge/error reporting                                      | Offline GREEN: 322 application tests and 210 Python tests; live RED: 43 judge passes, 1 rejection, 1 execution error |
+| Phase                                  | Implemented                                                                                                                                                           | Remaining validation                                                                                                  |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 1: coverage and benchmark              | 36 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | GLM matches all 36 dimensional controls; independent human review of labels remains pending                           |
+| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Standard application and Python checks run in `npm run check`                                                         |
+| 3: claim diagnostics and qualification | 16 direct-verdict controls; 26 extraction cases with 40 expected source claims and separate coverage/truth results                                                    | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending                 |
+| 4: reviewed benchmark                  | Reviewed 32-case benchmark for the revision-8 structured judge; readable review sheet; fixture, evaluator and runtime-setting freeze; required review record          | Three runs complete: 96/96 decisions match; five quality disagreements; judge remains advisory                        |
+| 5: quality correction                  | Explicit quality flags, 17 boundary controls, quoted-claim guidance and preserved diagnostic evidence                                                                 | GREEN under revision 12: 17 passed, 0 failed, 0 errors; fresh qualification still needed                              |
+| 6: fresh revision-12 benchmark         | 40 human-approved answers across 20 scenario pairs; separate review sheet and preserved freeze; three completed runs with two workers                                 | RED: 112 passed, 1 grading failure, 7 errors across 120 assessments; results informed correction                      |
+| 7: topic scope and output budget       | Explicit current-request scope, excluded historical topics, 16,384-token judge cap, and retired `calibration-v2` routing                                              | GREEN: three-case correction check 3 passed, 0 failed, 0 errors; judge remains advisory                               |
+| 8: bounded retries and fresh benchmark | Up to three HTTP 429 retries; per-attempt evidence and recovered/unresolved counts; fresh 40-answer revision-13 candidate with frozen retry budget                    | GREEN: 120 passed, 0 failed, 0 terminal errors; actual explanation review confirmed                                   |
+| 9: expanded live application coverage  | Nine support scenarios with five retained samples each; exact history and authorized context; separate app/judge/error reporting                                      | Offline GREEN: 322 application tests and 216 Python tests; focused correction GREEN: 7/7; original live RED preserved |
 
 Expanded support cases cover orders, shipments, returns, account authorization,
 missing records, compound requests, topic switches and action refusals. Evaluator
@@ -595,8 +595,8 @@ errors**. [Review all 45 actual answers and their records](docs/live-support-sam
 GLM judging is complete: **RED — 43 passed, 1 rejected, 1 execution error**.
 The rejection concerns a correct authorization-scope refusal; the error was an
 incomplete HTTP response. There were no rate limits or retries. All actual
-assessments and error evidence are in the linked results. PR #7 remains draft
-pending correction investigation; no answers or original results were replaced.
+assessments and error evidence are in the linked results. The original run is preserved; the revision-14 correction results are linked
+below. No original answers or results were replaced.
 
 ### Unavailable records and incomplete judge responses
 
@@ -626,4 +626,11 @@ The seven controls are exposed calibration, not a new independent benchmark.
 The first live run's **43 passes, 1 rejection and 1 execution error** remain
 preserved. The frozen revision-13 approval applies to its original snapshot;
 it does not qualify revision 14. Offline checks pass with 322 application tests
-and 216 Python tests. Focused live verification is the next check.
+and 216 Python tests. **Focused live verification: GREEN — 7 checks passed,
+0 failed, 0 errors**, with all grading dimensions matching expectations. GLM
+accepted four valid answers and rejected three defective controls. Both original
+problem answers received passing assessments. Seven HTTP attempts were used,
+with no retries, rate limits or incomplete responses; transport recovery was
+verified offline. [Review all seven actual assessments](docs/record-access-correction-results.md).
+The complete original 45-answer set was not regraded under revision 14. PR #7
+is ready for code review; the judge remains advisory.

@@ -961,8 +961,8 @@ All 45 samples were processed; 44 received verdicts. The authorization-scope
 refusal was accepted on facts and quality but rejected for unavailable status
 and total fields. One order-action assessment failed with an incomplete HTTP
 response. There were no 429s or retries; current retry policy covers 429 only.
-The original run remains unchanged, and the PR remains draft pending correction
-investigation.
+The original run remains unchanged. The subsequent focused correction check
+is documented below.
 
 ### Revision 14: unavailable-record completeness and partial-response retries
 
@@ -995,5 +995,20 @@ revision 14 intentionally fails their source/settings checks.
 
 Offline verification: 322 application tests and 216 Python tests passed; lint,
 formatting, types, seed validation and production build passed. The partial-body
-regressions were observed failing before implementation. Focused live verification
-is the next check.
+regressions were observed failing before implementation.
+
+Focused live verification completed: **GREEN — 7 checks passed, 0 failed,
+0 execution errors**, with zero overall or dimension disagreements. Four valid
+answers were accepted; three defective controls were rejected. The exact original
+scope refusal and the original answer affected by an incomplete HTTP response
+both received passing verdicts. All seven planned samples were processed, using
+two workers and seven HTTP attempts with no retries, rate limits or incomplete
+responses. Live transport recovery was not needed; offline HTTPResponse tests
+verify it and exhaustion of the shared budget. [Every actual assessment and HTTP
+record is preserved here](record-access-correction-results.md).
+
+This scoped check supports the correction; it does not regrade the entire original
+45-answer set or qualify revision 14 as an automated gate. Its labels are authored
+calibration controls rather than independent human approval. The original red run
+and the previously reviewed frozen benchmark remain unchanged. PR #7 is ready
+for code review.
