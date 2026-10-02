@@ -866,7 +866,7 @@ was pending. Actual human approval is recorded and all three runs are complete. 
 recorded in [the complete results](deepeval-benchmark-v3-results.md); offline scripted tests are not live judgment
 evidence. The previous revision-12 three-run results are unchanged.
 
-Current offline verification for this phase: **GREEN — 304 application tests and
+Offline verification at the completion of phase 8: **GREEN — 304 application tests and
 206 Python tests passed**, plus lint, formatting, type checking, seed validation
 and production build. Before approval, the real pending-review entry point was checked to reject
 v3 before model calls or JSON/JSONL report artifacts. These checks validate retry
@@ -901,9 +901,54 @@ also preserves the original rate-limit evidence, raw report hashes, approved
 source snapshot and aggregate API-reported cost. Score agreement does not prove
 that every substantive assertion was extracted or every explanation is correct.
 
-The execution and grading requirements are satisfied. Human review of actual
-explanations remains pending before qualification as an automated gate; the
-judge remains advisory. The prior review approved authored labels and the plan
-before exposure, not later model outputs. The frozen review sheet retains its
-historical preparation wording; the actual approval and completed results are
-the current evidence. No new live runs are needed merely to repeat these results.
+The execution and grading requirements are satisfied. cjbramble confirmed human
+review of the actual explanations on 2026-10-02. The separate post-run record
+`tests/fixtures/judge/qualification-v3-explanation-review.json` identifies the
+unchanged results document by SHA-256 and records review of 120 assessments
+across 40 distinct cases. The original preparation and results documents retain
+their historical wording. This completes the declared qualification requirements
+for the frozen source snapshot, not for later reporting changes. The judge
+remains advisory; no further benchmark calls were made for this confirmation.
+
+### Expanded live application sampling
+
+Nine new scenarios each retain five independent answers: order status, shipment
+status/carrier/tracking, return status/reason, account authorization, missing
+records, compound order/product questions, topic switches, and order/return action
+refusals. The scenario registry is `tests/fixtures/judge/live-support-scenarios.json`.
+Its fixed database anchors are checked against actual authorized context before
+inference. Acceptable and defective controls verify the offline response checks;
+they are not human truth labels for generated answers.
+
+```sh
+OPENROUTER_JUDGE_MAX_TOKENS=16384 npm run test:model -- tests/model/expanded-support-sampling.test.ts
+```
+
+The filtered command makes 45 generator calls. Running all live tests also retains
+the existing case-pack and comparison batches (55 sampled answers total), plus
+other existing model tests. Generation settings, reasoning, model IDs and judge
+retry policy are unchanged. Each batch uses identical production requests with
+full history, temperature 0.35, top_p 0.9, max_tokens 600, no seed, and no streaming.
+No failed generator sample is retried or replaced. The parser requires all five
+samples, their summary, original request history, and independent authorized
+context anchors. A failed executed scenario without complete evidence fails closed.
+
+GLM assesses the original answer against the current question and exact request
+records plus read-only permissions. Reports retain source request, reference,
+answer and structured assessment. Generator failures are not sent to the judge.
+Application failures, generator execution errors, judge execution errors and
+judge/application disagreements have separate counts. Application failures remain
+failures even if GLM accepts the answer. Execution success does not imply factual
+success. Judge agreement remains advisory, with disagreements requiring inspection.
+
+This suite covers context construction and raw production model responses.
+Separate application integration tests exercise HTTP-route postprocessing.
+Regex response checks cover known facts and refusals rather than every possible
+semantic defect; GLM adds claim/completeness/quality inspection. Neither replaces
+human review. Selected batches determine expected coverage for filtered runs.
+This is live application sampling, not an independently frozen judge benchmark.
+
+Reporting changes intentionally invalidate the original qualification-v3 source
+freeze. Its fixture, review sheet, approvals and results are unchanged; reproduce
+those results only from the original frozen snapshot, rather than refreezing
+exposed cases to approve new code.

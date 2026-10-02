@@ -1,5 +1,6 @@
 import { stripVTControlCharacters } from 'node:util';
 import fixture from '../../tests/fixtures/judge/case-pack.json' with { type: 'json' };
+import liveFixture from '../../tests/fixtures/judge/live-support-scenarios.json' with { type: 'json' };
 import comparisonFixture from '../../tests/fixtures/judge/comparison.json' with { type: 'json' };
 
 function readTranscriptRows(text, prefix) {
@@ -26,7 +27,10 @@ function isSupportRecordsMessage(message) {
   }
 }
 
-function parseSamplingScenario(text, { label, question, testName }) {
+function parseSamplingScenario(
+  text,
+  { label, question, testName, messages, contextIncludes, contextExcludes },
+) {
   // Normalize reporter styling before matching records; JSON-escaped answer
   // content and the original saved transcript remain unchanged.
   text = stripVTControlCharacters(text);
@@ -65,17 +69,34 @@ function parseSamplingScenario(text, { label, question, testName }) {
     request.max_tokens !== 600 ||
     request.stream !== false ||
     Object.hasOwn(request, 'seed') ||
-    ![2, 3].includes(request.messages.length) ||
+    (messages
+      ? request.messages.length !== messages.length + 2
+      : ![2, 3].includes(request.messages.length)) ||
     request.messages[0]?.role !== 'system' ||
     typeof request.messages[0].content !== 'string' ||
     !request.messages[0].content.trim() ||
-    (request.messages.length === 3 &&
+    ((messages || request.messages.length === 3) &&
       !isSupportRecordsMessage(request.messages[1])) ||
     request.messages.at(-1)?.role !== 'user'
   )
     throw new Error(
       `${label} request must use normal settings and independent messages`,
     );
+
+  let reference;
+  if (messages) {
+    if (JSON.stringify(request.messages.slice(2)) !== JSON.stringify(messages))
+      throw new Error('Sampling history does not match the scenario');
+    const records = JSON.parse(request.messages[1].content).records;
+    if (
+      contextIncludes.some((value) => !records.includes(value)) ||
+      contextExcludes.some((value) => records.includes(value))
+    )
+      throw new Error(
+        'Sampling context does not match independent scenario facts',
+      );
+    reference = `${records}\nAssistant permissions: read-only; cannot cancel or change orders, release inventory, reopen or authorize returns, or disclose other accounts.`;
+  }
 
   const failures = [];
   for (const [index, sample] of samples.entries()) {
@@ -119,7 +140,7 @@ function parseSamplingScenario(text, { label, question, testName }) {
       `${label} summary does not match the retained sample verdicts`,
     );
   // Preserve original answers/raw responses/verdicts; do not rejudge factuality here.
-  return { request, samples };
+  return reference ? { request, samples, reference } : { request, samples };
 }
 
 export function parseSamplingTranscript(text) {
@@ -139,6 +160,20 @@ export function parseComparisonSamplingTranscript(text) {
 }
 
 const samplingScenarios = {
+  ...Object.fromEntries(
+    liveFixture.scenarios.map((scenario) => [
+      scenario.id,
+      {
+        ...scenario,
+        fixture: { question: scenario.messages.at(-1).content },
+        parseTranscript: (text) =>
+          parseSamplingScenario(text, {
+            ...scenario,
+            question: scenario.messages.at(-1).content,
+          }),
+      },
+    ]),
+  ),
   'case-pack': { fixture, parseTranscript: parseSamplingTranscript },
   comparison: {
     fixture: comparisonFixture,

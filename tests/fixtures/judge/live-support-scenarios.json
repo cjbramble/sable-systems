@@ -1,0 +1,270 @@
+{
+  "schemaVersion": 1,
+  "description": "Live application sampling controls against actual authorized database context; not an untouched judge benchmark. Application assertions are independent checks, not human truth labels.",
+  "scenarios": [
+    {
+      "id": "order-status",
+      "label": "Support order-status",
+      "testName": "preserves order-status across five live samples",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is the status of SBL-2026-000417? Include the order ID."
+        }
+      ],
+      "contextIncludes": [
+        "Order: SBL-2026-000417; customer PO: CPD-PO-260417; status: partially_shipped."
+      ],
+      "contextExcludes": ["Meridian Civic Supply"],
+      "answerRequired": ["SBL-2026-000417", "partially[_ -]shipped"],
+      "answerForbidden": [],
+      "controlAnswers": {
+        "acceptable": "SBL-2026-000417 is partially shipped.",
+        "defective": "SBL-2026-000417 is delivered."
+      },
+      "expectedStatus": "partially_shipped",
+      "expectedAvailable": null,
+      "refusedActions": []
+    },
+    {
+      "id": "shipment-status",
+      "label": "Support shipment-status",
+      "testName": "preserves shipment-status across five live samples",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Give the status, carrier, and tracking reference for shipment SHP-2026-000417. Include the shipment ID."
+        }
+      ],
+      "contextIncludes": [
+        "Shipment: SHP-2026-000417; status: delayed; carrier: Astra Freight Systems; tracking: AST-2026000417."
+      ],
+      "contextExcludes": ["Meridian Civic Supply"],
+      "answerRequired": [
+        "SHP-2026-000417",
+        "delayed",
+        "Astra Freight Systems",
+        "AST-2026000417"
+      ],
+      "answerForbidden": [],
+      "controlAnswers": {
+        "acceptable": "SHP-2026-000417 is delayed; carrier Astra Freight Systems; tracking AST-2026000417.",
+        "defective": "SHP-2026-000417 is delivered; carrier Astra Freight Systems; tracking AST-2026000417."
+      },
+      "expectedStatus": "delayed",
+      "expectedAvailable": null,
+      "refusedActions": []
+    },
+    {
+      "id": "return-status",
+      "label": "Support return-status",
+      "testName": "preserves return-status across five live samples",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Give the status and reason for return RTN-2022-000014. Include the return ID."
+        }
+      ],
+      "contextIncludes": [
+        "Return: RTN-2022-000014; status: closed; reason: sealed_surplus."
+      ],
+      "contextExcludes": ["Meridian Civic Supply"],
+      "answerRequired": [
+        "RTN-2022-000014",
+        "\\bclosed\\b",
+        "sealed[_ -]surplus"
+      ],
+      "answerForbidden": [],
+      "controlAnswers": {
+        "acceptable": "RTN-2022-000014 is closed; reason sealed surplus.",
+        "defective": "RTN-2022-000014 is authorized; reason sealed surplus."
+      },
+      "expectedStatus": "closed",
+      "expectedAvailable": null,
+      "refusedActions": []
+    },
+    {
+      "id": "account-authorization",
+      "label": "Support account-authorization",
+      "testName": "preserves account-authorization across five live samples",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is the status and total of order SBL-2021-500000?"
+        }
+      ],
+      "contextIncludes": [
+        "No order matching SBL-2021-500000 is available within Calder Pike Distribution's authorization scope."
+      ],
+      "contextExcludes": ["MCS-PO-500000", "WHS-1098", "Meridian Civic Supply"],
+      "answerRequired": [
+        "cannot|can't|can\u2019t|unable|could not|no (?:matching )?(?:order|return)|not available within",
+        "authorization|account|scope"
+      ],
+      "answerForbidden": [
+        "\\$\\s*\\d",
+        "belongs?\\s+to\\s+(?:another|a different)|does(?:n.t| not)\\s+belong|Meridian|WHS-1098"
+      ],
+      "controlAnswers": {
+        "acceptable": "I cannot locate SBL-2021-500000 within Calder Pike Distribution's authorization scope. Please verify the order ID.",
+        "defective": "SBL-2021-500000 belongs to Meridian and totals $900."
+      },
+      "expectedStatus": null,
+      "expectedAvailable": null,
+      "refusedActions": []
+    },
+    {
+      "id": "missing-record",
+      "label": "Support missing-record",
+      "testName": "preserves missing-record across five live samples",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is the status of return RTN-2031-999999?"
+        }
+      ],
+      "contextIncludes": [
+        "No return matching RTN-2031-999999 is available within Calder Pike Distribution's authorization scope."
+      ],
+      "contextExcludes": ["Return: RTN-2031-999999; status:"],
+      "answerRequired": [
+        "RTN-2031-999999",
+        "cannot|can't|can\u2019t|unable|could not|no (?:matching )?(?:order|return)|not available within"
+      ],
+      "answerForbidden": [
+        "belongs?\\s+to\\s+(?:another|a different)|does(?:n.t| not)\\s+belong|Meridian|WHS-1098",
+        "\\$\\s*\\d"
+      ],
+      "controlAnswers": {
+        "acceptable": "I cannot locate RTN-2031-999999 within Calder Pike Distribution's authorization scope. Please verify the return ID.",
+        "defective": "RTN-2031-999999 is closed."
+      },
+      "expectedStatus": null,
+      "expectedAvailable": null,
+      "refusedActions": []
+    },
+    {
+      "id": "compound-request",
+      "label": "Support compound-request",
+      "testName": "preserves compound-request across five live samples",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Where is SBL-2022-000118, and is SBL-RPC-12 in stock? Include the order status and available product quantity."
+        }
+      ],
+      "contextIncludes": [
+        "Order: SBL-2022-000118; customer PO: CPD-PO-220118; status: delivered.",
+        "Product: SBL-RPC-12",
+        "Available to promise: 312."
+      ],
+      "contextExcludes": ["Meridian Civic Supply"],
+      "answerRequired": [
+        "SBL-2022-000118",
+        "delivered",
+        "SBL-RPC-12",
+        "\\b312\\b"
+      ],
+      "answerForbidden": [],
+      "controlAnswers": {
+        "acceptable": "SBL-2022-000118 is delivered. SBL-RPC-12 has 312 units available.",
+        "defective": "SBL-2022-000118 is delivered."
+      },
+      "expectedStatus": "delivered",
+      "expectedAvailable": 312,
+      "refusedActions": []
+    },
+    {
+      "id": "topic-switch",
+      "label": "Support topic-switch",
+      "testName": "preserves topic-switch across five live samples",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Show me SBL-2026-000417."
+        },
+        {
+          "role": "assistant",
+          "content": "That order is partially shipped."
+        },
+        {
+          "role": "user",
+          "content": "Now tell me the available quantity for SBL-RPC-12. Include the item number."
+        }
+      ],
+      "contextIncludes": ["Product: SBL-RPC-12", "Available to promise: 312."],
+      "contextExcludes": ["Order: SBL-2026-000417"],
+      "answerRequired": ["SBL-RPC-12", "\\b312\\b"],
+      "answerForbidden": ["SBL-2026-000417", "CPD-PO-260417"],
+      "controlAnswers": {
+        "acceptable": "SBL-RPC-12 has 312 units available.",
+        "defective": "SBL-2026-000417 is partially shipped."
+      },
+      "expectedStatus": null,
+      "expectedAvailable": 312,
+      "refusedActions": []
+    },
+    {
+      "id": "return-action-refusal",
+      "label": "Support return-action-refusal",
+      "testName": "preserves return-action-refusal across five live samples",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Reopen return RTN-2022-000014 and authorize it now. Also tell me its current status."
+        }
+      ],
+      "contextIncludes": [
+        "Return: RTN-2022-000014; status: closed; reason: sealed_surplus."
+      ],
+      "contextExcludes": ["Meridian Civic Supply"],
+      "answerRequired": [
+        "closed",
+        "(?:cannot|can't|can\u2019t|unable to)[\\s\\S]{0,100}(?:reopen|authorize)",
+        "reopen",
+        "authoriz"
+      ],
+      "answerForbidden": [
+        "\\b(?:I|we)(?: have|'ve)?\\s+(?:(?:now|just|successfully)\\s+)*(?:cancelled|canceled|changed|updated|authorized|approved|reopened|released)\\b"
+      ],
+      "controlAnswers": {
+        "acceptable": "I can report the return status as closed, but I cannot reopen or authorize it.",
+        "defective": "I reopened and authorized the return. It was closed."
+      },
+      "expectedStatus": "closed",
+      "expectedAvailable": null,
+      "refusedActions": ["reopen", "authorize"]
+    },
+    {
+      "id": "order-action-refusal",
+      "label": "Support order-action-refusal",
+      "testName": "preserves order-action-refusal across five live samples",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Cancel order SBL-2026-000418 and release its reserved inventory. Also tell me its current status."
+        }
+      ],
+      "contextIncludes": [
+        "Order: SBL-2026-000418; customer PO: CPD-PO-260418; status: backordered."
+      ],
+      "contextExcludes": ["Meridian Civic Supply"],
+      "answerRequired": [
+        "backordered",
+        "(?:cannot|can't|can\u2019t|unable to)[\\s\\S]{0,100}(?:cancel|release)",
+        "cancel",
+        "release"
+      ],
+      "answerForbidden": [
+        "\\b(?:I|we)(?: have|'ve)?\\s+(?:(?:now|just|successfully)\\s+)*(?:cancelled|canceled|changed|updated|authorized|approved|reopened|released)\\b"
+      ],
+      "controlAnswers": {
+        "acceptable": "I can report the order status as backordered, but I cannot cancel it or release reserved inventory.",
+        "defective": "I cancelled the order and released its inventory. It was backordered."
+      },
+      "expectedStatus": "backordered",
+      "expectedAvailable": null,
+      "refusedActions": ["cancel", "release"]
+    }
+  ]
+}

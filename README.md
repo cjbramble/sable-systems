@@ -214,20 +214,23 @@ not GLM judgment accuracy. Historical DeepSeek results do not validate GLM.
 | Phase                                  | Implemented                                                                                                                                                           | Remaining validation                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | 1: coverage and benchmark              | 36 support/injection/completeness controls with independent grading dimensions; separate eight-case benchmark candidate with a freeze manifest                        | GLM matches all 36 dimensional controls; independent human review of labels remains pending           |
-| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Current application checks: 304 tests and 206 Python tests pass                                       |
+| 2: harness and reporting               | Planned/processed coverage, per-scenario false acceptances/rejections and errors, separate success fields, bounded redacted failure evidence, Python tests in `check` | Standard application and Python checks run in `npm run check`                                         |
 | 3: claim diagnostics and qualification | 16 direct-verdict controls; 26 extraction cases with 40 expected source claims and separate coverage/truth results                                                    | Three frozen runs completed; human semantic review of labels, claims and explanations remains pending |
 | 4: reviewed benchmark                  | Reviewed 32-case benchmark for the revision-8 structured judge; readable review sheet; fixture, evaluator and runtime-setting freeze; required review record          | Three runs complete: 96/96 decisions match; five quality disagreements; judge remains advisory        |
 | 5: quality correction                  | Explicit quality flags, 17 boundary controls, quoted-claim guidance and preserved diagnostic evidence                                                                 | GREEN under revision 12: 17 passed, 0 failed, 0 errors; fresh qualification still needed              |
 | 6: fresh revision-12 benchmark         | 40 human-approved answers across 20 scenario pairs; separate review sheet and preserved freeze; three completed runs with two workers                                 | RED: 112 passed, 1 grading failure, 7 errors across 120 assessments; results informed correction      |
 | 7: topic scope and output budget       | Explicit current-request scope, excluded historical topics, 16,384-token judge cap, and retired `calibration-v2` routing                                              | GREEN: three-case correction check 3 passed, 0 failed, 0 errors; judge remains advisory               |
-| 8: bounded retries and fresh benchmark | Up to three HTTP 429 retries; per-attempt evidence and recovered/unresolved counts; fresh 40-answer revision-13 candidate with frozen retry budget                    | GREEN: 120 passed, 0 failed, 0 terminal errors; actual explanation review pending                     |
+| 8: bounded retries and fresh benchmark | Up to three HTTP 429 retries; per-attempt evidence and recovered/unresolved counts; fresh 40-answer revision-13 candidate with frozen retry budget                    | GREEN: 120 passed, 0 failed, 0 terminal errors; actual explanation review confirmed                   |
+| 9: expanded live application coverage  | Nine support scenarios with five retained samples each; exact history and authorized context; separate app/judge/error reporting                                      | Offline GREEN: 322 application tests and 210 Python tests; live evaluation running                    |
 
 Expanded support cases cover orders, shipments, returns, account authorization,
 missing records, compound requests, topic switches and action refusals. Evaluator
 injection controls place attacks in the question, answer and quoted source text,
 with correct-answer and benign-quotation controls. These synthetic fixtures test
-judging; they do not expand the live chatbot transcript parser, which still
-judges only case-pack and comparison samples.
+judging. Live sampling now also covers those nine support scenarios, with five
+normal-generation answers per scenario (45 answers). The existing case-pack and
+comparison sampling adds ten answers when the complete live suite is selected.
+See [expanded live coverage](#expanded-live-support-coverage).
 
 After configuring credentials, each command below makes billed requests:
 
@@ -382,18 +385,18 @@ GLM reasoning and 16,384-token allowance; no replacement fourth run was added.
 The retry recovered this observed temporary limit, without proving that every
 future rate limit will recover.
 
-**Your next step is to review [the actual model explanations](docs/deepeval-benchmark-v3-results.md).**
-That document contains all 120 structured assessments, question/reference/answer
-context, usage, timings, source hashes and the original 429/retry evidence. The
-execution and grading requirements are met. Human explanation review remains
-pending before qualification as a gate; the judge remains advisory. Label approval
-before exposure does not approve later model outputs. The original revision-12
-red results below remain unchanged.
+**Human review of the actual model explanations is confirmed.** The approval is
+recorded in `tests/fixtures/judge/qualification-v3-explanation-review.json`, with
+the hash of [the unchanged 120 assessments](docs/deepeval-benchmark-v3-results.md).
+This completes the declared review requirements for the frozen revision-13
+snapshot. The judge remains advisory; later harness changes are not qualified
+by that historical approval.
 
 [The frozen review sheet](docs/deepeval-benchmark-v3-review.md) preserves the
 proposed labels and original plan. Its preparation wording is historical; the
 actual review record records approval. Reproducing the completed runs requires
-the same frozen files and settings:
+the original frozen snapshot `d208b7e010e1c0bb0e699f60d04405de47214295` and settings.
+The current reporting changes intentionally fail that historical freeze check:
 
 ```bash
 OPENROUTER_JUDGE_MAX_TOKENS=16384 npm run test:judge -- --suite qualification-v3 --concurrency 2
@@ -447,10 +450,10 @@ Reproducing a historical qualification requires its original code snapshot,
 not refreezing these exposed cases. New qualification of revision 13 needs a
 fresh independently reviewed set; the judge remains advisory.
 
-**Current offline checks: GREEN — 304 application tests and 206 Python tests
+**Current offline checks: GREEN — 322 application tests and 210 Python tests
 passed**, with lint, formatting, type checks, seed validation and build passing.
-Human review of the actual model explanations remains pending. The prior approval
-covered expected labels before exposure, not the subsequent model outputs.
+Revision-13 explanation review is confirmed in the separate post-run approval
+record above. Earlier benchmark results below remain historical.
 
 The following results describe the earlier, exposed benchmark and correction.
 The approved labels are in [the benchmark review sheet](docs/deepeval-benchmark-review.md).
@@ -557,3 +560,32 @@ report. Both commands build the app and use disposable databases. Recording
 configuration lives in `tools/demo/`; raw videos, traces, and reports are saved
 under the Git-ignored `reports/demo-recordings/`. Approved MP4s and thumbnails
 live in `docs/media/`.
+
+### Expanded live support coverage
+
+The new suite samples orders, shipments, returns, account authorization, missing
+records, compound requests, topic switches, and order/return action refusals.
+Run only this phase with configured OpenRouter credentials:
+
+```sh
+OPENROUTER_JUDGE_MAX_TOKENS=16384 npm run test:model -- tests/model/expanded-support-sampling.test.ts
+```
+
+This makes 45 generator calls, then judges the retained answers with GLM. Both
+models are unchanged. Each scenario uses five identical production requests at
+normal generation settings. Samples are not retried or replaced. The topic-switch
+scenario includes the full conversation history; judging receives the current
+question and the exact authorized records sent to the generator.
+
+Independent database anchors and response checks establish application results.
+Reports separately count application failures, generator execution errors, judge
+execution errors, and judge/application disagreements. A judge acceptance cannot
+rescue a failed application assertion. Judge decisions remain advisory. The
+complete raw responses, request, context, and per-sample failures remain in the
+transcript; JSON/JSONL reports retain answers, context, and structured judgments.
+
+These checks exercise database context and production model request construction.
+HTTP-route postprocessing is covered separately by application integration tests.
+This live suite is application sampling, not a new untouched judge benchmark.
+Filtered runs report only the selected scenarios. The frozen benchmark and its
+reviewed results are preserved unchanged.
