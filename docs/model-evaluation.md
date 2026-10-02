@@ -830,9 +830,9 @@ can still prevent those in-memory attempts from reaching the file.
 
 [The new review sheet](deepeval-benchmark-v3-review.md) prepares 40 newly authored
 synthetic answers in 20 pairs for revision 13. It is not a human-authored or
-qualified benchmark. Its expected labels require independent human review before
-live exposure, and its approval record remains pending. No model calls have been
-made on this candidate. The proposed plan is three consecutive complete runs,
+qualified benchmark. Its expected labels and run plan were independently reviewed and approved by
+cjbramble before live exposure, with approval recorded in qualification-v3-review.json.
+The three live evaluations are now in progress; final counts remain pending. The proposed plan is three consecutive complete runs,
 two workers, GLM reasoning enabled and 16,384 output tokens. Forty logical
 requests per run allow at most 160 HTTP attempts with the frozen retry policy:
 120 logical requests and at most 480 attempts across the three runs. This is a
@@ -858,14 +858,14 @@ After explicit label and run-plan approval:
 OPENROUTER_JUDGE_MAX_TOKENS=16384 npm run test:judge -- --suite qualification-v3 --concurrency 2
 ```
 
-The command currently blocks before calls and report artifacts because review is
-pending. The explicit cap prevents an older environment override from selecting
-8,192 tokens instead of the frozen 16,384. Review and actual run results will be
-recorded after those steps occur; offline scripted tests are not live judgment
+The command was verified to block before calls and report artifacts while review
+was pending. Actual human approval is now recorded and the runs have started. The explicit cap prevents an older environment override from selecting
+8,192 tokens instead of the frozen 16,384. Actual run results will be
+recorded after the three runs finish; offline scripted tests are not live judgment
 evidence. The previous revision-12 three-run results are unchanged.
 
 Current offline verification for this phase: **GREEN — 304 application tests and
 206 Python tests passed**, plus lint, formatting, type checking, seed validation
-and production build. The real pending-review entry point was checked to reject
+and production build. Before approval, the real pending-review entry point was checked to reject
 v3 before model calls or JSON/JSONL report artifacts. These checks validate retry
 and approval behavior; they do not establish GLM accuracy on the new benchmark.

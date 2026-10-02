@@ -47,8 +47,11 @@ def test_v3_is_balanced_novel_and_frozen_with_bounded_attempt_budget():
     assert freeze["generation"]["max_tokens"] == 16384
     assert all(gate.digest(root / name) == digest for name, digest in freeze["sha256"].items())
     review = json.loads((root / gate.V3_REVIEW).read_text())
-    assert review["decision"] == "pending"
-    assert review["independentHumanReview"] is False
+    assert review["decision"] in ("pending", "approved")
+    if review["decision"] == "approved":
+        assert review["independentHumanReview"] is True
+        assert review["reviewedBeforeLiveExposure"] is True
+        assert review["reviewer"] and review["reviewedAt"]
     assert review["fixtureSha256"] == gate.digest(fixture_path)
     assert review["freezeSha256"] == gate.digest(root / gate.V3_FREEZE)
 
@@ -59,6 +62,12 @@ def candidate_root(tmp_path):
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(evaluation.ROOT / name, path)
+    # Exercise pending review independently of actual human approval.
+    path = tmp_path / gate.V3_REVIEW
+    review = json.loads(path.read_text())
+    review.update(decision="pending", reviewer=None, reviewedAt=None,
+                  independentHumanReview=False, reviewedBeforeLiveExposure=False)
+    path.write_text(json.dumps(review))
     return tmp_path
 
 
