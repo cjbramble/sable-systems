@@ -32,12 +32,20 @@ def http_sequence(monkeypatch):
         def __init__(self, *args, **kwargs):
             self.response = state["responses"].pop(0)
             self.status = self.response[0]
+            self.stream = None
+            if len(self.response) == 3:
+                wire = self.response[2]
+                class Socket:
+                    def makefile(self, mode):
+                        return io.BytesIO(wire)
+                self.stream = adapter.http.client.HTTPResponse(Socket())
+                self.stream.begin()
 
         def request(self, method, path, body, headers):
             state["sent"].append(json.loads(body))
 
         def getresponse(self):
-            return self
+            return self.stream or self
 
         def getheader(self, name):
             return self.response[1] if name.lower() == "retry-after" else None
@@ -51,6 +59,7 @@ def http_sequence(monkeypatch):
                 "content": '{"score":1,"reason":"Grounded"}'}}]}).encode()
 
         def close(self):
+            if self.stream: self.stream.close()
             state["closed"] += 1
 
     def sleep(seconds):
@@ -196,4 +205,56 @@ def test_premature_http_body_eof_is_not_retried(monkeypatch, http_sequence):
     assert len(judge.requests) == 1
     assert http_sequence["delays"] == []
     assert judge.requests[0]["rawResponse"] == "partial"
+    assert judge.requests[0]["responseComplete"] is False
+
+
+CHUNKED_PARTIAL = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n11\r\nretry-test-secret\r\n8\r\nshort"
+LENGTH_PARTIAL = b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nretry-test-secret"
+
+@pytest.mark.parametrize("wire", [CHUNKED_PARTIAL, LENGTH_PARTIAL])
+def test_incomplete_200_response_retries_identical_request_with_partial_evidence(http_sequence, wire):
+    http_sequence["responses"] = [(200, None, wire), (200, None)]
+    judge = adapter.OpenRouterJudge()
+    assert judge.generate("Evaluate", Verdict).score == 1
+    assert len(judge.requests) == 2
+    first, last = judge.requests
+    assert first["responseComplete"] is False
+    assert first["responseBytes"] > 0
+    assert "[REDACTED]" in first["rawResponse"]
+    assert "retry-test-secret" not in json.dumps(judge.requests)
+    assert first["retryReason"] == "incomplete-response"
+    assert http_sequence["sent"][0] == http_sequence["sent"][1]
+    assert last["completed"] is True
+    summary = adapter.summarize_requests([{"calls": judge.requests}])
+    assert summary["recoveredIncompleteResponseRequests"] == 1
+    assert summary["unresolvedIncompleteResponseRequests"] == 0
+    assert summary["rateLimitedAttempts"] == 0
+
+
+def test_mixed_incomplete_and_rate_limit_failures_share_one_retry_budget(http_sequence):
+    http_sequence["responses"] = [(200, None, CHUNKED_PARTIAL), (429, None), (200, None, LENGTH_PARTIAL), (200, None, CHUNKED_PARTIAL), (200, None)]
+    judge = adapter.OpenRouterJudge()
+    with pytest.raises(adapter.http.client.IncompleteRead):
+        judge.generate("Evaluate", Verdict)
+    assert len(judge.requests) == 4
+    assert judge.requests[-1]["retryExhausted"] is True
+    assert http_sequence["delays"] == [5, 9, 17]
+    assert len(http_sequence["responses"]) == 1
+    assert all(body == http_sequence["sent"][0] for body in http_sequence["sent"])
+    summary = adapter.summarize_requests([{"calls": judge.requests}])
+    assert summary["unresolvedIncompleteResponseRequests"] == 1
+    assert summary["unresolvedRateLimitedRequests"] == 1
+
+
+@pytest.mark.parametrize("wire", [
+    b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 100\r\n\r\npartial",
+    b"HTTP/1.1 429 Too Many Requests\r\nTransfer-Encoding: chunked\r\n\r\n8\r\npartial",
+])
+def test_incomplete_non_success_response_remains_terminal(http_sequence, wire):
+    http_sequence["responses"] = [(401 if b'401' in wire else 429, None, wire), (200, None)]
+    judge = adapter.OpenRouterJudge()
+    with pytest.raises((RuntimeError, adapter.http.client.IncompleteRead)):
+        judge.generate("Evaluate", Verdict)
+    assert len(judge.requests) == 1
+    assert http_sequence["delays"] == []
     assert judge.requests[0]["responseComplete"] is False

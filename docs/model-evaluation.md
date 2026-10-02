@@ -963,3 +963,37 @@ and total fields. One order-action assessment failed with an incomplete HTTP
 response. There were no 429s or retries; current retry policy covers 429 only.
 The original run remains unchanged, and the PR remains draft pending correction
 investigation.
+
+### Revision 14: unavailable-record completeness and partial-response retries
+
+The first expanded run exposed a gap in the completeness guidance: it explicitly
+covered forbidden actions, but did not explain how a scoped no-record response
+addresses requested information. Revision 14 marks each requested field of that
+explicitly unavailable record as refused, while retaining independent requirements
+for other available records. Advice without an unavailability statement is still
+incomplete, and false unavailability still fails factual support. Expected labels
+are not included in judge requests.
+
+The HTTP 200 `IncompleteRead` arose while reading a chunked response. Its original
+report had the HTTP status and error but no partial body. The adapter now preserves
+bounded, redacted partial bytes and detects short Content-Length responses before
+parsing or accepting a verdict. Only incomplete HTTP 200 bodies gain retries;
+they share the existing three-retry budget with 429s. Failed requests close before
+bounded backoff. Exhaustion is an execution failure, never a passing verdict.
+Summaries separately count incomplete attempts, recovered incomplete requests
+and unresolved incomplete requests. Non-success partial bodies, timeouts, schema
+failures, malformed JSON, upstream errors and incomplete model verdicts do not
+receive this retry treatment.
+
+Seven `record-access` calibration controls use the existing structured judge and
+reporting pipeline. They include both original problematic answers and negative
+controls that prevent unavailable-record refusals from excusing invented values
+or omitted available stock. This is a focused correction check, not qualification
+or a replacement of the preserved red 45-sample run. No generator answers are
+regenerated. The approved revision-13 freeze and review remain unchanged; current
+revision 14 intentionally fails their source/settings checks.
+
+Offline verification: 322 application tests and 216 Python tests passed; lint,
+formatting, types, seed validation and production build passed. The partial-body
+regressions were observed failing before implementation. Focused live verification
+is the next check.

@@ -5,6 +5,7 @@ import hashlib
 import json
 
 from openrouter_judge import RETRY_POLICY
+from support_grading import GRADING_REVISION
 
 
 FIXTURE = 'tests/fixtures/judge/qualification-v1.json'
@@ -59,8 +60,8 @@ def validate_qualification(root, model, generation, concurrency, *, version=1):
     if version == 3 and freeze.get('retryPolicy') != RETRY_POLICY:
         raise ValueError('Qualification retry settings differ from the freeze')
     fixture = json.loads((root / fixture_name).read_text())
-    if version == 3 and (freeze.get('gradingRevision') != 13 or fixture.get('gradingRevision') != 13):
-        raise ValueError('Qualification requires grading revision 13')
+    if version == 3 and (freeze.get('gradingRevision') != GRADING_REVISION or fixture.get('gradingRevision') != GRADING_REVISION):
+        raise ValueError(f'Qualification requires grading revision {GRADING_REVISION}')
     examples = [row for scenario in fixture['scenarios'] for row in scenario['examples']]
     for row in examples:
         dims = row.get('expectedDimensions', {})

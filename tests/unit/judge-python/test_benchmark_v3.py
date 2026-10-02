@@ -41,7 +41,9 @@ def test_v3_is_balanced_novel_and_frozen_with_bounded_attempt_budget():
     assert not exposed.intersection(row["text"] for row in rows)
     freeze = json.loads((root / gate.V3_FREEZE).read_text())
     assert freeze["gradingRevision"] == fixture["gradingRevision"] == 13
-    assert freeze["retryPolicy"] == RETRY_POLICY
+    assert freeze["retryPolicy"]["httpStatuses"] == [429]
+    assert "transportErrors" not in freeze["retryPolicy"]
+    assert freeze["retryPolicy"]["maxRetries"] == RETRY_POLICY["maxRetries"]
     assert freeze["qualificationPolicy"]["maxLogicalRequestsPerRun"] == 40
     assert freeze["qualificationPolicy"]["maxModelCallsPerRun"] == 160
     assert freeze["generation"]["max_tokens"] == 16384
@@ -68,12 +70,18 @@ def candidate_root(tmp_path):
     # completed revision-13 freeze and approval remain unchanged.
     freeze_path = tmp_path / gate.V3_FREEZE
     freeze = json.loads(freeze_path.read_text())
+    fixture_path = tmp_path / gate.V3_FIXTURE
+    fixture = json.loads(fixture_path.read_text())
+    fixture["gradingRevision"] = 14
+    fixture_path.write_text(json.dumps(fixture))
+    freeze["gradingRevision"] = 14
+    freeze["retryPolicy"] = RETRY_POLICY
     freeze["sha256"] = {name: gate.digest(tmp_path / name) for name in gate.V3_LOCK_FILES}
     freeze_path.write_text(json.dumps(freeze))
     # Exercise pending review independently of actual human approval.
     path = tmp_path / gate.V3_REVIEW
     review = json.loads(path.read_text())
-    review.update(freezeSha256=gate.digest(freeze_path), decision="pending", reviewer=None, reviewedAt=None,
+    review.update(fixtureSha256=gate.digest(fixture_path), freezeSha256=gate.digest(freeze_path), decision="pending", reviewer=None, reviewedAt=None,
                   independentHumanReview=False, reviewedBeforeLiveExposure=False)
     path.write_text(json.dumps(review))
     return tmp_path
@@ -154,7 +162,7 @@ def test_v3_approved_routing_withholds_labels_and_preserves_retry_evidence(monke
     report = json.loads(output.read_text())
     assert sorted(seen) == sorted(expected)
     assert report["suite"] == "qualification-v3"
-    assert report["policy"]["gradingRevision"] == 13
+    assert report["policy"]["gradingRevision"] == 14
     assert report["benchmarkFreeze"]["independentReview"]["reviewer"] == "Fictional offline reviewer"
     assert report["coverage"]["processedSamples"] == 40
     assert report["summary"]["overall"]["requestAttempts"] == 80

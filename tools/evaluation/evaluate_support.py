@@ -11,7 +11,7 @@ import time
 
 from openrouter_judge import ROOT, judge_metadata, RETRY_POLICY, summarize_requests
 from benchmark_review import validate_qualification
-from support_grading import ANSWER_RULES, CLAIM_RULES, judge_answer, judge_claims, judge_direct_claim, EXTRACTION_RULES, assess_claim_coverage
+from support_grading import GRADING_REVISION, ANSWER_RULES, CLAIM_RULES, judge_answer, judge_claims, judge_direct_claim, EXTRACTION_RULES, assess_claim_coverage
 
 
 def main():
@@ -26,11 +26,11 @@ def main():
     if type(concurrency) is not int or not 1 <= concurrency <= 4:
         raise ValueError("Judge concurrency must be an integer from 1 to 4")
     suite = payload.get("suite", "legacy")
-    if suite not in ("legacy", "coverage", "benchmark", "claims", "extraction", "qualification", "qualification-v2", "qualification-v3", "calibration", "calibration-v2", "quality"):
+    if suite not in ("legacy", "coverage", "benchmark", "claims", "extraction", "qualification", "qualification-v2", "qualification-v3", "calibration", "calibration-v2", "quality", "record-access"):
         raise ValueError("Unknown judge suite")
     if suite != "legacy" and (mode != "validation" or payload.get("validationSet", "all") != "all"):
         raise ValueError("Expanded suites require normal validation mode")
-    suite_path = ROOT / "tests/fixtures/judge" / ({"qualification-v3": "qualification-v3.json", "qualification-v2": "qualification-v2.json", "calibration-v2": "qualification-v2.json", "qualification": "qualification-v1.json", "calibration": "qualification-v1.json", "quality": "quality-controls-v1.json", "coverage": "coverage-v3.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "extraction-controls-v1.json"}.get(suite, "coverage.json"))
+    suite_path = ROOT / "tests/fixtures/judge" / ({"qualification-v3": "qualification-v3.json", "qualification-v2": "qualification-v2.json", "calibration-v2": "qualification-v2.json", "qualification": "qualification-v1.json", "calibration": "qualification-v1.json", "quality": "quality-controls-v1.json", "record-access": "record-access-controls-v1.json", "coverage": "coverage-v3.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "extraction-controls-v1.json"}.get(suite, "coverage.json"))
     suite_fixture = json.loads(suite_path.read_text()) if suite != "legacy" else None
     freeze = None
     if suite == "benchmark":
@@ -126,7 +126,7 @@ def main():
                    "claimVerification": "one-at-a-time" if claim_diagnostic else None,
                    "strictMode": True, "penalizeAmbiguousClaims": True if claim_diagnostic else None,
                    "evaluationSteps": None,
-                   "gradingRevision": 3 if claim_diagnostic else 13,
+                   "gradingRevision": 3 if claim_diagnostic else GRADING_REVISION,
                    "extractionRevision": 1 if suite == "extraction" or mode == "claims-pilot" else None,
                    "extractionRules": EXTRACTION_RULES if suite == "extraction" or mode == "claims-pilot" else None,
                    "assessmentRules": CLAIM_RULES if claim_diagnostic else ANSWER_RULES},
@@ -246,6 +246,9 @@ def main():
     print(f"Judge HTTP attempts: {summary['requestAttempts']}; retries: {summary['retryAttempts']}; "
           f"rate-limited requests recovered: {summary['recoveredRateLimitedRequests']}; "
           f"unresolved: {summary['unresolvedRateLimitedRequests']}")
+    print(f"Judge incomplete responses: {summary['incompleteResponseAttempts']}; "
+          f"recovered requests: {summary['recoveredIncompleteResponseRequests']}; "
+          f"unresolved: {summary['unresolvedIncompleteResponseRequests']}")
     print(f"Judge report: {destination}")
     # Live judge verdicts are advisory; harness errors and factual failures are not.
     return 0 if report["successful"] else 1

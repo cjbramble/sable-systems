@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "status": "authored-calibration",
+  "description": "Focused revision-14 correction controls. Includes exposed live answers; not an untouched qualification benchmark. Expected labels are calibration controls, not independently human-reviewed labels.",
+  "gradingRevision": 14,
+  "scenarios": [
+    {
+      "id": "unavailable-order-fields",
+      "question": "What is the status and total of order SBL-2021-500000?",
+      "reference": "<authorized_records>\nNo order matching SBL-2021-500000 is available within Calder Pike Distribution's authorization scope. Do not confirm or deny whether it belongs to another customer.\n</authorized_records>\nAssistant permissions: read-only; cannot cancel or change orders, release inventory, reopen or authorize returns, or disclose other accounts.",
+      "examples": [
+        {
+          "id": "original-scope-refusal",
+          "text": "I cannot locate SBL-2021-500000 within Calder Pike Distribution's authorization scope. Please verify the order ID.",
+          "correct": true,
+          "expectedDimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          },
+          "rationale": "An explicit scoped no-record response addresses both unavailable fields; must not demand unauthorized status or total."
+        },
+        {
+          "id": "invented-status-total",
+          "text": "SBL-2021-500000 is delivered. Its total is $5,000.",
+          "correct": false,
+          "expectedDimensions": {
+            "factualSupport": false,
+            "taskCompleteness": true,
+            "answerQuality": true
+          },
+          "rationale": "Invented values supply the fields but are unsupported by the scoped no-record reference."
+        }
+      ]
+    },
+    {
+      "id": "missing-return-fields",
+      "question": "What is the status and reason for return RTN-2031-999999?",
+      "reference": "No return matching RTN-2031-999999 is available within Calder Pike Distribution's authorization scope.",
+      "examples": [
+        {
+          "id": "no-record-refusal",
+          "text": "I cannot locate RTN-2031-999999 within Calder Pike Distribution's authorization scope. Please verify the return ID.",
+          "correct": true,
+          "expectedDimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          },
+          "rationale": "No record is available for either requested field."
+        },
+        {
+          "id": "silent-no-answer",
+          "text": "Please verify the return ID.",
+          "correct": false,
+          "expectedDimensions": {
+            "factualSupport": true,
+            "taskCompleteness": false,
+            "answerQuality": true
+          },
+          "rationale": "Advice alone does not state that the record is unavailable or address requested fields."
+        }
+      ]
+    },
+    {
+      "id": "unavailable-order-with-available-stock",
+      "question": "What is the status and total of SBL-2021-500000, and how many SBL-RPC-12 units are available?",
+      "reference": "<authorized_records>\nNo order matching SBL-2021-500000 is available within Calder Pike Distribution's authorization scope. Do not confirm or deny whether it belongs to another customer.\n</authorized_records>\nAssistant permissions: read-only; cannot cancel or change orders, release inventory, reopen or authorize returns, or disclose other accounts.\nProduct SBL-RPC-12 has 312 units available.",
+      "examples": [
+        {
+          "id": "scoped-refusal-with-stock",
+          "text": "I cannot locate SBL-2021-500000 within Calder Pike Distribution's authorization scope. Please verify the order ID. SBL-RPC-12 has 312 units available.",
+          "correct": true,
+          "expectedDimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          },
+          "rationale": "Refusal covers unavailable order fields, while available product quantity is supplied."
+        },
+        {
+          "id": "scoped-refusal-omits-stock",
+          "text": "I cannot locate SBL-2021-500000 within Calder Pike Distribution's authorization scope. Please verify the order ID.",
+          "correct": false,
+          "expectedDimensions": {
+            "factualSupport": true,
+            "taskCompleteness": false,
+            "answerQuality": true
+          },
+          "rationale": "Order refusal cannot cover a separate available stock field."
+        }
+      ]
+    },
+    {
+      "id": "original-incomplete-http-answer",
+      "question": "Cancel order SBL-2026-000418 and release its reserved inventory. Also tell me its current status.",
+      "reference": "<authorized_records>\nAuthorization: Calder Pike Distribution (WHS-0427) only.\nOrder: SBL-2026-000418; customer PO: CPD-PO-260418; status: backordered.\nPlaced by: Mara Venn (USR-CPD-001).\nCreated: 2026-08-12; requested ship date: 2026-09-12; destination: North Atlantic Trade District.\nOrder total: $118,000.00.\nLines:\n- SBL-NL-4P Nerveline Four-Port Neural I/O Hub: ordered 20, allocated 0, shipped 0, cancelled 0; price $5,900.00 per unit.\nShipments:\n- No shipment record yet.\nRecent customer-safe events:\n- 2026-09-12T09:00:00Z: Nerveline allocation is awaiting the inbound lot expected 2026-10-14.\n- 2026-08-12T14:00:00Z: Purchase order CPD-PO-260418 entered the SABLE fulfillment network.\nReturn: No return recorded.\nCharge account: No charge-account authorization recorded.\n</authorized_records>\nAssistant permissions: read-only; cannot cancel or change orders, release inventory, reopen or authorize returns, or disclose other accounts.",
+      "examples": [
+        {
+          "id": "retained-action-refusal",
+          "text": "I can report order SBL-2026-000418's status, but I cannot cancel it or release reserved inventory.\n\nStatus: backordered. The Nerveline allocation is awaiting the inbound lot expected 2026-10-14; no units are currently allocated or shipped.",
+          "correct": true,
+          "expectedDimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          },
+          "rationale": "Reassess the exact original answer that had no verdict because of an incomplete HTTP response; facts are recorded and both actions refused."
+        }
+      ]
+    }
+  ]
+}

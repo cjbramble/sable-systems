@@ -78,7 +78,8 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULTS = json.loads((ROOT / "lib/openrouter-config.json").read_text())
 GENERATION = {"temperature": 0, "top_p": 1, "max_tokens": 16384, "stream": False}
 
-RETRY_POLICY = {"httpStatuses": [429], "maxRetries": 3,
+RETRY_POLICY = {"httpStatuses": [429], "transportErrors": ["IncompleteRead"],
+                "transportHttpStatuses": [200], "maxRetries": 3,
                 "backoffSeconds": [4, 8, 16], "jitterSeconds": 1,
                 "maxDelaySeconds": 60, "honorRetryAfter": True}
 
@@ -114,11 +115,16 @@ def summarize_requests(rows):
         groups.extend(requests.values())
     limited = [group for group in groups if any(call.get("httpStatus") == 429 for call in group)]
     recovered = sum(group[-1].get("completed") is True for group in limited)
+    incomplete = [group for group in groups if any(call.get("httpStatus") == 200 and call.get("errorType") == "IncompleteRead" for call in group)]
+    recovered_incomplete = sum(group[-1].get("completed") is True for group in incomplete)
     return {"requestAttempts": len(calls),
             "retryAttempts": sum(call.get("attempt", 1) > 1 for call in calls),
             "rateLimitedAttempts": sum(call.get("httpStatus") == 429 for call in calls),
             "recoveredRateLimitedRequests": recovered,
-            "unresolvedRateLimitedRequests": len(limited) - recovered}
+            "unresolvedRateLimitedRequests": len(limited) - recovered,
+            "incompleteResponseAttempts": sum(call.get("httpStatus") == 200 and call.get("errorType") == "IncompleteRead" for call in calls),
+            "recoveredIncompleteResponseRequests": recovered_incomplete,
+            "unresolvedIncompleteResponseRequests": len(incomplete) - recovered_incomplete}
 
 
 def judge_config():
@@ -202,11 +208,20 @@ class OpenRouterJudge(DeepEvalBaseLLM):
                 connection.request("POST", "/api/v1/chat/completions", json.dumps(body), headers)
                 response = connection.getresponse()
                 record["httpStatus"] = response.status
-                raw = response.read(2_000_001)
+                read_error = None
+                try:
+                    raw = response.read(2_000_001)
+                except http.client.IncompleteRead as error:
+                    raw = error.partial
+                    read_error = error
                 record["responseBytes"] = len(raw)
                 # read(amt) may return short on premature Content-Length EOF.
-                record["responseComplete"] = getattr(response, "length", 0) in (0, None)
+                record["responseComplete"] = read_error is None and getattr(response, "length", 0) in (0, None)
                 record["rawResponse"] = raw[:2_000_000].decode("utf-8", errors="replace").replace(key, "[REDACTED]")[:2_000_000]
+                if read_error is not None:
+                    raise read_error
+                if response.status == 200 and not record["responseComplete"] and len(raw) <= 2_000_000:
+                    raise http.client.IncompleteRead(raw, response.length)
                 if response.status != 200 or len(raw) > 2_000_000:
                     raise RuntimeError(f"Judge HTTP failure: {response.status}")
                 data = json.loads(raw)
@@ -224,12 +239,15 @@ class OpenRouterJudge(DeepEvalBaseLLM):
                 return verdict
             except Exception as error:
                 record["errorType"] = type(error).__name__
-                if record.get("httpStatus") != 429 or record.get("responseComplete") is not True or record["responseBytes"] > 2_000_000:
+                incomplete = isinstance(error, http.client.IncompleteRead) and record.get("httpStatus") == 200 and record.get("responseComplete") is False and record.get("responseBytes", 2_000_001) <= 2_000_000
+                limited = record.get("httpStatus") == 429 and record.get("responseComplete") is True and record.get("responseBytes", 2_000_001) <= 2_000_000
+                if not (incomplete or limited):
                     raise
+                record["retryReason"] = "incomplete-response" if incomplete else "rate-limit"
                 if attempt > RETRY_POLICY["maxRetries"]:
                     record["retryExhausted"] = True
                     raise
-                delay = retry_delay(response.getheader("Retry-After"), attempt)
+                delay = retry_delay(None if incomplete else response.getheader("Retry-After"), attempt)
                 if delay is None:
                     record["retrySkipped"] = "retry-after-exceeds-wait-budget"
                     raise

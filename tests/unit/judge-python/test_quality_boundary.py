@@ -34,7 +34,7 @@ def test_calibration_reports_current_rubric_without_benchmark_approval(monkeypat
     assert report['coverage']['expectedSamples'] == report['coverage']['processedSamples'] == count
     assert report['suiteStatus'] == status
     assert report['benchmarkFreeze'] is None
-    assert report['policy']['gradingRevision'] == 13
+    assert report['policy']['gradingRevision'] == 14
     assert report['policy']['mode'] == 'advisory'
 
 

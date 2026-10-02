@@ -450,7 +450,7 @@ Reproducing a historical qualification requires its original code snapshot,
 not refreezing these exposed cases. New qualification of revision 13 needs a
 fresh independently reviewed set; the judge remains advisory.
 
-**Current offline checks: GREEN — 322 application tests and 210 Python tests
+**Current offline checks: GREEN — 322 application tests and 216 Python tests
 passed**, with lint, formatting, type checks, seed validation and build passing.
 Revision-13 explanation review is confirmed in the separate post-run approval
 record above. Earlier benchmark results below remain historical.
@@ -461,7 +461,7 @@ The original benchmark explanations and the later correction results are availab
 in the linked results documents below. Human review of those model explanations
 remains pending; the earlier approval covered the proposed labels before exposure.
 
-The structured GLM judge now uses revision-13 rules. The revision-12 correction
+The structured GLM judge now uses revision-14 rules. The revision-12 correction
 results below are historical. `--suite quality` checks 17
 controls for the factual/quality boundary, including the two exposed failures.
 `--suite calibration` reuses the 32 exposed cases and reports them as retired
@@ -597,3 +597,33 @@ The rejection concerns a correct authorization-scope refusal; the error was an
 incomplete HTTP response. There were no rate limits or retries. All actual
 assessments and error evidence are in the linked results. PR #7 remains draft
 pending correction investigation; no answers or original results were replaced.
+
+### Unavailable records and incomplete judge responses
+
+Revision 14 makes a valid scoped no-record response complete for every requested
+field of that unavailable record. It still requires separately available facts,
+such as product stock, and checks false unavailability claims for factual support.
+This changes judge guidance, not either model or the customer-facing prompt.
+
+The judge now also retries incomplete HTTP 200 bodies: both chunked-response
+`IncompleteRead` errors and premature Content-Length EOF. These and HTTP 429s
+share the existing limit of three retries (four attempts total), backoff and jitter.
+Each attempt preserves the identical request and bounded, redacted partial evidence;
+connections close before waiting. Other HTTP errors, timeouts, malformed JSON,
+invalid schemas, unfinished verdicts and upstream error payloads remain terminal.
+Reports distinguish recovered and unresolved incomplete responses from rate limits.
+Retries may incur another billed inference request.
+
+A focused calibration check includes the original rejected refusal, missing-return
+fields, a compound request with available stock, negative controls for invented or
+omitted information, and the original answer whose judge response was incomplete:
+
+```sh
+OPENROUTER_JUDGE_MAX_TOKENS=16384 npm run test:judge -- --suite record-access --concurrency 2
+```
+
+The seven controls are exposed calibration, not a new independent benchmark.
+The first live run's **43 passes, 1 rejection and 1 execution error** remain
+preserved. The frozen revision-13 approval applies to its original snapshot;
+it does not qualify revision 14. Offline checks pass with 322 application tests
+and 216 Python tests. Focused live verification is the next check.
