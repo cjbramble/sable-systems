@@ -1,6 +1,6 @@
 # Model evaluation
 
-For setup and commands, see [Testing](../README.md#testing) and
+For setup and commands, see [Commands](../README.md#commands) and
 [OpenRouter inference](inference.md). COV-E and the advisory judge use the
 external API; historical local results below remain as evidence of earlier
 experiments. Their runtimes and model weights have been removed.
