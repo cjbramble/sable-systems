@@ -41,11 +41,15 @@ def test_v3_is_balanced_novel_and_frozen_with_bounded_attempt_budget():
     assert not exposed.intersection(row["text"] for row in rows)
     freeze = json.loads((root / gate.V3_FREEZE).read_text())
     assert freeze["gradingRevision"] == fixture["gradingRevision"] == 13
-    assert freeze["retryPolicy"] == RETRY_POLICY
+    assert freeze["retryPolicy"]["httpStatuses"] == [429]
+    assert "transportErrors" not in freeze["retryPolicy"]
+    assert freeze["retryPolicy"]["maxRetries"] == RETRY_POLICY["maxRetries"]
     assert freeze["qualificationPolicy"]["maxLogicalRequestsPerRun"] == 40
     assert freeze["qualificationPolicy"]["maxModelCallsPerRun"] == 160
     assert freeze["generation"]["max_tokens"] == 16384
-    assert all(gate.digest(root / name) == digest for name, digest in freeze["sha256"].items())
+    # Historical reviewed source is preserved while the current reporting runner evolves.
+    assert gate.digest(root / gate.V3_FIXTURE) == freeze["sha256"][gate.V3_FIXTURE]
+    assert gate.digest(root / gate.V3_SHEET) == freeze["sha256"][gate.V3_SHEET]
     review = json.loads((root / gate.V3_REVIEW).read_text())
     assert review["decision"] in ("pending", "approved")
     if review["decision"] == "approved":
@@ -62,10 +66,22 @@ def candidate_root(tmp_path):
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(evaluation.ROOT / name, path)
+    # Fictional current-code freeze in the temporary root only. The actual
+    # completed revision-13 freeze and approval remain unchanged.
+    freeze_path = tmp_path / gate.V3_FREEZE
+    freeze = json.loads(freeze_path.read_text())
+    fixture_path = tmp_path / gate.V3_FIXTURE
+    fixture = json.loads(fixture_path.read_text())
+    fixture["gradingRevision"] = 14
+    fixture_path.write_text(json.dumps(fixture))
+    freeze["gradingRevision"] = 14
+    freeze["retryPolicy"] = RETRY_POLICY
+    freeze["sha256"] = {name: gate.digest(tmp_path / name) for name in gate.V3_LOCK_FILES}
+    freeze_path.write_text(json.dumps(freeze))
     # Exercise pending review independently of actual human approval.
     path = tmp_path / gate.V3_REVIEW
     review = json.loads(path.read_text())
-    review.update(decision="pending", reviewer=None, reviewedAt=None,
+    review.update(fixtureSha256=gate.digest(fixture_path), freezeSha256=gate.digest(freeze_path), decision="pending", reviewer=None, reviewedAt=None,
                   independentHumanReview=False, reviewedBeforeLiveExposure=False)
     path.write_text(json.dumps(review))
     return tmp_path
@@ -146,9 +162,14 @@ def test_v3_approved_routing_withholds_labels_and_preserves_retry_evidence(monke
     report = json.loads(output.read_text())
     assert sorted(seen) == sorted(expected)
     assert report["suite"] == "qualification-v3"
-    assert report["policy"]["gradingRevision"] == 13
+    assert report["policy"]["gradingRevision"] == 14
     assert report["benchmarkFreeze"]["independentReview"]["reviewer"] == "Fictional offline reviewer"
     assert report["coverage"]["processedSamples"] == 40
     assert report["summary"]["overall"]["requestAttempts"] == 80
     assert report["summary"]["overall"]["recoveredRateLimitedRequests"] == 40
     assert report["executionSuccessful"] is True
+
+
+def test_original_review_cannot_authorize_changed_reporting_code():
+    with pytest.raises(ValueError, match="Qualification freeze mismatch"):
+        gate.validate_qualification(evaluation.ROOT, *judge_metadata(), 2, version=3)

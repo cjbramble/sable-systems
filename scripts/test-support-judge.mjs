@@ -58,10 +58,11 @@ try {
       'calibration',
       'calibration-v2',
       'quality',
+      'record-access',
     ].includes(values.suite)
   )
     throw new Error(
-      'Choose --suite legacy, coverage, benchmark, claims, extraction, qualification, qualification-v2, qualification-v3, calibration, calibration-v2, or quality.',
+      'Choose --suite legacy, coverage, benchmark, claims, extraction, qualification, qualification-v2, qualification-v3, calibration, calibration-v2, quality, or record-access.',
     );
   if (
     values.suite !== 'legacy' &&

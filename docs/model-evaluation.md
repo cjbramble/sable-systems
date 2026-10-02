@@ -866,7 +866,7 @@ was pending. Actual human approval is recorded and all three runs are complete. 
 recorded in [the complete results](deepeval-benchmark-v3-results.md); offline scripted tests are not live judgment
 evidence. The previous revision-12 three-run results are unchanged.
 
-Current offline verification for this phase: **GREEN — 304 application tests and
+Offline verification at the completion of phase 8: **GREEN — 304 application tests and
 206 Python tests passed**, plus lint, formatting, type checking, seed validation
 and production build. Before approval, the real pending-review entry point was checked to reject
 v3 before model calls or JSON/JSONL report artifacts. These checks validate retry
@@ -901,9 +901,114 @@ also preserves the original rate-limit evidence, raw report hashes, approved
 source snapshot and aggregate API-reported cost. Score agreement does not prove
 that every substantive assertion was extracted or every explanation is correct.
 
-The execution and grading requirements are satisfied. Human review of actual
-explanations remains pending before qualification as an automated gate; the
-judge remains advisory. The prior review approved authored labels and the plan
-before exposure, not later model outputs. The frozen review sheet retains its
-historical preparation wording; the actual approval and completed results are
-the current evidence. No new live runs are needed merely to repeat these results.
+The execution and grading requirements are satisfied. cjbramble confirmed human
+review of the actual explanations on 2026-10-02. The separate post-run record
+`tests/fixtures/judge/qualification-v3-explanation-review.json` identifies the
+unchanged results document by SHA-256 and records review of 120 assessments
+across 40 distinct cases. The original preparation and results documents retain
+their historical wording. This completes the declared qualification requirements
+for the frozen source snapshot, not for later reporting changes. The judge
+remains advisory; no further benchmark calls were made for this confirmation.
+
+### Expanded live application sampling
+
+Nine new scenarios each retain five independent answers: order status, shipment
+status/carrier/tracking, return status/reason, account authorization, missing
+records, compound order/product questions, topic switches, and order/return action
+refusals. The scenario registry is `tests/fixtures/judge/live-support-scenarios.json`.
+Its fixed database anchors are checked against actual authorized context before
+inference. Acceptable and defective controls verify the offline response checks;
+they are not human truth labels for generated answers.
+
+```sh
+OPENROUTER_JUDGE_MAX_TOKENS=16384 npm run test:model -- tests/model/expanded-support-sampling.test.ts
+```
+
+The filtered command makes 45 generator calls. Running all live tests also retains
+the existing case-pack and comparison batches (55 sampled answers total), plus
+other existing model tests. Generation settings, reasoning, model IDs and judge
+retry policy are unchanged. Each batch uses identical production requests with
+full history, temperature 0.35, top_p 0.9, max_tokens 600, no seed, and no streaming.
+No failed generator sample is retried or replaced. The parser requires all five
+samples, their summary, original request history, and independent authorized
+context anchors. A failed executed scenario without complete evidence fails closed.
+
+GLM assesses the original answer against the current question and exact request
+records plus read-only permissions. Reports retain source request, reference,
+answer and structured assessment. Generator failures are not sent to the judge.
+Application failures, generator execution errors, judge execution errors and
+judge/application disagreements have separate counts. Application failures remain
+failures even if GLM accepts the answer. Execution success does not imply factual
+success. Judge agreement remains advisory, with disagreements requiring inspection.
+
+This suite covers context construction and raw production model responses.
+Separate application integration tests exercise HTTP-route postprocessing.
+Regex response checks cover known facts and refusals rather than every possible
+semantic defect; GLM adds claim/completeness/quality inspection. Neither replaces
+human review. Selected batches determine expected coverage for filtered runs.
+This is live application sampling, not an independently frozen judge benchmark.
+
+Reporting changes intentionally invalidate the original qualification-v3 source
+freeze. Its fixture, review sheet, approvals and results are unchanged; reproduce
+those results only from the original frozen snapshot, rather than refreezing
+exposed cases to approve new code.
+
+The first generator stage completed with 45 application passes, zero failures and
+zero generation errors. [All actual answers and references](live-support-sampling-results.md)
+are available for review, along with all completed GLM assessments and HTTP
+evidence. Final judge result: **RED — 43 passed, 1 rejected, 1 execution error**.
+All 45 samples were processed; 44 received verdicts. The authorization-scope
+refusal was accepted on facts and quality but rejected for unavailable status
+and total fields. One order-action assessment failed with an incomplete HTTP
+response. There were no 429s or retries; current retry policy covers 429 only.
+The original run remains unchanged. The subsequent focused correction check
+is documented below.
+
+### Revision 14: unavailable-record completeness and partial-response retries
+
+The first expanded run exposed a gap in the completeness guidance: it explicitly
+covered forbidden actions, but did not explain how a scoped no-record response
+addresses requested information. Revision 14 marks each requested field of that
+explicitly unavailable record as refused, while retaining independent requirements
+for other available records. Advice without an unavailability statement is still
+incomplete, and false unavailability still fails factual support. Expected labels
+are not included in judge requests.
+
+The HTTP 200 `IncompleteRead` arose while reading a chunked response. Its original
+report had the HTTP status and error but no partial body. The adapter now preserves
+bounded, redacted partial bytes and detects short Content-Length responses before
+parsing or accepting a verdict. Only incomplete HTTP 200 bodies gain retries;
+they share the existing three-retry budget with 429s. Failed requests close before
+bounded backoff. Exhaustion is an execution failure, never a passing verdict.
+Summaries separately count incomplete attempts, recovered incomplete requests
+and unresolved incomplete requests. Non-success partial bodies, timeouts, schema
+failures, malformed JSON, upstream errors and incomplete model verdicts do not
+receive this retry treatment.
+
+Seven `record-access` calibration controls use the existing structured judge and
+reporting pipeline. They include both original problematic answers and negative
+controls that prevent unavailable-record refusals from excusing invented values
+or omitted available stock. This is a focused correction check, not qualification
+or a replacement of the preserved red 45-sample run. No generator answers are
+regenerated. The approved revision-13 freeze and review remain unchanged; current
+revision 14 intentionally fails their source/settings checks.
+
+Offline verification: 322 application tests and 216 Python tests passed; lint,
+formatting, types, seed validation and production build passed. The partial-body
+regressions were observed failing before implementation.
+
+Focused live verification completed: **GREEN — 7 checks passed, 0 failed,
+0 execution errors**, with zero overall or dimension disagreements. Four valid
+answers were accepted; three defective controls were rejected. The exact original
+scope refusal and the original answer affected by an incomplete HTTP response
+both received passing verdicts. All seven planned samples were processed, using
+two workers and seven HTTP attempts with no retries, rate limits or incomplete
+responses. Live transport recovery was not needed; offline HTTPResponse tests
+verify it and exhaustion of the shared budget. [Every actual assessment and HTTP
+record is preserved here](record-access-correction-results.md).
+
+This scoped check supports the correction; it does not regrade the entire original
+45-answer set or qualify revision 14 as an automated gate. Its labels are authored
+calibration controls rather than independent human approval. The original red run
+and the previously reviewed frozen benchmark remain unchanged. PR #7 is ready
+for code review.

@@ -22,7 +22,7 @@ def frozen_root(tmp_path):
     # The approved production revision-8 freeze remains unchanged after tuning.
     freeze_path = tmp_path / review_gate.FREEZE
     freeze = json.loads(freeze_path.read_text())
-    freeze['gradingRevision'] = 13
+    freeze['gradingRevision'] = 14
     freeze['model'], freeze['generation'] = judge_metadata()
     freeze['sha256'] = {name: review_gate.digest(tmp_path / name) for name in review_gate.LOCK_FILES}
     freeze_path.write_text(json.dumps(freeze))
@@ -142,7 +142,7 @@ def test_reviewed_run_withholds_labels_and_reports_every_dimension(monkeypatch, 
     assert report['coverage']['expectedSamples'] == report['coverage']['processedSamples'] == 32
     assert len(report['coverage']['processedScenarios']) == 16
     assert report['benchmarkFreeze']['independentReview'] == approved
-    assert report['policy']['gradingRevision'] == 13
+    assert report['policy']['gradingRevision'] == 14
     assert report['summary']['overall']['falseAcceptances'] == report['summary']['overall']['falseRejections'] == 0
     assert report['summary']['overall']['dimensionDisagreements']['taskCompleteness'] == int(wrong_dimension)
     assert report['policy']['mode'] == 'advisory'

@@ -11,7 +11,7 @@ import time
 
 from openrouter_judge import ROOT, judge_metadata, RETRY_POLICY, summarize_requests
 from benchmark_review import validate_qualification
-from support_grading import ANSWER_RULES, CLAIM_RULES, judge_answer, judge_claims, judge_direct_claim, EXTRACTION_RULES, assess_claim_coverage
+from support_grading import GRADING_REVISION, ANSWER_RULES, CLAIM_RULES, judge_answer, judge_claims, judge_direct_claim, EXTRACTION_RULES, assess_claim_coverage
 
 
 def main():
@@ -26,11 +26,11 @@ def main():
     if type(concurrency) is not int or not 1 <= concurrency <= 4:
         raise ValueError("Judge concurrency must be an integer from 1 to 4")
     suite = payload.get("suite", "legacy")
-    if suite not in ("legacy", "coverage", "benchmark", "claims", "extraction", "qualification", "qualification-v2", "qualification-v3", "calibration", "calibration-v2", "quality"):
+    if suite not in ("legacy", "coverage", "benchmark", "claims", "extraction", "qualification", "qualification-v2", "qualification-v3", "calibration", "calibration-v2", "quality", "record-access"):
         raise ValueError("Unknown judge suite")
     if suite != "legacy" and (mode != "validation" or payload.get("validationSet", "all") != "all"):
         raise ValueError("Expanded suites require normal validation mode")
-    suite_path = ROOT / "tests/fixtures/judge" / ({"qualification-v3": "qualification-v3.json", "qualification-v2": "qualification-v2.json", "calibration-v2": "qualification-v2.json", "qualification": "qualification-v1.json", "calibration": "qualification-v1.json", "quality": "quality-controls-v1.json", "coverage": "coverage-v3.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "extraction-controls-v1.json"}.get(suite, "coverage.json"))
+    suite_path = ROOT / "tests/fixtures/judge" / ({"qualification-v3": "qualification-v3.json", "qualification-v2": "qualification-v2.json", "calibration-v2": "qualification-v2.json", "qualification": "qualification-v1.json", "calibration": "qualification-v1.json", "quality": "quality-controls-v1.json", "record-access": "record-access-controls-v1.json", "coverage": "coverage-v3.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "extraction-controls-v1.json"}.get(suite, "coverage.json"))
     suite_fixture = json.loads(suite_path.read_text()) if suite != "legacy" else None
     freeze = None
     if suite == "benchmark":
@@ -51,7 +51,9 @@ def main():
     holdout = json.loads(holdout_path.read_text()) if labeled else None
     direct_path = ROOT / "tests/fixtures/judge/direct-claims.json"
     direct = json.loads(direct_path.read_text()) if mode == "direct-claim-pilot" else None
-    if mode == "transcript" and set(payload.get("batches", {})) - {"case-pack", "comparison"}:
+    live_path = ROOT / "tests/fixtures/judge/live-support-scenarios.json"
+    live_scenarios = {row["id"]: row for row in json.loads(live_path.read_text())["scenarios"]} if mode == "transcript" else {}
+    if mode == "transcript" and set(payload.get("batches", {})) - {"case-pack", "comparison", *live_scenarios}:
         raise ValueError("Transcript contains unsupported scenarios")
     if suite_fixture:
         ids = [row["id"] for row in suite_fixture["scenarios"]]
@@ -67,14 +69,19 @@ def main():
                     assess_claim_coverage(row["text"], row.get("expectedClaims"), row.get("expectedClaims", []))
     planned = []
     scenarios = {row["id"]: row for row in suite_fixture["scenarios"]} if suite_fixture else {"case-pack": None, "comparison": None}
+    if mode == "transcript":
+        scenarios.update({name: None for name in live_scenarios if name in payload.get("batches", {})})
     for scenario, authored in scenarios.items():
         if pilot and scenario != "case-pack":
             continue
-        fixture_path = suite_path if authored else ROOT / f"tests/fixtures/judge/{scenario}.json"
-        fixture = {"question": authored["question"], "references": [authored["reference"]], "examples": authored["examples"]} if authored else json.loads(fixture_path.read_text())
+        live = live_scenarios.get(scenario)
         batch = payload.get("batches", {}).get(scenario)
         if mode == "transcript" and batch is None:
             continue
+        fixture_path = live_path if live else suite_path if authored else ROOT / f"tests/fixtures/judge/{scenario}.json"
+        fixture = {"question": authored["question"], "references": [authored["reference"]], "examples": authored["examples"]} if authored else {"question": live["messages"][-1]["content"], "references": [batch.get("reference")]} if live else json.loads(fixture_path.read_text())
+        if live and (not isinstance(fixture["references"][0], str) or not fixture["references"][0].strip()):
+            raise ValueError("Live scenario requires its captured authorized reference")
         if authored:
             rows = fixture["examples"]
         elif mode == "direct-claim-pilot":
@@ -119,7 +126,7 @@ def main():
                    "claimVerification": "one-at-a-time" if claim_diagnostic else None,
                    "strictMode": True, "penalizeAmbiguousClaims": True if claim_diagnostic else None,
                    "evaluationSteps": None,
-                   "gradingRevision": 3 if claim_diagnostic else 13,
+                   "gradingRevision": 3 if claim_diagnostic else GRADING_REVISION,
                    "extractionRevision": 1 if suite == "extraction" or mode == "claims-pilot" else None,
                    "extractionRules": EXTRACTION_RULES if suite == "extraction" or mode == "claims-pilot" else None,
                    "assessmentRules": CLAIM_RULES if claim_diagnostic else ANSWER_RULES},
@@ -141,7 +148,9 @@ def main():
         answer = row["text"] if labeled else row["answer"]
         result = {
             "scenario": scenario, "id": row.get("id", row.get("sample")),
-            "answer": answer, "fixtureSha256": hashlib.sha256(fixture_path.read_bytes()).hexdigest(),
+            "answer": answer, "reference": fixture["references"][0],
+            "sourceRequest": payload.get("batches", {}).get(scenario, {}).get("request") if mode == "transcript" else None,
+            "fixtureSha256": hashlib.sha256(fixture_path.read_bytes()).hexdigest(),
             "expectedPassed": row.get("correct") if labeled else None,
             "expectedVerdict": row.get("expectedVerdict") if mode == "direct-claim-pilot" or suite == "claims" else None,
             "expectedClaims": row.get("expectedClaims") if suite == "extraction" else None,
@@ -152,8 +161,12 @@ def main():
             "failure": row.get("failure"),
         }
         try:
+            if not labeled and (row.get("failure") or {}).get("phase") in ("inference", "response-format"):
+                result["executionPhase"] = "generator"
+                raise RuntimeError("Generator did not produce a usable answer: " + row["failure"]["error"])
             result.update(judge(fixture["question"], answer, fixture["references"][0]))
             result["agrees"] = result["passed"] == row["correct"] if labeled else None
+            result["judgeApplicationAgrees"] = result["passed"] == row["passed"] if not labeled else None
             if suite == "extraction":
                 result["supportAgrees"] = result["agrees"]
                 result["claimCoverage"] = assess_claim_coverage(answer, row["expectedClaims"], result["claims"])
@@ -164,6 +177,7 @@ def main():
             if mode == "direct-claim-pilot" or suite == "claims":
                 result["agrees"] = result["agrees"] and result["verdicts"][0]["verdict"] == row["expectedVerdict"]
         except Exception as error:
+            result.setdefault("executionPhase", "judge")
             result["error"] = f"{type(error).__name__}: {error}"
             result["calls"] = getattr(error, "judge_calls", [])
         result["seconds"] = round(time.monotonic() - started, 2)
@@ -192,6 +206,10 @@ def main():
     def summarize(rows):
         completed = [row for row in rows if "error" not in row]
         return {**summarize_requests(rows), "samples": len(rows), "executionErrors": len(rows) - len(completed),
+                "applicationFailures": sum(row.get("factualPassed") is False and row.get("executionPhase") != "generator" for row in rows),
+                "judgeApplicationDisagreements": sum(row.get("judgeApplicationAgrees") is False for row in completed),
+                "generatorExecutionErrors": sum(row.get("executionPhase") == "generator" for row in rows),
+                "judgeExecutionErrors": sum(row.get("executionPhase") == "judge" for row in rows),
                 "falseAcceptances": sum(row.get("expectedPassed") is False and row.get("passed") is True for row in completed),
                 "falseRejections": sum(row.get("expectedPassed") is True and row.get("passed") is False for row in completed),
                 "labelDisagreements": sum(row.get("agrees") is False for row in completed),
@@ -213,6 +231,7 @@ def main():
                          "byScenario": {scenario: summarize([row for row in results if row["scenario"] == scenario])
                                         for scenario in report["coverage"]["expectedScenarios"]}}
     report["executionSuccessful"] = len(results) == report["coverage"]["expectedSamples"] and not report["summary"]["overall"]["executionErrors"]
+    report["judgeApplicationAgreementSuccessful"] = all(row.get("judgeApplicationAgrees") is True for row in results) if not labeled else None
     report["factualSuccessful"] = all(row["factualPassed"] is True for row in results) if not labeled else None
     report["labelAgreementSuccessful"] = all(row.get("agrees") is True for row in results) if labeled else None
     report["extractionSuccessful"] = all(row.get("claimCoverage", {}).get("passed") is True for row in results) if suite == "extraction" else None
@@ -227,6 +246,9 @@ def main():
     print(f"Judge HTTP attempts: {summary['requestAttempts']}; retries: {summary['retryAttempts']}; "
           f"rate-limited requests recovered: {summary['recoveredRateLimitedRequests']}; "
           f"unresolved: {summary['unresolvedRateLimitedRequests']}")
+    print(f"Judge incomplete responses: {summary['incompleteResponseAttempts']}; "
+          f"recovered requests: {summary['recoveredIncompleteResponseRequests']}; "
+          f"unresolved: {summary['unresolvedIncompleteResponseRequests']}")
     print(f"Judge report: {destination}")
     # Live judge verdicts are advisory; harness errors and factual failures are not.
     return 0 if report["successful"] else 1
