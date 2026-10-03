@@ -72,9 +72,9 @@ def candidate_root(tmp_path):
     freeze = json.loads(freeze_path.read_text())
     fixture_path = tmp_path / gate.V3_FIXTURE
     fixture = json.loads(fixture_path.read_text())
-    fixture["gradingRevision"] = 14
+    fixture["gradingRevision"] = gate.GRADING_REVISION
     fixture_path.write_text(json.dumps(fixture))
-    freeze["gradingRevision"] = 14
+    freeze["gradingRevision"] = gate.GRADING_REVISION
     freeze["retryPolicy"] = RETRY_POLICY
     freeze["sha256"] = {name: gate.digest(tmp_path / name) for name in gate.V3_LOCK_FILES}
     freeze_path.write_text(json.dumps(freeze))
@@ -162,7 +162,7 @@ def test_v3_approved_routing_withholds_labels_and_preserves_retry_evidence(monke
     report = json.loads(output.read_text())
     assert sorted(seen) == sorted(expected)
     assert report["suite"] == "qualification-v3"
-    assert report["policy"]["gradingRevision"] == 14
+    assert report["policy"]["gradingRevision"] == gate.GRADING_REVISION
     assert report["benchmarkFreeze"]["independentReview"]["reviewer"] == "Fictional offline reviewer"
     assert report["coverage"]["processedSamples"] == 40
     assert report["summary"]["overall"]["requestAttempts"] == 80

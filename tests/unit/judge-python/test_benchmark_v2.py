@@ -23,7 +23,7 @@ def candidate_root(tmp_path):
     # reviewed revision-12 freeze remains unchanged after the topic correction.
     freeze_path = tmp_path / gate.V2_FREEZE
     freeze = json.loads(freeze_path.read_text())
-    freeze['gradingRevision'] = 14
+    freeze['gradingRevision'] = gate.GRADING_REVISION
     freeze['model'], freeze['generation'] = judge_metadata()
     freeze['sha256'] = {name: gate.digest(tmp_path / name) for name in gate.V2_LOCK_FILES}
     freeze_path.write_text(json.dumps(freeze))
@@ -128,7 +128,7 @@ def test_v2_withholds_labels_and_separates_failures(monkeypatch, candidate_root,
     assert report['benchmarkFreeze']['independentReview'] == approval
     assert report['suite'] == 'qualification-v2'
     assert report['concurrency'] == 2
-    assert report['policy']['gradingRevision'] == 14
+    assert report['policy']['gradingRevision'] == gate.GRADING_REVISION
     assert report['policy']['mode'] == 'advisory'
     summary = report['summary']['overall']
     assert summary['executionErrors'] == int(fault == 'upstream')

@@ -15,17 +15,18 @@ for models, provider routing, and environment settings.
 
 ## Commands
 
-| Command                                                           | Runs                                                        |
-| ----------------------------------------------------------------- | ----------------------------------------------------------- |
-| `npm run check`                                                   | Standard offline application and Python checks, plus build  |
-| `npm run test:model`                                              | Live chatbot tests, followed by judging of retained samples |
-| `npm run test:judge`                                              | Original 30-case calibration                                |
-| `npm run test:judge -- --suite coverage`                          | Support, injection, and completeness controls               |
-| `npm run test:judge -- --suite quality`                           | Factual-error and answer-quality boundaries                 |
-| `npm run test:judge -- --suite record-access --concurrency 2`     | Unavailable-record and compound-request controls            |
-| `npm run test:judge -- --suite claims`                            | Direct claim verification                                   |
-| `npm run test:judge -- --suite extraction`                        | Claim extraction coverage and truth checks                  |
-| `npm run test:judge -- --transcript reports/model-runs/<run>.log` | Judge saved samples without regenerating answers            |
+| Command                                                           | Runs                                                         |
+| ----------------------------------------------------------------- | ------------------------------------------------------------ |
+| `npm run check`                                                   | Standard offline application and Python checks, plus build   |
+| `npm run test:model`                                              | Live chatbot tests, followed by judging of retained samples  |
+| `npm run test:judge`                                              | Original 30-case calibration                                 |
+| `npm run test:judge -- --suite coverage`                          | Support, injection, and completeness controls                |
+| `npm run test:judge -- --suite quality`                           | Factual-error and answer-quality boundaries                  |
+| `npm run test:judge -- --suite record-access --concurrency 2`     | Unavailable-record and compound-request controls             |
+| `npm run test:judge -- --suite record-access-v2 --concurrency 2`  | Apostrophe handling and account-disclosure correction checks |
+| `npm run test:judge -- --suite claims`                            | Direct claim verification                                    |
+| `npm run test:judge -- --suite extraction`                        | Claim extraction coverage and truth checks                   |
+| `npm run test:judge -- --transcript reports/model-runs/<run>.log` | Judge saved samples without regenerating answers             |
 
 Select live test files through the model launcher:
 
@@ -54,7 +55,12 @@ The structured judge assesses three dimensions independently:
   no-record response covers unavailable fields of that record; separately
   available information is still required.
 - **Answer quality:** check evaluator manipulation, off-topic text, unauthorized
-  actions, foreign-account disclosure, and invented internal resources.
+  actions, foreign-account disclosure, and invented internal resources. A missing
+  record alone does not establish foreign ownership or disclosure.
+
+Quoted claims must match the original answer. A straight/curly apostrophe
+substitution is recovered to the exact source spelling only when unambiguous;
+other changed characters remain errors. Raw responses retain the judge's text.
 
 An answer passes only when all three dimensions pass. Claim diagnostics check
 truth and extraction coverage separately; they do not establish answer completeness.

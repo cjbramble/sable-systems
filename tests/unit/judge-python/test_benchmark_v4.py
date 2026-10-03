@@ -46,11 +46,23 @@ def approved_root(tmp_path):
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(evaluation.ROOT / name, target)
+    # A fictional current-code freeze only in this temporary directory. Keep
+    # the actual exposed revision-14 benchmark and human approval unchanged.
+    fixture_path = tmp_path / gate.V4_FIXTURE
+    fixture = json.loads(fixture_path.read_text())
+    fixture['gradingRevision'] = gate.GRADING_REVISION
+    fixture_path.write_text(json.dumps(fixture))
+    freeze_path = tmp_path / gate.V4_FREEZE
+    freeze = json.loads(freeze_path.read_text())
+    freeze['gradingRevision'] = gate.GRADING_REVISION
+    freeze['sha256'] = {name: gate.digest(tmp_path / name) for name in gate.V4_LOCK_FILES}
+    freeze_path.write_text(json.dumps(freeze))
     review_path = tmp_path / gate.V4_REVIEW
     review = json.loads(review_path.read_text())
     review.update(decision='approved', reviewer='Fictional offline reviewer',
                   reviewedAt='2026-10-03T00:00:00+00:00', independentHumanReview=True,
-                  reviewedBeforeLiveExposure=True)
+                  reviewedBeforeLiveExposure=True, fixtureSha256=gate.digest(fixture_path),
+                  freezeSha256=gate.digest(freeze_path))
     review_path.write_text(json.dumps(review))
     return tmp_path
 
@@ -103,7 +115,7 @@ def test_approved_benchmark_routes_only_unlabeled_inputs_and_keeps_all_results(m
     assert sorted(seen) == sorted(expected)
     assert len(seen) == len(report['results']) == 40
     assert report['suite'] == 'qualification-v4'
-    assert report['policy']['gradingRevision'] == 14
+    assert report['policy']['gradingRevision'] == gate.GRADING_REVISION
     assert report['benchmarkFreeze']['manifest']['retryPolicy'] == RETRY_POLICY
     assert report['coverage']['expectedSamples'] == report['coverage']['processedSamples'] == 40
     assert report['summary']['overall']['labelDisagreements'] == 0
@@ -123,9 +135,15 @@ def test_new_cases_are_distinct_from_previous_answers_and_consistently_labeled()
                and r['correct'] is all(r['expectedDimensions'].values()) for r in answers)
     previous = set()
     for path in (root / 'tests/fixtures/judge').glob('*.json'):
-        if path == root / gate.V4_FIXTURE:
+        # Later exposed correction controls intentionally reuse failed cases.
+        if path in (root / gate.V4_FIXTURE, root / 'tests/fixtures/judge/record-access-controls-v2.json'):
             continue
         scenarios = json.loads(path.read_text()).get('scenarios', [])
         if isinstance(scenarios, list):
             previous.update(r['text'] for s in scenarios for r in s.get('examples', []) if 'text' in r)
     assert not previous.intersection(r['text'] for r in answers)
+
+
+def test_revision14_approval_cannot_authorize_corrected_judge():
+    with pytest.raises(ValueError, match='Qualification freeze mismatch'):
+        gate.validate_qualification(evaluation.ROOT, *judge_metadata(), 2, version=4)
