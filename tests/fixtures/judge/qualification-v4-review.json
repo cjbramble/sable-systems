@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "decision": "pending",
+  "reviewer": null,
+  "reviewedAt": null,
+  "independentHumanReview": false,
+  "reviewedBeforeLiveExposure": false,
+  "fixtureSha256": "ce09bd30a7b2c04e482984f0d79e8720f43f34957389b038dba70aac24302178",
+  "freezeSha256": "d694311807a65df481503a0d7b7950f829cb7d996fd53df31d6464031f4f25d2",
+  "notes": "Human review of all questions, references, proposed answers, dimension labels, rationales and the three-run plan is pending. No live calls have been made on these cases. Actual model explanations require separate review after the runs."
+}
