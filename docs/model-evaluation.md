@@ -85,6 +85,8 @@ rejects those old freezes before calls; reproducing them requires their original
 snapshot. Never refreeze exposed cases to approve a changed judge. A new gate
 requires independently reviewed, untouched cases and review of actual judgments.
 
+The current candidate is `qualification-v4`. Review [its cases and three-run plan](../reports/deepeval-benchmark-v4-review.md) before running it. The command is `OPENROUTER_JUDGE_MAX_TOKENS=16384 npm run test:judge -- --suite qualification-v4 --concurrency 2`; it refuses to run while human approval is pending.
+
 ## Reports
 
 - Live transcripts: `reports/model-runs/`

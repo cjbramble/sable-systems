@@ -17,6 +17,7 @@ and interpretation, use [the evaluation guide](../docs/model-evaluation.md).
 
 ## Review records
 
+- [Final benchmark review sheet](deepeval-benchmark-v4-review.md)
 - [Revision-13 review sheet](deepeval-benchmark-v3-review.md)
 - [Revision-12 review sheet](deepeval-benchmark-v2-review.md)
 - [Original structured benchmark review sheet](deepeval-benchmark-review.md)

@@ -26,11 +26,11 @@ def main():
     if type(concurrency) is not int or not 1 <= concurrency <= 4:
         raise ValueError("Judge concurrency must be an integer from 1 to 4")
     suite = payload.get("suite", "legacy")
-    if suite not in ("legacy", "coverage", "benchmark", "claims", "extraction", "qualification", "qualification-v2", "qualification-v3", "calibration", "calibration-v2", "quality", "record-access"):
+    if suite not in ("legacy", "coverage", "benchmark", "claims", "extraction", "qualification", "qualification-v2", "qualification-v3", "qualification-v4", "calibration", "calibration-v2", "quality", "record-access"):
         raise ValueError("Unknown judge suite")
     if suite != "legacy" and (mode != "validation" or payload.get("validationSet", "all") != "all"):
         raise ValueError("Expanded suites require normal validation mode")
-    suite_path = ROOT / "tests/fixtures/judge" / ({"qualification-v3": "qualification-v3.json", "qualification-v2": "qualification-v2.json", "calibration-v2": "qualification-v2.json", "qualification": "qualification-v1.json", "calibration": "qualification-v1.json", "quality": "quality-controls-v1.json", "record-access": "record-access-controls-v1.json", "coverage": "coverage-v3.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "extraction-controls-v1.json"}.get(suite, "coverage.json"))
+    suite_path = ROOT / "tests/fixtures/judge" / ({"qualification-v4": "qualification-v4.json", "qualification-v3": "qualification-v3.json", "qualification-v2": "qualification-v2.json", "calibration-v2": "qualification-v2.json", "qualification": "qualification-v1.json", "calibration": "qualification-v1.json", "quality": "quality-controls-v1.json", "record-access": "record-access-controls-v1.json", "coverage": "coverage-v3.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "extraction-controls-v1.json"}.get(suite, "coverage.json"))
     suite_fixture = json.loads(suite_path.read_text()) if suite != "legacy" else None
     freeze = None
     if suite == "benchmark":
@@ -106,9 +106,9 @@ def main():
     if not planned:
         raise ValueError("No scenarios selected")
     model_metadata, generation = judge_metadata()
-    if suite in ("qualification", "qualification-v2", "qualification-v3"):
+    if suite in ("qualification", "qualification-v2", "qualification-v3", "qualification-v4"):
         freeze = validate_qualification(ROOT, model_metadata, generation, concurrency,
-                                        version={"qualification": 1, "qualification-v2": 2, "qualification-v3": 3}[suite])
+                                        version={"qualification": 1, "qualification-v2": 2, "qualification-v3": 3, "qualification-v4": 4}[suite])
     report = {
         "schemaVersion": 4, "mode": mode, "model": model_metadata,
         "concurrency": concurrency,
