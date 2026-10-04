@@ -310,6 +310,48 @@ def test_cosmetic_quote_wrappers_preserve_exact_source(quote):
     assert grading.trace_answer_quote('312 units available.', quote) == '312 units available'
 
 
+@pytest.mark.parametrize('answer,quote', [
+    ('I cannot locate NW-ORD-7429 within Northwater Supply’s account scope.',
+     "I cannot locate NW-ORD-7429 within Northwater Supply's account scope."),
+    ('Please verify NW-ORD-7642’s identifier.', "Please verify NW-ORD-7642's identifier."),
+    ("The order's total is $640.", 'The order’s total is $640.'),
+    ('The order’s total is $640.', '"The order\'s total is $640."'),
+])
+def test_typographic_apostrophes_return_exact_original_source(answer, quote):
+    assert grading.trace_answer_quote(answer, quote) == answer
+
+
+@pytest.mark.parametrize('quote', [
+    "The order's total is $641.", "The order's total is $64.",
+    "The order's total is not $640.", "Another order's total is $640.",
+    "The order's total is  $640.", "The order's total is $640!",
+])
+def test_apostrophe_recovery_cannot_change_other_source_characters(quote):
+    with pytest.raises(ValueError, match='quote the answer'):
+        grading.trace_answer_quote('The order’s total is $640.', quote)
+
+
+def test_apostrophe_recovery_rejects_ambiguous_original_spelling():
+    with pytest.raises(ValueError, match='quote the answer'):
+        grading.trace_answer_quote("One’s order's total is $640. One's order’s total is $640.",
+                                   "One's order's total is $640.")
+
+
+def test_apostrophe_recovery_rejects_overlapping_ambiguous_source_spans():
+    with pytest.raises(ValueError, match='quote the answer'):
+        grading.trace_answer_quote("Northwater’s Northwater's Northwater’s",
+                                   "Northwater's Northwater's")
+
+
+def test_judge_returns_original_apostrophes_without_changing_verdict(scripted):
+    answer = 'Please verify NW-ORD-7642’s identifier.'
+    raw = "Please verify NW-ORD-7642's identifier."
+    scripted.append(assessment(facts=[{'claim': raw, 'verdict': 'not_applicable', 'reason': 'Advice.'}], complete=False))
+    result = grading.judge_answer('Give status and total.', answer, 'No accessible order.')
+    assert result['assessment']['facts'][0]['claim'] == answer
+    assert result['dimensions'] == {'factualSupport': True, 'taskCompleteness': False, 'answerQuality': True}
+
+
 @pytest.mark.parametrize('quote', ['"320 units available"', '"Partial packs are permitted"'])
 def test_quote_wrappers_cannot_hide_changed_numbers_or_negation(quote):
     with pytest.raises(ValueError, match='quote the answer'):

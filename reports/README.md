@@ -7,6 +7,8 @@ and interpretation, use [the evaluation guide](../docs/model-evaluation.md).
 
 ## Results
 
+- [Apostrophe and account-disclosure corrections](apostrophe-disclosure-correction-results.md)
+- [Final revision-14 benchmark](deepeval-benchmark-v4-results.md)
 - [Full 45-answer recheck](full-support-recheck-results.md)
 - [Expanded live support sampling](live-support-sampling-results.md)
 - [Unavailable-record correction](record-access-correction-results.md)
@@ -17,6 +19,7 @@ and interpretation, use [the evaluation guide](../docs/model-evaluation.md).
 
 ## Review records
 
+- [Final benchmark review sheet](deepeval-benchmark-v4-review.md)
 - [Revision-13 review sheet](deepeval-benchmark-v3-review.md)
 - [Revision-12 review sheet](deepeval-benchmark-v2-review.md)
 - [Original structured benchmark review sheet](deepeval-benchmark-review.md)
