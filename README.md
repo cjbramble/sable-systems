@@ -30,6 +30,8 @@ Install dependencies from the repository root:
 npm ci
 ```
 
+Run `npm ci` again after pulling changes to `package-lock.json`.
+
 Create the ignored local environment file if it is missing:
 
 ```sh
