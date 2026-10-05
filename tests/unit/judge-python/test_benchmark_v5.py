@@ -55,6 +55,7 @@ def approved_root(tmp_path):
     freeze_path = tmp_path / gate.V5_FREEZE
     freeze = json.loads(freeze_path.read_text())
     freeze['gradingRevision'] = gate.GRADING_REVISION
+    freeze['model'], freeze['generation'] = judge_metadata()
     freeze['sha256'] = {name: gate.digest(tmp_path / name) for name in gate.V5_LOCK_FILES}
     freeze_path.write_text(json.dumps(freeze))
     review_path = tmp_path / gate.V5_REVIEW
@@ -136,7 +137,8 @@ def test_new_cases_are_distinct_from_previous_answers_and_consistently_labeled()
     previous = set()
     for path in (root / 'tests/fixtures/judge').glob('*.json'):
         # Later exposed correction controls intentionally reuse failed cases.
-        if path in (root / gate.V5_FIXTURE, root / 'tests/fixtures/judge/record-access-controls-v2.json'):
+        if path in (root / gate.V5_FIXTURE, root / 'tests/fixtures/judge/record-access-controls-v2.json',
+                    root / 'tests/fixtures/judge/output-budget-controls-v1.json'):
             continue
         scenarios = json.loads(path.read_text()).get('scenarios', [])
         if isinstance(scenarios, list):
@@ -154,8 +156,7 @@ def test_current_review_record_matches_frozen_candidate():
     assert review['freezeSha256'] == gate.digest(root / gate.V5_FREEZE)
     assert freeze['gradingRevision'] == 15
     assert freeze['retryPolicy'] == RETRY_POLICY
-    if review['decision'] == 'pending':
-        with pytest.raises(ValueError, match='Independent human review is pending'):
-            gate.validate_qualification(root, *judge_metadata(), 2, version=5)
-    else:
-        assert gate.validate_qualification(root, *judge_metadata(), 2, version=5)['independentReview'] == review
+    # The source and reasoning settings changed after this completed benchmark.
+    # Historical human approval must not authorize the changed adapter.
+    with pytest.raises(ValueError, match='Qualification freeze mismatch'):
+        gate.validate_qualification(root, *judge_metadata(), 2, version=5)

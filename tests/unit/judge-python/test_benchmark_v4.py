@@ -55,6 +55,7 @@ def approved_root(tmp_path):
     freeze_path = tmp_path / gate.V4_FREEZE
     freeze = json.loads(freeze_path.read_text())
     freeze['gradingRevision'] = gate.GRADING_REVISION
+    freeze['model'], freeze['generation'] = judge_metadata()
     freeze['sha256'] = {name: gate.digest(tmp_path / name) for name in gate.V4_LOCK_FILES}
     freeze_path.write_text(json.dumps(freeze))
     review_path = tmp_path / gate.V4_REVIEW

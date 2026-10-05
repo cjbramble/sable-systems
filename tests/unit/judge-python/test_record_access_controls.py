@@ -10,6 +10,7 @@ import evaluate_support as evaluation
 @pytest.mark.parametrize('suite,filename,count', [
     ('record-access', 'record-access-controls-v1.json', 7),
     ('record-access-v2', 'record-access-controls-v2.json', 8),
+    ('output-budget', 'output-budget-controls-v1.json', 8),
 ])
 def test_record_access_controls_withhold_labels_and_report_all_dimensions(monkeypatch, tmp_path, suite, filename, count):
     path = evaluation.ROOT / 'tests/fixtures/judge' / filename
