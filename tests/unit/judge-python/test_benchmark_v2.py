@@ -18,7 +18,7 @@ def candidate_root(tmp_path):
                  gate.REVIEW, 'tests/fixtures/judge/holdout.json'):
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(gate.frozen_bytes(evaluation.ROOT, name))
+        path.write_bytes(b'Offline test review evidence\n' if name in (gate.SHEET, gate.V2_SHEET, gate.V3_SHEET, gate.V4_SHEET, gate.V5_SHEET) else gate.frozen_bytes(evaluation.ROOT, name))
     # Fictional current-code freeze only in the temporary test root. The actual
     # reviewed revision-12 freeze remains unchanged after the topic correction.
     freeze_path = tmp_path / gate.V2_FREEZE

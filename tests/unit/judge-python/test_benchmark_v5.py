@@ -45,7 +45,7 @@ def approved_root(tmp_path):
     for name in (*gate.V5_LOCK_FILES, gate.V5_FREEZE, gate.V5_REVIEW, 'tests/fixtures/judge/holdout.json'):
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(gate.frozen_bytes(evaluation.ROOT, name))
+        target.write_bytes(b'Offline test review evidence\n' if name in (gate.SHEET, gate.V2_SHEET, gate.V3_SHEET, gate.V4_SHEET, gate.V5_SHEET) else gate.frozen_bytes(evaluation.ROOT, name))
     # A fictional current-code freeze only in this temporary directory. Keep
     # the actual benchmark and human review record unchanged.
     fixture_path = tmp_path / gate.V5_FIXTURE

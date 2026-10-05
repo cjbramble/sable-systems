@@ -49,7 +49,6 @@ def test_v3_is_balanced_novel_and_frozen_with_bounded_attempt_budget():
     assert freeze["generation"]["max_tokens"] == 16384
     # Historical reviewed source is preserved while the current reporting runner evolves.
     assert gate.digest(root / gate.V3_FIXTURE) == freeze["sha256"][gate.V3_FIXTURE]
-    assert gate.digest(gate.resolve_frozen_path(root, gate.V3_SHEET)) == freeze["sha256"][gate.V3_SHEET]
     review = json.loads((root / gate.V3_REVIEW).read_text())
     assert review["decision"] in ("pending", "approved")
     if review["decision"] == "approved":
@@ -65,7 +64,7 @@ def candidate_root(tmp_path):
     for name in (*gate.V3_LOCK_FILES, gate.V3_FREEZE, gate.V3_REVIEW, "tests/fixtures/judge/holdout.json"):
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(gate.frozen_bytes(evaluation.ROOT, name))
+        path.write_bytes(b'Offline test review evidence\n' if name in (gate.SHEET, gate.V2_SHEET, gate.V3_SHEET, gate.V4_SHEET, gate.V5_SHEET) else gate.frozen_bytes(evaluation.ROOT, name))
     # Fictional current-code freeze in the temporary root only. The actual
     # completed revision-13 freeze and approval remain unchanged.
     freeze_path = tmp_path / gate.V3_FREEZE

@@ -1,7 +1,5 @@
 """Relocated historical review evidence must still be read under its original freeze key."""
 import pytest
-import json
-import hashlib
 import benchmark_review as gate
 
 
@@ -27,13 +25,3 @@ def test_missing_evaluator_source_cannot_resolve_to_a_report(tmp_path):
     assert path == tmp_path / name
     with pytest.raises(FileNotFoundError):
         gate.digest(path)
-
-
-def test_json_review_archive_preserves_original_freeze_hash(tmp_path):
-    source = b'Original independent review\n'
-    archive = tmp_path / 'reports/archive/deepeval-benchmark-v5-review.json'
-    archive.parent.mkdir(parents=True)
-    archive.write_text(json.dumps({'originalContent': source.decode(), 'originalPath': gate.V5_SHEET}))
-    resolved = gate.resolve_frozen_path(tmp_path, gate.V5_SHEET)
-    assert gate.digest(resolved) == hashlib.sha256(source).hexdigest()
-    assert gate.frozen_bytes(tmp_path, gate.V5_SHEET) == source

@@ -246,8 +246,8 @@ Reports show **passed, failed, error, and pending** counts for cases and checks.
 A case passes only when every check passes. Grading disagreements are failures;
 API or response errors are errors. Reports update during the run, so unfinished
 cases remain visible after interruption. Each completed check is saved before
-the next starts. Category counts overlap. Generated
-reports are Git-ignored; no Markdown reports are produced. A failed, errored, or
+the next starts. Category counts overlap. The entire `reports/` directory is
+Git-ignored; no Markdown reports are produced. A failed, errored, or
 incomplete run exits unsuccessfully.
 
 To judge previously generated chatbot samples without generating new answers:
@@ -258,9 +258,10 @@ npm run test:judge -- --transcript reports/model-runs/<run>.log
 
 Transcript mode retains its separate JSON/JSONL reporting and advisory verdicts.
 HTTP 429s and incomplete HTTP 200 bodies share up to three retries. Other failures
-are recorded without retrying until passing. Historical fixture snapshots and
-frozen review evidence are archived separately; their approvals do not qualify
-current code or settings.
+are recorded without retrying until passing. Historical benchmarks require their
+original source, settings, and review evidence;
+their approvals do not qualify current code or settings. Reports and review
+outputs stay local and are not committed.
 
 See [OpenRouter configuration](docs/inference.md) and
 [chatbot behavior](docs/genai-behavior-threat-model.md).
