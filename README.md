@@ -117,6 +117,8 @@ interrupted initialization resumes from the last committed batch.
 
 ### Data maintenance
 
+Database setup and supported upgrades run automatically; no manual SQL step is required.
+
 Schema versions 6, 7, and 8 upgrade to 9 with the current `SEED_VERSION`. Unsupported
 versions or populated databases without version metadata stop startup without
 modifying records. Preserve the database and inspect its metadata before migration.
