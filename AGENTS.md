@@ -20,3 +20,10 @@
 
 - Start new work on a feature branch from refreshed main and open a remote PR for review.
 - Do not add `Co-authored-by` trailers to commits.
+
+## Cleanup
+
+- Every feature, fix, and refactor must include cleanup in the same PR. Review the affected files and their callers for anything made obsolete.
+- Remove unused files, components, classes, functions, exports, imports, dependencies, configuration, and generated artifacts. Check indirect use through scripts, framework conventions, configuration, and dynamic loading before deleting.
+- Remove tests for retired behavior and preserve useful coverage of its replacement. Update documentation and lockfiles to match the current implementation.
+- Run the relevant checks after cleanup. Before opening the PR, confirm that removed items have no remaining callers and that the supported paths still work.
