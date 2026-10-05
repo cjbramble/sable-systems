@@ -1,11 +1,8 @@
-import io
-import json
-import sys
 
 import pytest
 
 import support_grading as grading
-import evaluate_support as evaluation
+import judge_collection as collection
 
 
 def test_missed_false_claim_cannot_hide_behind_supported_stock():
@@ -67,58 +64,6 @@ def test_empty_extraction_schema_is_rejected(claims):
         grading.SourceClaims.model_validate({'claims': claims})
 
 
-def run_report(monkeypatch, tmp_path, judge):
-    monkeypatch.setattr(evaluation, 'judge_claims', judge)
-    path = tmp_path / 'report.json'
-    monkeypatch.setattr(sys, 'argv', ['evaluate_support.py', '--output', str(path)])
-    monkeypatch.setattr(sys, 'stdin', io.StringIO(json.dumps({'mode': 'validation', 'suite': 'extraction'})))
-    return evaluation.main(), json.loads(path.read_text())
-
-
-def test_correct_support_label_does_not_hide_missing_claim(monkeypatch, tmp_path):
-    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/archive/extraction-controls-v1.json').read_text())
-    rows = iter(row for scenario in fixture['scenarios'] for row in scenario['examples'])
-    def judge(*_):
-        row = next(rows)
-        claims = list(row['expectedClaims'])
-        if row['id'] == 'unsupported-ending':
-            claims.pop()
-        return {'passed': row['correct'], 'score': int(row['correct']), 'claims': claims, 'calls': [], 'reason': 'Scripted'}
-    code, report = run_report(monkeypatch, tmp_path, judge)
-    assert code == 1
-    summary = report['summary']['overall']
-    assert summary['extractionFailures'] == summary['missingClaims'] == 1
-    assert summary['supportLabelDisagreements'] == summary['falseAcceptances'] == 0
-    assert report['executionSuccessful'] and not report['extractionSuccessful']
-    assert summary['coveredClaims'] == summary['expectedClaims'] - 1
-
-
-def test_only_true_extracted_claims_can_still_be_false_acceptance(monkeypatch, tmp_path):
-    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/archive/extraction-controls-v1.json').read_text())
-    rows = iter(row for scenario in fixture['scenarios'] for row in scenario['examples'])
-    def judge(*_):
-        row = next(rows)
-        missed = row['id'] == 'unsupported-ending'
-        return {'passed': True if missed else row['correct'], 'claims': row['expectedClaims'][:1] if missed else row['expectedClaims'], 'calls': []}
-    code, report = run_report(monkeypatch, tmp_path, judge)
-    assert code == 1
-    assert report['summary']['overall']['falseAcceptances'] == 1
-    assert report['summary']['overall']['extractionFailures'] == 1
-
-
-def test_complete_extraction_does_not_hide_wrong_truth_verdict(monkeypatch, tmp_path):
-    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/archive/extraction-controls-v1.json').read_text())
-    rows = iter(row for scenario in fixture['scenarios'] for row in scenario['examples'])
-    def judge(*_):
-        row = next(rows)
-        return {'passed': not row['correct'] if row['id'] == 'unsupported-ending' else row['correct'], 'claims': row['expectedClaims'], 'calls': []}
-    code, report = run_report(monkeypatch, tmp_path, judge)
-    assert code == 1
-    assert report['extractionSuccessful']
-    assert report['summary']['overall']['supportLabelDisagreements'] == 1
-    assert report['summary']['overall']['extractionFailures'] == 0
-
-
 def test_gold_inventory_is_never_sent_to_extractor(monkeypatch):
     calls = []
     class Judge:
@@ -137,17 +82,25 @@ def test_gold_inventory_is_never_sent_to_extractor(monkeypatch):
     assert grading.EXTRACTION_RULES in calls[0]
 
 
-def test_execution_error_leaves_claims_unassessed_not_passed(monkeypatch, tmp_path):
-    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/archive/extraction-controls-v1.json').read_text())
-    rows = iter(row for scenario in fixture['scenarios'] for row in scenario['examples'])
-    def judge(*_):
-        row = next(rows)
-        if row['id'] == 'unsupported-ending':
+@pytest.mark.parametrize('mutation', ['missing', 'false-acceptance', 'wrong-truth', 'error'])
+def test_collection_checks_extraction_completeness_separately_from_truth(monkeypatch, mutation):
+    original = next(case for case in collection.load_cases(['extraction'])
+                    if case['id'].endswith('/unsupported-ending'))
+    expected = original['checks']['extraction']
+    case = {**original, 'checks': {'extraction': expected}}
+    def judge(*args):
+        if mutation == 'error':
             raise RuntimeError('upstream failure')
-        return {'passed': row['correct'], 'claims': row['expectedClaims'], 'calls': []}
-    code, report = run_report(monkeypatch, tmp_path, judge)
-    assert code == 1 and not report['executionSuccessful']
-    summary = report['summary']['overall']
-    assert summary['executionErrors'] == 1
-    assert summary['unassessedClaims'] == 2
-    assert summary['expectedClaims'] == summary['coveredClaims'] + summary['missingClaims'] + summary['unassessedClaims']
+        missed = mutation in ('missing', 'false-acceptance')
+        return {'passed': not expected['passed'] if mutation in ('false-acceptance', 'wrong-truth') else expected['passed'],
+                'claims': expected['claims'][:-1] if missed else expected['claims'], 'calls': []}
+    monkeypatch.setattr(collection, 'judge_claims', judge)
+    check = collection.evaluate_case(case)['checks'][0]
+    assert check['status'] == ('error' if mutation == 'error' else 'failed')
+    assert check['expected']['claims'] == expected['claims']
+    if mutation == 'error':
+        assert 'claimCoverage' not in check['actual']
+    else:
+        assert check['actual']['claimCoverage']['passed'] == (mutation == 'wrong-truth')
+        assert check['actual']['claimCoverage']['missingClaims'] == (expected['claims'][-1:] if mutation != 'wrong-truth' else [])
+        assert check['actual']['passed'] == (not expected['passed'] if mutation != 'missing' else expected['passed'])

@@ -1,7 +1,4 @@
-"""Explicit support-answer dimensions, using the existing DeepEval model adapter.
-
-The original GEval evaluator is retained unchanged for the frozen benchmark.
-"""
+"""Assess support answers and claims with the DeepEval model adapter."""
 
 import json
 import re
@@ -9,7 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from openrouter_judge import OpenRouterJudge, FaithfulnessTemplate
+from openrouter_judge import OpenRouterJudge
+from deepeval.metrics.faithfulness.faithfulness import FaithfulnessTemplate
 
 
 GRADING_REVISION = 16

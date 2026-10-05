@@ -4,14 +4,13 @@ from datetime import datetime, timezone
 from email.utils import format_datetime
 import io
 import json
-import sys
 import time
 import random
 
 import pytest
 
-import evaluate_support as evaluation
-import evaluate as legacy_evaluation
+import judge_collection as collection
+import support_grading as grading
 import openrouter_judge as adapter
 from pydantic import BaseModel
 
@@ -90,7 +89,7 @@ def test_429_retries_preserve_identical_request_and_redacted_attempts(http_seque
 def test_retry_budget_stops_after_four_attempts_and_preserves_error(http_sequence):
     http_sequence["responses"] = [(429, None)] * 5
     with pytest.raises(RuntimeError, match="429") as caught:
-        adapter.judge_answer("Question", "Answer", "Reference")
+        grading.judge_answer("Question", "Answer", "Reference")
     calls = caught.value.judge_calls
     assert len(calls) == 4
     assert http_sequence["delays"] == [5, 9, 17]
@@ -133,11 +132,12 @@ def test_other_http_errors_are_never_retried(http_sequence, status):
     assert http_sequence["delays"] == []
 
 
-@pytest.mark.parametrize("runner,suite,count_expected", [(evaluation, "quality", 17), (legacy_evaluation, "legacy", 30)])
-def test_report_separates_recovered_limits_from_exhausted_errors(monkeypatch, tmp_path, runner, suite, count_expected):
+def test_report_separates_recovered_limits_from_exhausted_errors(monkeypatch, tmp_path):
     from copy import deepcopy
-    monkeypatch.setattr(sys, "argv", ["evaluate_support.py", "--output", str(tmp_path / "report.json")])
-    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"mode": "validation", "suite": suite})))
+    cases = collection.load_cases()[:3]
+    count_expected = len(cases)
+    monkeypatch.setattr(collection, 'load_cases', lambda categories: cases)
+    monkeypatch.setattr(collection, 'judge_metadata', lambda: ({}, {}))
     count = 0
 
     def judge(*args):
@@ -153,18 +153,18 @@ def test_report_separates_recovered_limits_from_exhausted_errors(monkeypatch, tm
         return {"passed": True, "dimensions": dict.fromkeys(adapter_summary_dimensions, True), "calls": calls}
 
     adapter_summary_dimensions = ("factualSupport", "taskCompleteness", "answerQuality")
-    monkeypatch.setattr(runner, "judge_answer", judge)
-    assert runner.main() == 1
+    monkeypatch.setattr(collection, "judge_answer", judge)
+    assert collection.run_collection({}, tmp_path / 'report.json') == 1
     report = json.loads((tmp_path / "report.json").read_text())
-    summary = report["summary"]["overall"]
+    summary = report["requests"]
     assert summary["requestAttempts"] == count_expected * 2
     assert summary["retryAttempts"] == count_expected
     assert summary["rateLimitedAttempts"] == count_expected + 1
     assert summary["recoveredRateLimitedRequests"] == count_expected - 1
     assert summary["unresolvedRateLimitedRequests"] == 1
-    assert summary["executionErrors"] == 1
-    assert report["retryPolicy"]["maxRetries"] == 3
-    assert len(report["results"][1]["calls"]) == 2
+    assert report["summary"]["checks"]["error"] == 1
+    assert report["metadata"]["retryPolicy"]["maxRetries"] == 3
+    assert len(report["results"][1]["checks"][0]["actual"]["calls"]) == 2
 
 
 def test_response_read_failure_is_not_retried_even_after_429_status(http_sequence):

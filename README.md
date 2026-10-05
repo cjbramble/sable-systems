@@ -258,10 +258,9 @@ npm run test:judge -- --transcript reports/model-runs/<run>.log
 
 Transcript mode retains its separate JSON/JSONL reporting and advisory verdicts.
 HTTP 429s and incomplete HTTP 200 bodies share up to three retries. Other failures
-are recorded without retrying until passing. Historical benchmarks require their
-original source, settings, and review evidence;
-their approvals do not qualify current code or settings. Reports and review
-outputs stay local and are not committed.
+are recorded without retrying until passing. Use `--category` to select judge
+cases; historical `--suite`, holdout, and pilot modes are no longer supported.
+Reports stay local and are not committed.
 
 See [OpenRouter configuration](docs/inference.md) and
 [chatbot behavior](docs/genai-behavior-threat-model.md).

@@ -6,15 +6,7 @@ import pytest
 import judge_collection as collection
 
 
-MIGRATION_SOURCES = {
-    'coverage-v3': 'answer', 'claim-controls-v2': 'direct',
-    'extraction-controls-v1': 'extraction', 'quality-controls-v1': 'answer',
-    'record-access-controls-v1': 'answer', 'record-access-controls-v2': 'answer',
-    'output-budget-controls-v1': 'answer',
-}
-
-
-def test_collection_preserves_all_original_inputs_and_checks():
+def test_collection_has_unique_inputs_and_expected_check_coverage():
     cases = collection.load_cases()
     assert len(cases) == 132
     assert sum(len(case['checks']) for case in cases) == 148
@@ -22,25 +14,6 @@ def test_collection_preserves_all_original_inputs_and_checks():
     assert sum('answer' in case['checks'] for case in cases) == 106
     assert sum('direct' in case['checks'] for case in cases) == 16
     assert sum('extraction' in case['checks'] for case in cases) == 26
-    # Every original entry must retain its inputs and check-specific expectations.
-    by_input = {(c['question'], tuple(c['references']), c['answer']): c for c in cases}
-    root = collection.ROOT / 'tests/fixtures/judge'
-    holdout = json.loads((root / 'holdout.json').read_text())['scenarios']
-    entries = []
-    for name in ('case-pack', 'comparison'):
-        fixture = json.loads((root / f'{name}.json').read_text())
-        entries.extend((fixture['question'], fixture['references'], row, 'answer')
-                       for row in fixture['examples'] + holdout[name])
-    for name, kind in MIGRATION_SOURCES.items():
-        fixture = json.loads((root / 'archive' / f'{name}.json').read_text())
-        entries.extend((s['question'], [s['reference']], row, kind)
-                       for s in fixture['scenarios'] for row in s['examples'])
-    for question, references, row, kind in entries:
-        actual = by_input[(question, tuple(references), row['text'])]['checks'][kind]
-        assert actual['passed'] == row['correct']
-        for source, target in [('expectedDimensions', 'dimensions'), ('expectedClaims', 'claims'), ('expectedVerdict', 'verdict')]:
-            if source in row and (source != 'expectedClaims' or kind == 'extraction'):
-                assert actual[target] == row[source]
 
 
 def test_category_filter_rejects_unknown_categories():
@@ -172,3 +145,30 @@ def test_interruption_preserves_completed_check_and_leaves_rest_pending(monkeypa
     xml = ET.parse(path.with_suffix('.xml')).getroot()
     assert xml.get('tests') == '2'
     assert xml.get('skipped') == '1'
+
+
+@pytest.mark.parametrize('concurrency', [0, 5, True, '2'])
+def test_invalid_concurrency_fails_before_configuration_or_calls(monkeypatch, tmp_path, concurrency):
+    monkeypatch.setattr(collection, 'judge_metadata', lambda: pytest.fail('No model configuration'))
+    with pytest.raises(ValueError, match='concurrency'):
+        collection.run_collection({'concurrency': concurrency}, tmp_path / 'unused.json')
+    assert not list(tmp_path.iterdir())
+
+
+def test_parallel_execution_preserves_final_case_order(monkeypatch, tmp_path):
+    from threading import Event
+    second_started = Event()
+    cases = collection.load_cases()[:2]
+    monkeypatch.setattr(collection, 'load_cases', lambda categories: cases)
+    monkeypatch.setattr(collection, 'judge_metadata', lambda: ({}, {}))
+    def judge(question, answer, reference):
+        if answer == cases[0]['answer']:
+            assert second_started.wait(2), 'Second case must run while the first is waiting'
+        else:
+            second_started.set()
+        expected = next(case['checks']['answer'] for case in cases if case['answer'] == answer)
+        return {**expected, 'calls': []}
+    monkeypatch.setattr(collection, 'judge_answer', judge)
+    output = tmp_path / 'parallel.json'
+    assert collection.run_collection({'concurrency': 2}, output) == 0
+    assert [row['id'] for row in json.loads(output.read_text())['results']] == [case['id'] for case in cases]

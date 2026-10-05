@@ -1,38 +1,30 @@
-"""Correction controls exercise routing without pretending scripted judgments calibrate GLM."""
-import io
+"""Category routing keeps expected labels out of model inputs."""
 import json
-import sys
 import pytest
+import judge_collection as collection
 
-import evaluate_support as evaluation
 
-
-@pytest.mark.parametrize('suite,filename,count', [
-    ('record-access', 'archive/record-access-controls-v1.json', 7),
-    ('record-access-v2', 'archive/record-access-controls-v2.json', 8),
-    ('output-budget', 'archive/output-budget-controls-v1.json', 8),
+@pytest.mark.parametrize('category,count', [
+    ('coverage', 36), ('quality', 17), ('record-access', 7),
+    ('record-access-v2', 8), ('output-budget', 8),
 ])
-def test_record_access_controls_withhold_labels_and_report_all_dimensions(monkeypatch, tmp_path, suite, filename, count):
-    path = evaluation.ROOT / 'tests/fixtures/judge' / filename
-    assert path.exists(), 'Prepare focused unavailable-record controls before changing the rubric'
-    fixture = json.loads(path.read_text())
-    expected = {(s['question'], row['text'], s['reference']): row for s in fixture['scenarios'] for row in s['examples']}
+def test_controls_withhold_labels_and_report_all_dimensions(monkeypatch, tmp_path, category, count):
+    cases = collection.load_cases([category])
+    expected = {(c['question'], c['answer'], c['references'][0]): c['checks']['answer'] for c in cases}
     assert len(expected) == count
     calls = []
     def judge(question, answer, reference):
         calls.append((question, answer, reference))
-        row = expected[(question, answer, reference)]
-        return {'passed': row['correct'], 'dimensions': row['expectedDimensions'], 'calls': []}
-    monkeypatch.setattr(evaluation, 'judge_answer', judge)
-    out = tmp_path / 'controls.json'
-    monkeypatch.setattr(sys, 'argv', ['evaluate_support.py', '--output', str(out)])
-    monkeypatch.setattr(sys, 'stdin', io.StringIO(json.dumps({'mode': 'validation', 'suite': suite, 'concurrency': 2})))
-    assert evaluation.main() == 0
-    report = json.loads(out.read_text())
+        check = expected[(question, answer, reference)]
+        return {'passed': check['passed'], 'dimensions': check['dimensions'], 'calls': []}
+    monkeypatch.setattr(collection, 'judge_answer', judge)
+    monkeypatch.setattr(collection, 'judge_metadata', lambda: ({}, {}))
+    output = tmp_path / 'report.json'
+    assert collection.run_collection({'categories': [category], 'concurrency': 2}, output) == 0
+    report = json.loads(output.read_text())
     assert sorted(calls) == sorted(expected)
-    assert report['coverage']['expectedSamples'] == report['coverage']['processedSamples'] == count
-    assert report['summary']['overall']['labelDisagreements'] == 0
-    assert report['summary']['overall']['dimensionDisagreements'] == dict.fromkeys(('factualSupport', 'taskCompleteness', 'answerQuality'), 0)
-    assert report['suiteStatus'] == 'authored-calibration'
-    assert report['benchmarkFreeze'] is None
-    assert report['policy']['gradingRevision'] == evaluation.GRADING_REVISION
+    assert report['summary']['cases'] == {'passed': count, 'failed': 0, 'error': 0, 'pending': 0}
+    assert report['metadata']['gradingRevision'] == collection.GRADING_REVISION
+    assert report['policy'] == 'advisory'
+    assert all(check['actual']['dimensions'] == check['expected']['dimensions']
+               for result in report['results'] for check in result['checks'])
