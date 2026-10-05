@@ -44,7 +44,7 @@ terms and account privacy settings before using real customer data.
 Authentication, account-scoped lookups, quotas, and response guards remain in
 the application. Chat makes at most one corrective model retry. Missing credentials
 or provider failures return safe errors without saving a completed exchange.
-Judge transport retries are separate; see [the evaluation guide](model-evaluation.md).
+Judge transport retries are separate; see [judge evaluations](../README.md#judge-evaluations).
 
 `/api/status` checks the non-generating key endpoint for credentials and reachability.
 It does not establish credits, inference capacity, or response quality.
@@ -63,8 +63,6 @@ verification.
 
 Worker and browser tests require local sockets. In environments that supply a
 child-process subreaper, use it for test launchers; give `uv` a writable cache.
-See the environment-specific setup in [the historical runtime report](../reports/inference.md#managed-cloud-test-runtime-2026-09-30)
-when working in that managed environment.
 
 Builds disable the published demo accounts. `npm start` enables them for a
 loopback-only local preview. Public deployment requires private accounts and a
@@ -75,4 +73,4 @@ separate access policy.
 - [Provider routing](https://openrouter.ai/docs/guides/routing/provider-selection)
 - [Reasoning controls](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)
 - [Provider privacy](https://openrouter.ai/docs/guides/privacy/provider-logging)
-- [Evaluation reports](../reports/README.md)
+- [Judge evaluations and reports](../README.md#judge-evaluations)

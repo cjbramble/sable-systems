@@ -76,7 +76,7 @@ def run_report(monkeypatch, tmp_path, judge):
 
 
 def test_correct_support_label_does_not_hide_missing_claim(monkeypatch, tmp_path):
-    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/extraction-controls-v1.json').read_text())
+    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/archive/extraction-controls-v1.json').read_text())
     rows = iter(row for scenario in fixture['scenarios'] for row in scenario['examples'])
     def judge(*_):
         row = next(rows)
@@ -94,7 +94,7 @@ def test_correct_support_label_does_not_hide_missing_claim(monkeypatch, tmp_path
 
 
 def test_only_true_extracted_claims_can_still_be_false_acceptance(monkeypatch, tmp_path):
-    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/extraction-controls-v1.json').read_text())
+    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/archive/extraction-controls-v1.json').read_text())
     rows = iter(row for scenario in fixture['scenarios'] for row in scenario['examples'])
     def judge(*_):
         row = next(rows)
@@ -107,7 +107,7 @@ def test_only_true_extracted_claims_can_still_be_false_acceptance(monkeypatch, t
 
 
 def test_complete_extraction_does_not_hide_wrong_truth_verdict(monkeypatch, tmp_path):
-    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/extraction-controls-v1.json').read_text())
+    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/archive/extraction-controls-v1.json').read_text())
     rows = iter(row for scenario in fixture['scenarios'] for row in scenario['examples'])
     def judge(*_):
         row = next(rows)
@@ -138,7 +138,7 @@ def test_gold_inventory_is_never_sent_to_extractor(monkeypatch):
 
 
 def test_execution_error_leaves_claims_unassessed_not_passed(monkeypatch, tmp_path):
-    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/extraction-controls-v1.json').read_text())
+    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/archive/extraction-controls-v1.json').read_text())
     rows = iter(row for scenario in fixture['scenarios'] for row in scenario['examples'])
     def judge(*_):
         row = next(rows)

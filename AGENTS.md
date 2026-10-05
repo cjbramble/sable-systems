@@ -13,6 +13,7 @@
 - Keep the README focused on setup, configuration, running, and testing. Link to detailed guides.
 - Keep guides concise and easy to scan: short sections, direct instructions, command examples, and tables where useful.
 - Put dated evaluation history, run results, and review evidence in `reports/`.
+- Keep all of `reports/` Git-ignored. Never commit generated reports or report archives.
 - Avoid repeated information, unexplained jargon, implementation narration, and long progress summaries in guides.
 
 ## Workflow

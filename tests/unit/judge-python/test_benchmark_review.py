@@ -17,7 +17,7 @@ def frozen_root(tmp_path):
                  'tests/fixtures/judge/holdout.json'):
         destination = tmp_path / name
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(review_gate.resolve_frozen_path(evaluation.ROOT, name), destination)
+        destination.write_bytes(b'Offline test review evidence\n' if name in (review_gate.SHEET, review_gate.V2_SHEET, review_gate.V3_SHEET, review_gate.V4_SHEET, review_gate.V5_SHEET) else review_gate.frozen_bytes(evaluation.ROOT, name))
     # Build a fictional current-code freeze only in the temporary test root.
     # The approved production revision-8 freeze remains unchanged after tuning.
     freeze_path = tmp_path / review_gate.FREEZE
@@ -62,6 +62,16 @@ def test_pending_review_prevents_any_judgment_or_run_artifact(monkeypatch, froze
     monkeypatch.setattr(evaluation, 'judge_answer', lambda *args: pytest.fail('No model call before human review'))
     output = tmp_path / 'run.json'
     with pytest.raises(ValueError, match='Independent human review is pending'):
+        run(monkeypatch, frozen_root, output)
+    assert not output.exists()
+    assert not output.with_suffix('.jsonl').exists()
+
+
+def test_missing_historical_review_blocks_calls_and_reports(monkeypatch, frozen_root, tmp_path):
+    (frozen_root / review_gate.SHEET).unlink()
+    monkeypatch.setattr(evaluation, 'judge_answer', lambda *args: pytest.fail('No calls without review evidence'))
+    output = tmp_path / 'missing-review.json'
+    with pytest.raises(ValueError, match='historical review evidence is unavailable'):
         run(monkeypatch, frozen_root, output)
     assert not output.exists()
     assert not output.with_suffix('.jsonl').exists()

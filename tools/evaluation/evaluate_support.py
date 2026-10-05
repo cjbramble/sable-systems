@@ -19,6 +19,9 @@ def main():
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     payload = json.load(sys.stdin)
+    if payload.get('suite') == 'collection':
+        from judge_collection import run_collection
+        return run_collection(payload, args.output)
     mode = payload["mode"]
     if mode not in ("validation", "transcript", "claims-pilot", "direct-claim-pilot"):
         raise ValueError("Unknown judge run mode")
@@ -30,7 +33,7 @@ def main():
         raise ValueError("Unknown judge suite")
     if suite != "legacy" and (mode != "validation" or payload.get("validationSet", "all") != "all"):
         raise ValueError("Expanded suites require normal validation mode")
-    suite_path = ROOT / "tests/fixtures/judge" / ({"qualification-v5": "qualification-v5.json", "qualification-v4": "qualification-v4.json", "qualification-v3": "qualification-v3.json", "qualification-v2": "qualification-v2.json", "calibration-v2": "qualification-v2.json", "qualification": "qualification-v1.json", "calibration": "qualification-v1.json", "quality": "quality-controls-v1.json", "record-access": "record-access-controls-v1.json", "record-access-v2": "record-access-controls-v2.json", "output-budget": "output-budget-controls-v1.json", "coverage": "coverage-v3.json", "benchmark": "benchmark-candidate.json", "claims": "claim-controls-v2.json", "extraction": "extraction-controls-v1.json"}.get(suite, "coverage.json"))
+    suite_path = ROOT / "tests/fixtures/judge" / ({"qualification-v5": "qualification-v5.json", "qualification-v4": "qualification-v4.json", "qualification-v3": "qualification-v3.json", "qualification-v2": "qualification-v2.json", "calibration-v2": "qualification-v2.json", "qualification": "qualification-v1.json", "calibration": "qualification-v1.json", "quality": "archive/quality-controls-v1.json", "record-access": "archive/record-access-controls-v1.json", "record-access-v2": "archive/record-access-controls-v2.json", "output-budget": "archive/output-budget-controls-v1.json", "coverage": "archive/coverage-v3.json", "benchmark": "benchmark-candidate.json", "claims": "archive/claim-controls-v2.json", "extraction": "archive/extraction-controls-v1.json"}.get(suite, "coverage.json"))
     suite_fixture = json.loads(suite_path.read_text()) if suite != "legacy" else None
     freeze = None
     if suite == "benchmark":

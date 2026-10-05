@@ -45,7 +45,7 @@ def approved_root(tmp_path):
     for name in (*gate.V5_LOCK_FILES, gate.V5_FREEZE, gate.V5_REVIEW, 'tests/fixtures/judge/holdout.json'):
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(evaluation.ROOT / name, target)
+        target.write_bytes(b'Offline test review evidence\n' if name in (gate.SHEET, gate.V2_SHEET, gate.V3_SHEET, gate.V4_SHEET, gate.V5_SHEET) else gate.frozen_bytes(evaluation.ROOT, name))
     # A fictional current-code freeze only in this temporary directory. Keep
     # the actual benchmark and human review record unchanged.
     fixture_path = tmp_path / gate.V5_FIXTURE
@@ -137,8 +137,8 @@ def test_new_cases_are_distinct_from_previous_answers_and_consistently_labeled()
     previous = set()
     for path in (root / 'tests/fixtures/judge').glob('*.json'):
         # Later exposed correction controls intentionally reuse failed cases.
-        if path in (root / gate.V5_FIXTURE, root / 'tests/fixtures/judge/record-access-controls-v2.json',
-                    root / 'tests/fixtures/judge/output-budget-controls-v1.json'):
+        if path in (root / gate.V5_FIXTURE, root / 'tests/fixtures/judge/archive/record-access-controls-v2.json',
+                    root / 'tests/fixtures/judge/archive/output-budget-controls-v1.json'):
             continue
         scenarios = json.loads(path.read_text()).get('scenarios', [])
         if isinstance(scenarios, list):

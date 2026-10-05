@@ -54,12 +54,16 @@ def resolve_frozen_path(root, name):
                  V2_SHEET: 'reports/deepeval-benchmark-v2-review.md',
                  V3_SHEET: 'reports/deepeval-benchmark-v3-review.md'}
     if not original.exists() and name in relocated:
-        return root / relocated[name]
+        original = root / relocated[name]
     return original
 
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def frozen_bytes(root, name):
+    return resolve_frozen_path(root, name).read_bytes()
 
 
 def validate_qualification(root, model, generation, concurrency, *, version=1):
@@ -78,7 +82,10 @@ def validate_qualification(root, model, generation, concurrency, *, version=1):
     if freeze.get('schemaVersion') != 1 or set(freeze.get('sha256', {})) != set(lock_files):
         raise ValueError('Invalid qualification freeze file list')
     for name, expected in freeze['sha256'].items():
-        if digest(resolve_frozen_path(root, name)) != expected:
+        path = resolve_frozen_path(root, name)
+        if not path.exists() and name in (SHEET, V2_SHEET, V3_SHEET, V4_SHEET, V5_SHEET):
+            raise ValueError(f'Qualification freeze mismatch: historical review evidence is unavailable: {name}')
+        if digest(path) != expected:
             raise ValueError(f'Qualification freeze mismatch: {name}')
     if freeze.get('model') != model or freeze.get('generation') != generation:
         raise ValueError('Qualification model or generation settings differ from the freeze')

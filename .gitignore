@@ -68,10 +68,7 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
-/reports/server-logs/
-/reports/model-runs/
-/reports/judge-runs/
-/reports/demo-recordings/
+/reports/
 .deepeval/
 .deepeval*
 /tmp/
