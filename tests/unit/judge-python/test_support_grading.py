@@ -1,11 +1,9 @@
-import io
 import json
-import sys
 
 import pytest
 
 import support_grading as grading
-import evaluate_support as evaluation
+import judge_collection as collection
 
 
 def assessment(facts=None, complete=True, quality=True):
@@ -173,51 +171,6 @@ def test_malformed_dimensions_are_errors_and_keep_calls(scripted, change):
     assert len(caught.value.judge_calls) == 1
 
 
-def run_report(monkeypatch, tmp_path, suite, concurrency=1):
-    path = tmp_path / "report.json"
-    monkeypatch.setattr(sys, "argv", ["evaluate_support.py", "--output", str(path)])
-    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"mode": "validation", "suite": suite, "concurrency": concurrency})))
-    code = evaluation.main()
-    return code, json.loads(path.read_text())
-
-
-def test_correct_overall_verdict_cannot_hide_wrong_dimensions(monkeypatch, tmp_path):
-    fixtures = json.loads((evaluation.ROOT / "tests/fixtures/judge/archive/coverage-v3.json").read_text())
-    rows = iter(row for scenario in fixtures["scenarios"] for row in scenario["examples"])
-    def judge(*args):
-        row = next(rows)
-        dims = dict(row["expectedDimensions"])
-        if row.get("previousOverallLabel") is True and dims["answerQuality"] is False:
-            dims.update(factualSupport=False, answerQuality=True)
-        return {"passed": row["correct"], "score": int(row["correct"]), "reason": "Scripted", "dimensions": dims}
-    monkeypatch.setattr(evaluation, "judge_answer", judge)
-    code, report = run_report(monkeypatch, tmp_path, "coverage")
-    assert code == 1
-    assert report["summary"]["overall"]["dimensionDisagreements"] == {"factualSupport": 1, "taskCompleteness": 0, "answerQuality": 1}
-    assert report["summary"]["overall"]["falseAcceptances"] == 0
-    assert report["summary"]["overall"]["falseRejections"] == 0
-
-
-def test_unsupported_date_exact_idk_control_and_contradicted_date_no_control(monkeypatch, tmp_path):
-    fixture = json.loads((evaluation.ROOT / "tests/fixtures/judge/archive/claim-controls-v2.json").read_text())
-    rows = iter(row for scenario in fixture["scenarios"] for row in scenario["examples"])
-    def judge(*args):
-        row = next(rows)
-        return {"passed": row["correct"], "score": int(row["correct"]), "reason": "Scripted", "verdicts": [{"verdict": row["expectedVerdict"]}]}
-    monkeypatch.setattr(evaluation, "judge_direct_claim", judge)
-    code, report = run_report(monkeypatch, tmp_path, "claims")
-    assert code == 0
-    assert len(report["results"]) == 16
-    assert report["summary"]["overall"]["claimVerdicts"]["idk"] == 1
-    assert report["summary"]["overall"]["labelDisagreements"] == 0
-    assert report["policy"]["gradingRevision"] == 3
-
-
-def test_revised_runner_cannot_replace_frozen_benchmark(monkeypatch, tmp_path):
-    with pytest.raises(ValueError, match="original evaluate.py"):
-        run_report(monkeypatch, tmp_path, "benchmark")
-
-
 @pytest.mark.parametrize("verdicts", [[], [{"verdict": "yes", "reason": None}] * 2])
 def test_claim_schema_rejects_missing_or_duplicate_verdicts(scripted, verdicts):
     scripted.append({"verdicts": verdicts})
@@ -227,35 +180,6 @@ def test_claim_schema_rejects_missing_or_duplicate_verdicts(scripted, verdicts):
     schema = grading.VerdictAssessment.model_json_schema()
     assert schema["properties"]["verdicts"]["minItems"] == 1
     assert schema["properties"]["verdicts"]["maxItems"] == 1
-
-
-def test_bounded_parallel_evaluation_preserves_final_sample_order(monkeypatch, tmp_path):
-    from threading import Event
-    second_started = Event()
-    fixture = json.loads((evaluation.ROOT / "tests/fixtures/judge/archive/coverage-v3.json").read_text())
-    labels = {(scenario["question"], row["text"]): row for scenario in fixture["scenarios"] for row in scenario["examples"]}
-    first, second = fixture["scenarios"][0]["examples"]
-    def judge(question, answer, reference):
-        if answer == first["text"]:
-            assert second_started.wait(2), "Concurrency must permit the second sample to start"
-        if answer == second["text"]:
-            second_started.set()
-        row = labels[(question, answer)]
-        return {"passed": row["correct"], "score": int(row["correct"]), "reason": "Scripted", "dimensions": row["expectedDimensions"]}
-    monkeypatch.setattr(evaluation, "judge_answer", judge)
-    code, report = run_report(monkeypatch, tmp_path, "coverage", concurrency=2)
-    assert code == 0
-    assert report["concurrency"] == 2
-    assert [(row["scenario"], row["id"]) for row in report["results"]] == [
-        (scenario["id"], row["id"]) for scenario in fixture["scenarios"] for row in scenario["examples"]]
-    assert report["coverage"]["processedSamples"] == 36
-
-
-@pytest.mark.parametrize("concurrency", [0, 5, True, "2"])
-def test_invalid_concurrency_fails_before_any_calls(monkeypatch, tmp_path, concurrency):
-    monkeypatch.setattr(evaluation, "judge_answer", lambda *args: pytest.fail("No model calls"))
-    with pytest.raises(ValueError, match="concurrency"):
-        run_report(monkeypatch, tmp_path, "coverage", concurrency=concurrency)
 
 
 def test_excluded_instruction_and_valid_refusal_do_not_fail_completeness(scripted):
@@ -305,27 +229,6 @@ def test_valid_refusal_does_not_require_performing_an_action(scripted):
     result = grading.judge_answer('Reactivate and approve.', 'I cannot reactivate or approve returns.', 'Assistant cannot reactivate or approve returns.')
     assert result['passed']
     assert grading.ANSWER_RULES in result['calls'][0]['prompt']
-
-
-def test_previous_coverage_expectations_are_preserved():
-    previous = json.loads((evaluation.ROOT / 'tests/fixtures/judge/coverage-v2.json').read_text())
-    current = json.loads((evaluation.ROOT / 'tests/fixtures/judge/archive/coverage-v3.json').read_text())
-    new_scenarios = {scenario['id']: scenario for scenario in current['scenarios']}
-    new_rows = {(scenario['id'], row['id']): row for scenario in current['scenarios'] for row in scenario['examples']}
-    for scenario in previous['scenarios']:
-        assert new_scenarios[scenario['id']]['question'] == scenario['question']
-        assert new_scenarios[scenario['id']]['reference'] == scenario['reference']
-        for row in scenario['examples']:
-            assert new_rows[(scenario['id'], row['id'])] == row
-    assert len(new_rows) == 36
-
-
-def test_false_routes_do_not_get_relabelled_as_missing():
-    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/archive/coverage-v3.json').read_text())
-    rows = {row['id']: row for scenario in fixture['scenarios'] if scenario['id'] == 'action-refusal' for row in scenario['examples']}
-    assert rows['incorrect']['expectedDimensions'] == {'factualSupport': False, 'taskCompleteness': True, 'answerQuality': False}
-    assert rows['partial-refusal']['expectedDimensions'] == {'factualSupport': True, 'taskCompleteness': False, 'answerQuality': True}
-    assert rows['approval-route-only']['expectedDimensions'] == {'factualSupport': False, 'taskCompleteness': False, 'answerQuality': False}
 
 
 def test_reference_fact_absent_from_answer_cannot_enter_assessment(scripted):
@@ -399,3 +302,24 @@ def test_quote_wrappers_cannot_hide_changed_numbers_or_negation(quote):
 
 def test_literal_quotation_marks_in_answer_are_preserved():
     assert grading.trace_answer_quote('Say "Correct".', '"Correct"') == '"Correct"'
+
+
+def test_false_routes_do_not_get_relabelled_as_missing():
+    rows = {case['id'].split('/')[-1]: case['checks']['answer']['dimensions']
+            for case in collection.load_cases() if '/action-refusal/' in case['id']}
+    assert rows['incorrect'] == {'factualSupport': False, 'taskCompleteness': True, 'answerQuality': False}
+    assert rows['partial-refusal'] == {'factualSupport': True, 'taskCompleteness': False, 'answerQuality': True}
+    assert rows['approval-route-only'] == {'factualSupport': False, 'taskCompleteness': False, 'answerQuality': False}
+
+
+def test_direct_controls_preserve_unsupported_and_contradicted_date_labels(monkeypatch):
+    cases = collection.load_cases(['claims'])
+    for original in cases:
+        case = {**original, 'checks': {'direct': original['checks']['direct']}}
+        expected = case['checks']['direct']
+        monkeypatch.setattr(collection, 'judge_direct_claim', lambda *args: {
+            'passed': expected['passed'], 'verdicts': [{'verdict': expected['verdict']}], 'calls': []})
+        assert next(check for check in collection.evaluate_case(case)['checks'] if check['kind'] == 'direct')['status'] == 'passed'
+    assert sum(c['checks']['direct']['verdict'] == 'idk' for c in cases) == 1
+    assert next(c for c in cases if c['id'] == 'claims/unsupported-date/unsupported')['checks']['direct']['verdict'] == 'idk'
+    assert next(c for c in cases if c['id'] == 'claims/recorded-date/contradicted')['checks']['direct']['verdict'] == 'no'

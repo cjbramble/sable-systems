@@ -20,25 +20,18 @@ try {
   const { values } = parseArgs({
     options: {
       transcript: { type: 'string' },
-      suite: { type: 'string' },
       category: { type: 'string', multiple: true },
       list: { type: 'boolean', default: false },
       concurrency: { type: 'string', default: '1' },
-      holdout: { type: 'boolean', default: false },
-      'claims-pilot': { type: 'boolean', default: false },
-      'direct-claim-pilot': { type: 'boolean', default: false },
     },
     allowPositionals: false,
   });
-  const historicalMode = [
-    values.transcript,
-    values.holdout,
-    values['claims-pilot'],
-    values['direct-claim-pilot'],
-  ].some(Boolean);
-  values.suite ??= historicalMode ? 'legacy' : 'collection';
-  if ((values.category || values.list) && values.suite !== 'collection')
-    throw new Error('--category and --list require the current collection.');
+  if (values.transcript && (values.category || values.list))
+    throw new Error(
+      '--transcript cannot be combined with --category or --list.',
+    );
+  if (!/^[1-4]$/.test(values.concurrency))
+    throw new Error('Choose --concurrency 1, 2, 3, or 4.');
   const config = values.list
     ? null
     : getSupportModelConfig({
@@ -47,70 +40,11 @@ try {
           process.env.OPENROUTER_JUDGE_MODEL?.trim() || defaults.judgeModel,
       });
   if (config) supportModelHeaders(config);
-  if (
-    [
-      values.transcript,
-      values.holdout,
-      values['claims-pilot'],
-      values['direct-claim-pilot'],
-    ].filter(Boolean).length > 1
-  )
-    throw new Error(
-      'Choose only one of --transcript, --holdout, --claims-pilot, or --direct-claim-pilot.',
-    );
-  if (
-    ![
-      'collection',
-      'legacy',
-      'coverage',
-      'benchmark',
-      'claims',
-      'extraction',
-      'qualification',
-      'qualification-v2',
-      'qualification-v3',
-      'qualification-v4',
-      'qualification-v5',
-      'calibration',
-      'calibration-v2',
-      'quality',
-      'record-access',
-      'record-access-v2',
-      'output-budget',
-    ].includes(values.suite)
-  )
-    throw new Error(
-      'Choose --suite collection, legacy, coverage, benchmark, claims, extraction, qualification, qualification-v2, qualification-v3, qualification-v4, qualification-v5, calibration, calibration-v2, quality, record-access, record-access-v2, or output-budget.',
-    );
-  if (
-    values.suite !== 'legacy' &&
-    [
-      values.transcript,
-      values.holdout,
-      values['claims-pilot'],
-      values['direct-claim-pilot'],
-    ].some(Boolean)
-  )
-    throw new Error(
-      'Expanded suites cannot be combined with transcript, holdout, or pilot modes.',
-    );
-  if (!/^[1-4]$/.test(values.concurrency))
-    throw new Error('Choose --concurrency 1, 2, 3, or 4.');
-  if (values.suite === 'benchmark' && values.concurrency !== '1')
-    throw new Error('The frozen benchmark retains sequential execution.');
   const payload = {
-    suite: values.suite,
+    mode: values.transcript ? 'transcript' : 'collection',
     categories: values.category || [],
     list: values.list,
     concurrency: Number(values.concurrency),
-    mode: values['direct-claim-pilot']
-      ? 'direct-claim-pilot'
-      : values['claims-pilot']
-        ? 'claims-pilot'
-        : values.transcript
-          ? 'transcript'
-          : 'validation',
-    validationSet: values.holdout ? 'holdout' : 'all',
     batches: {},
   };
   if (values.transcript) {
@@ -136,13 +70,7 @@ try {
     console.info(`Judging with ${config.provider}; report: ${reportPath}`);
   const evaluation = scope.start(
     python,
-    [
-      values.suite === 'benchmark'
-        ? 'tools/evaluation/evaluate.py'
-        : 'tools/evaluation/evaluate_support.py',
-      '--output',
-      reportPath,
-    ],
+    ['tools/evaluation/evaluate_support.py', '--output', reportPath],
     {
       stdio: ['pipe', 'inherit', 'inherit'],
       env: {
