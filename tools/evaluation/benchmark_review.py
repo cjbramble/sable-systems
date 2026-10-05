@@ -39,6 +39,12 @@ V4_REVIEW = 'tests/fixtures/judge/qualification-v4-review.json'
 V4_SHEET = 'reports/deepeval-benchmark-v4-review.md'
 V4_LOCK_FILES = (V4_FIXTURE, V4_SHEET, *LOCK_FILES[2:], 'tools/evaluation/evaluate.py')
 V4_POLICY = dict(V3_POLICY)
+V5_FIXTURE = 'tests/fixtures/judge/qualification-v5.json'
+V5_FREEZE = 'tests/fixtures/judge/qualification-v5-freeze.json'
+V5_REVIEW = 'tests/fixtures/judge/qualification-v5-review.json'
+V5_SHEET = 'reports/deepeval-benchmark-v5-review.md'
+V5_LOCK_FILES = (V5_FIXTURE, V5_SHEET, *LOCK_FILES[2:], 'tools/evaluation/evaluate.py')
+V5_POLICY = dict(V3_POLICY)
 
 
 def resolve_frozen_path(root, name):
@@ -57,13 +63,14 @@ def digest(path):
 
 
 def validate_qualification(root, model, generation, concurrency, *, version=1):
-    if version not in (1, 2, 3, 4):
+    if version not in (1, 2, 3, 4, 5):
         raise ValueError('Unknown qualification version')
     fixture_name, freeze_name, review_name, sheet_name, lock_files, expected_policy = (
         (FIXTURE, FREEZE, REVIEW, SHEET, LOCK_FILES, QUALIFICATION_POLICY) if version == 1 else
         (V2_FIXTURE, V2_FREEZE, V2_REVIEW, V2_SHEET, V2_LOCK_FILES, V2_POLICY) if version == 2 else
         (V3_FIXTURE, V3_FREEZE, V3_REVIEW, V3_SHEET, V3_LOCK_FILES, V3_POLICY) if version == 3 else
-        (V4_FIXTURE, V4_FREEZE, V4_REVIEW, V4_SHEET, V4_LOCK_FILES, V4_POLICY))
+        (V4_FIXTURE, V4_FREEZE, V4_REVIEW, V4_SHEET, V4_LOCK_FILES, V4_POLICY) if version == 4 else
+        (V5_FIXTURE, V5_FREEZE, V5_REVIEW, V5_SHEET, V5_LOCK_FILES, V5_POLICY))
     if concurrency != expected_policy['concurrency']:
         raise ValueError(f"The reviewed benchmark requires its frozen concurrency of {expected_policy['concurrency']}")
     freeze_path = root / freeze_name

@@ -76,6 +76,7 @@ def candidate_root(tmp_path):
     fixture_path.write_text(json.dumps(fixture))
     freeze["gradingRevision"] = gate.GRADING_REVISION
     freeze["retryPolicy"] = RETRY_POLICY
+    freeze["model"], freeze["generation"] = judge_metadata()
     freeze["sha256"] = {name: gate.digest(tmp_path / name) for name in gate.V3_LOCK_FILES}
     freeze_path.write_text(json.dumps(freeze))
     # Exercise pending review independently of actual human approval.

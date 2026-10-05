@@ -24,6 +24,7 @@ for models, provider routing, and environment settings.
 | `npm run test:judge -- --suite quality`                           | Factual-error and answer-quality boundaries                  |
 | `npm run test:judge -- --suite record-access --concurrency 2`     | Unavailable-record and compound-request controls             |
 | `npm run test:judge -- --suite record-access-v2 --concurrency 2`  | Apostrophe handling and account-disclosure correction checks |
+| `npm run test:judge -- --suite output-budget --concurrency 2`     | Reasoning-effort checks on exposed output-limit cases        |
 | `npm run test:judge -- --suite claims`                            | Direct claim verification                                    |
 | `npm run test:judge -- --suite extraction`                        | Claim extraction coverage and truth checks                   |
 | `npm run test:judge -- --transcript reports/model-runs/<run>.log` | Judge saved samples without regenerating answers             |
@@ -92,6 +93,8 @@ snapshot. Never refreeze exposed cases to approve a changed judge. A new gate
 requires independently reviewed, untouched cases and review of actual judgments.
 
 `qualification-v4` is an exposed benchmark for the frozen revision-14 evaluator. Its [reviewed plan](../reports/deepeval-benchmark-v4-review.md) and [results](../reports/deepeval-benchmark-v4-results.md) are retained in reports. Use fresh, independently reviewed cases to qualify a changed judge; preserve the existing freeze and results.
+
+`qualification-v5` is an exposed benchmark for the frozen revision-15 evaluator. Its [reviewed plan](../reports/deepeval-benchmark-v5-review.md) and [results](../reports/deepeval-benchmark-v5-results.md) are retained in reports. The judge remains advisory; these exposed cases cannot qualify a changed evaluator or settings as an untouched benchmark.
 
 ## Reports
 

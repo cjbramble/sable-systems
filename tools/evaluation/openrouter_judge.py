@@ -132,6 +132,14 @@ def judge_config():
     reasoning = os.environ.get("OPENROUTER_JUDGE_REASONING", "").strip().lower() or "true"
     if reasoning not in ("true", "false"):
         raise ValueError("OPENROUTER_JUDGE_REASONING must be true or false")
+    effort = os.environ.get("OPENROUTER_JUDGE_REASONING_EFFORT", "").strip().lower()
+    default_glm = model == DEFAULTS["judgeModel"]
+    efforts = ("low", "high", "max") if default_glm else ("minimal", "low", "medium", "high", "xhigh", "max")
+    if effort and (effort not in efforts or reasoning == "false"):
+        raise ValueError("OPENROUTER_JUDGE_REASONING_EFFORT must be " + ", ".join(efforts) + " with reasoning enabled")
+    reasoning_settings = {"enabled": reasoning == "true"}
+    if reasoning == "true" and (effort or default_glm):
+        reasoning_settings["effort"] = effort or "high"
     try:
         max_tokens = int(os.environ.get("OPENROUTER_JUDGE_MAX_TOKENS", "").strip() or GENERATION["max_tokens"])
     except ValueError:
@@ -141,7 +149,7 @@ def judge_config():
     generation = dict(GENERATION)
     generation.update({
         "max_tokens": max_tokens,
-        "reasoning": {"enabled": reasoning == "true"},
+        "reasoning": reasoning_settings,
         "provider": DEFAULTS["judgeProvider"],
     })
     return "openrouter", model, generation

@@ -56,15 +56,17 @@ try {
       'qualification-v2',
       'qualification-v3',
       'qualification-v4',
+      'qualification-v5',
       'calibration',
       'calibration-v2',
       'quality',
       'record-access',
       'record-access-v2',
+      'output-budget',
     ].includes(values.suite)
   )
     throw new Error(
-      'Choose --suite legacy, coverage, benchmark, claims, extraction, qualification, qualification-v2, qualification-v3, qualification-v4, calibration, calibration-v2, quality, record-access, or record-access-v2.',
+      'Choose --suite legacy, coverage, benchmark, claims, extraction, qualification, qualification-v2, qualification-v3, qualification-v4, qualification-v5, calibration, calibration-v2, quality, record-access, record-access-v2, or output-budget.',
     );
   if (
     values.suite !== 'legacy' &&

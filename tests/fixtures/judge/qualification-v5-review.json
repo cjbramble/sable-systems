@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "decision": "approved",
+  "reviewer": "cjbramble",
+  "reviewedAt": "2026-10-04T23:25:14.635065+00:00",
+  "independentHumanReview": true,
+  "reviewedBeforeLiveExposure": true,
+  "fixtureSha256": "2cdec86a83b75b60eda5c0e6f1b2c23ad3aa53e1cd603162f9c583dc2816a396",
+  "freezeSha256": "2b299fe42af0b81318991b6f1b729dd6eb756a21ebf4c77912e24c554735143a",
+  "notes": "cjbramble approved the reviewable 40-answer revision-15 benchmark labels and frozen three-run plan, then instructed: Approved. Run the evaluations. Approval precedes all live exposure. Actual model explanations require separate human review after the runs."
+}

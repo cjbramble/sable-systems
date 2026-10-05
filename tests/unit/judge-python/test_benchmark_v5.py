@@ -20,14 +20,14 @@ def settings(monkeypatch):
 
 
 def test_pending_benchmark_blocks_calls_and_artifacts(monkeypatch, approved_root, tmp_path):
-    review_path = approved_root / gate.V4_REVIEW
+    review_path = approved_root / gate.V5_REVIEW
     review = json.loads(review_path.read_text())
     review.update(decision='pending', reviewer=None, reviewedAt=None,
                   independentHumanReview=False, reviewedBeforeLiveExposure=False)
     review_path.write_text(json.dumps(review))
     monkeypatch.setattr(evaluation, 'judge_answer', lambda *args: pytest.fail('No calls before approval'))
     output = tmp_path / 'pending.json'
-    with pytest.raises(ValueError, match='Independent human review is pending; review reports/deepeval-benchmark-v4-review.md'):
+    with pytest.raises(ValueError, match='Independent human review is pending; review reports/deepeval-benchmark-v5-review.md'):
         run(monkeypatch, approved_root, output)
     assert not output.exists()
     assert not output.with_suffix('.jsonl').exists()
@@ -36,29 +36,29 @@ def test_pending_benchmark_blocks_calls_and_artifacts(monkeypatch, approved_root
 def run(monkeypatch, root, output):
     monkeypatch.setattr(evaluation, 'ROOT', root)
     monkeypatch.setattr(sys, 'argv', ['evaluate_support.py', '--output', str(output)])
-    monkeypatch.setattr(sys, 'stdin', io.StringIO(json.dumps({'mode': 'validation', 'suite': 'qualification-v4', 'concurrency': 2})))
+    monkeypatch.setattr(sys, 'stdin', io.StringIO(json.dumps({'mode': 'validation', 'suite': 'qualification-v5', 'concurrency': 2})))
     return evaluation.main()
 
 
 @pytest.fixture
 def approved_root(tmp_path):
-    for name in (*gate.V4_LOCK_FILES, gate.V4_FREEZE, gate.V4_REVIEW, 'tests/fixtures/judge/holdout.json'):
+    for name in (*gate.V5_LOCK_FILES, gate.V5_FREEZE, gate.V5_REVIEW, 'tests/fixtures/judge/holdout.json'):
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(evaluation.ROOT / name, target)
     # A fictional current-code freeze only in this temporary directory. Keep
-    # the actual exposed revision-14 benchmark and human approval unchanged.
-    fixture_path = tmp_path / gate.V4_FIXTURE
+    # the actual benchmark and human review record unchanged.
+    fixture_path = tmp_path / gate.V5_FIXTURE
     fixture = json.loads(fixture_path.read_text())
     fixture['gradingRevision'] = gate.GRADING_REVISION
     fixture_path.write_text(json.dumps(fixture))
-    freeze_path = tmp_path / gate.V4_FREEZE
+    freeze_path = tmp_path / gate.V5_FREEZE
     freeze = json.loads(freeze_path.read_text())
     freeze['gradingRevision'] = gate.GRADING_REVISION
     freeze['model'], freeze['generation'] = judge_metadata()
-    freeze['sha256'] = {name: gate.digest(tmp_path / name) for name in gate.V4_LOCK_FILES}
+    freeze['sha256'] = {name: gate.digest(tmp_path / name) for name in gate.V5_LOCK_FILES}
     freeze_path.write_text(json.dumps(freeze))
-    review_path = tmp_path / gate.V4_REVIEW
+    review_path = tmp_path / gate.V5_REVIEW
     review = json.loads(review_path.read_text())
     review.update(decision='approved', reviewer='Fictional offline reviewer',
                   reviewedAt='2026-10-03T00:00:00+00:00', independentHumanReview=True,
@@ -72,11 +72,11 @@ def approved_root(tmp_path):
 def test_changed_inputs_cannot_reuse_approval(approved_root, change):
     model, generation = judge_metadata()
     if change in ('answer', 'sheet', 'code'):
-        name = {'answer': gate.V4_FIXTURE, 'sheet': gate.V4_SHEET, 'code': 'tools/evaluation/support_grading.py'}[change]
+        name = {'answer': gate.V5_FIXTURE, 'sheet': gate.V5_SHEET, 'code': 'tools/evaluation/support_grading.py'}[change]
         path = approved_root / name
         path.write_text(path.read_text() + '\n')
     elif change == 'review':
-        path = approved_root / gate.V4_REVIEW
+        path = approved_root / gate.V5_REVIEW
         review = json.loads(path.read_text())
         review['freezeSha256'] = '0' * 64
         path.write_text(json.dumps(review))
@@ -85,7 +85,7 @@ def test_changed_inputs_cannot_reuse_approval(approved_root, change):
     elif change == 'generation':
         generation = {**generation, 'max_tokens': 8192}
     elif change in ('retry', 'budget', 'revision'):
-        path = approved_root / gate.V4_FREEZE
+        path = approved_root / gate.V5_FREEZE
         freeze = json.loads(path.read_text())
         if change == 'retry':
             freeze['retryPolicy']['maxRetries'] = 4
@@ -95,11 +95,11 @@ def test_changed_inputs_cannot_reuse_approval(approved_root, change):
             freeze['gradingRevision'] = 13
         path.write_text(json.dumps(freeze))
     with pytest.raises(ValueError):
-        gate.validate_qualification(approved_root, model, generation, 1 if change == 'workers' else 2, version=4)
+        gate.validate_qualification(approved_root, model, generation, 1 if change == 'workers' else 2, version=5)
 
 
 def test_approved_benchmark_routes_only_unlabeled_inputs_and_keeps_all_results(monkeypatch, approved_root, tmp_path):
-    fixture = json.loads((approved_root / gate.V4_FIXTURE).read_text())
+    fixture = json.loads((approved_root / gate.V5_FIXTURE).read_text())
     expected = {(s['question'], r['text'], s['reference']): r for s in fixture['scenarios'] for r in s['examples']}
     seen = []
 
@@ -115,7 +115,7 @@ def test_approved_benchmark_routes_only_unlabeled_inputs_and_keeps_all_results(m
     report = json.loads(output.read_text())
     assert sorted(seen) == sorted(expected)
     assert len(seen) == len(report['results']) == 40
-    assert report['suite'] == 'qualification-v4'
+    assert report['suite'] == 'qualification-v5'
     assert report['policy']['gradingRevision'] == gate.GRADING_REVISION
     assert report['benchmarkFreeze']['manifest']['retryPolicy'] == RETRY_POLICY
     assert report['coverage']['expectedSamples'] == report['coverage']['processedSamples'] == 40
@@ -125,7 +125,7 @@ def test_approved_benchmark_routes_only_unlabeled_inputs_and_keeps_all_results(m
 
 def test_new_cases_are_distinct_from_previous_answers_and_consistently_labeled():
     root = evaluation.ROOT
-    fixture = json.loads((root / gate.V4_FIXTURE).read_text())
+    fixture = json.loads((root / gate.V5_FIXTURE).read_text())
     answers = [r for s in fixture['scenarios'] for r in s['examples']]
     assert len(fixture['scenarios']) == 20
     assert len(answers) == 40
@@ -137,7 +137,8 @@ def test_new_cases_are_distinct_from_previous_answers_and_consistently_labeled()
     previous = set()
     for path in (root / 'tests/fixtures/judge').glob('*.json'):
         # Later exposed correction controls intentionally reuse failed cases.
-        if path in (root / gate.V4_FIXTURE, root / 'tests/fixtures/judge/record-access-controls-v2.json'):
+        if path in (root / gate.V5_FIXTURE, root / 'tests/fixtures/judge/record-access-controls-v2.json',
+                    root / 'tests/fixtures/judge/output-budget-controls-v1.json'):
             continue
         scenarios = json.loads(path.read_text()).get('scenarios', [])
         if isinstance(scenarios, list):
@@ -145,6 +146,17 @@ def test_new_cases_are_distinct_from_previous_answers_and_consistently_labeled()
     assert not previous.intersection(r['text'] for r in answers)
 
 
-def test_revision14_approval_cannot_authorize_corrected_judge():
+
+
+def test_current_review_record_matches_frozen_candidate():
+    root = evaluation.ROOT
+    review = json.loads((root / gate.V5_REVIEW).read_text())
+    freeze = json.loads((root / gate.V5_FREEZE).read_text())
+    assert review['fixtureSha256'] == gate.digest(root / gate.V5_FIXTURE)
+    assert review['freezeSha256'] == gate.digest(root / gate.V5_FREEZE)
+    assert freeze['gradingRevision'] == 15
+    assert freeze['retryPolicy'] == RETRY_POLICY
+    # The source and reasoning settings changed after this completed benchmark.
+    # Historical human approval must not authorize the changed adapter.
     with pytest.raises(ValueError, match='Qualification freeze mismatch'):
-        gate.validate_qualification(evaluation.ROOT, *judge_metadata(), 2, version=4)
+        gate.validate_qualification(root, *judge_metadata(), 2, version=5)

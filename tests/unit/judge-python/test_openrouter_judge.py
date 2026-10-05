@@ -15,6 +15,7 @@ def offline_credentials(monkeypatch):
     monkeypatch.delenv("OPENROUTER_JUDGE_MODEL", raising=False)
     monkeypatch.delenv("OPENROUTER_JUDGE_REASONING", raising=False)
     monkeypatch.delenv("OPENROUTER_JUDGE_MAX_TOKENS", raising=False)
+    monkeypatch.delenv("OPENROUTER_JUDGE_REASONING_EFFORT", raising=False)
 
 
 class Verdict(BaseModel):
@@ -61,7 +62,7 @@ def test_openrouter_judge_uses_https_schema_routing_without_recording_credential
     assert headers["Authorization"] == "Bearer offline-test-key"
     assert body["model"] == "z-ai/glm-5.3-flash"
     assert body["provider"] == {"allow_fallbacks": False, "require_parameters": True, "data_collection": "deny", "zdr": True}
-    assert body["reasoning"] == {"enabled": True}
+    assert body["reasoning"] == {"enabled": True, "effort": "high"}
     assert body["max_tokens"] == 16384
     assert "seed" not in body and "chat_template_kwargs" not in body
     assert body["response_format"]["json_schema"]["strict"] is True
@@ -78,6 +79,47 @@ def test_openrouter_judge_comparison_overrides_reach_the_request(monkeypatch, tr
     body = transport["request"][2]
     assert body["reasoning"] == {"enabled": False}
     assert body["max_tokens"] == 4096
+
+
+@pytest.mark.parametrize('effort', ['low', 'high', 'max'])
+def test_explicit_reasoning_effort_reaches_request_without_changing_model_or_budget(monkeypatch, transport, effort):
+    monkeypatch.setenv('OPENROUTER_JUDGE_REASONING_EFFORT', effort)
+    openrouter_judge.OpenRouterJudge().generate('Evaluate', Verdict)
+    body = transport['request'][2]
+    assert body['reasoning'] == {'enabled': True, 'effort': effort}
+    assert body['model'] == 'z-ai/glm-5.3-flash'
+    assert body['max_tokens'] == 16384
+    assert body['provider']['require_parameters'] is True
+
+
+@pytest.mark.parametrize('effort', ['medium', 'none', 'unbounded'])
+def test_unsupported_glm_reasoning_effort_fails_before_connecting(monkeypatch, transport, effort):
+    monkeypatch.setenv('OPENROUTER_JUDGE_REASONING_EFFORT', effort)
+    with pytest.raises(ValueError, match='OPENROUTER_JUDGE_REASONING_EFFORT'):
+        openrouter_judge.OpenRouterJudge()
+    assert 'destination' not in transport
+
+
+def test_explicit_effort_cannot_be_silently_ignored_when_reasoning_is_disabled(monkeypatch, transport):
+    monkeypatch.setenv('OPENROUTER_JUDGE_REASONING', 'false')
+    monkeypatch.setenv('OPENROUTER_JUDGE_REASONING_EFFORT', 'high')
+    with pytest.raises(ValueError, match='OPENROUTER_JUDGE_REASONING_EFFORT'):
+        openrouter_judge.OpenRouterJudge()
+    assert 'destination' not in transport
+
+
+def test_alternate_model_keeps_its_own_default_effort(monkeypatch, transport):
+    monkeypatch.setenv('OPENROUTER_JUDGE_MODEL', 'qwen/qwen3.8-27b')
+    openrouter_judge.OpenRouterJudge().generate('Evaluate', Verdict)
+    assert transport['request'][2]['reasoning'] == {'enabled': True}
+
+
+@pytest.mark.parametrize('effort', ['medium', 'xhigh'])
+def test_alternate_model_can_use_standard_explicit_efforts(monkeypatch, transport, effort):
+    monkeypatch.setenv('OPENROUTER_JUDGE_MODEL', 'qwen/qwen3.8-27b')
+    monkeypatch.setenv('OPENROUTER_JUDGE_REASONING_EFFORT', effort)
+    openrouter_judge.OpenRouterJudge().generate('Evaluate', Verdict)
+    assert transport['request'][2]['reasoning'] == {'enabled': True, 'effort': effort}
 
 
 @pytest.mark.parametrize("name,value", [
@@ -156,7 +198,7 @@ def test_deepeval_uses_the_fixed_rubric_in_one_binary_judgment(transport):
     for text in ("Customer question", "Candidate answer", "Authoritative facts"):
         assert text in prompt
     assert body["temperature"] == 0
-    assert body["reasoning"] == {"enabled": True}
+    assert body["reasoning"] == {"enabled": True, "effort": "high"}
     assert body["max_tokens"] == 16384
     assert "seed" not in body and "chat_template_kwargs" not in body
     assert result["score"] == 1

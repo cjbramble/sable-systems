@@ -9,18 +9,26 @@ Copy `.env.example` to `.env`, set `OPENROUTER_API_KEY`, and run `npm run dev`.
 The launchers load `.env`; existing shell values take precedence. Keep the key
 server-side, out of Git, and out of browser-visible variables.
 
-| Variable                      | Default                        |
-| ----------------------------- | ------------------------------ |
-| `OPENROUTER_SUPPORT_MODEL`    | `deepseek/deepseek-v4.1-flash` |
-| `OPENROUTER_JUDGE_MODEL`      | `z-ai/glm-5.3-flash`           |
-| `OPENROUTER_JUDGE_REASONING`  | `true`                         |
-| `OPENROUTER_JUDGE_MAX_TOKENS` | `16384` (256–32768)            |
+| Variable                            | Default                        |
+| ----------------------------------- | ------------------------------ |
+| `OPENROUTER_SUPPORT_MODEL`          | `deepseek/deepseek-v4.1-flash` |
+| `OPENROUTER_JUDGE_MODEL`            | `z-ai/glm-5.3-flash`           |
+| `OPENROUTER_JUDGE_REASONING`        | `true`                         |
+| `OPENROUTER_JUDGE_REASONING_EFFORT` | `high` (`low`, `high`, `max`)  |
+| `OPENROUTER_JUDGE_MAX_TOKENS`       | `16384` (256–32768)            |
 
 Defaults and provider policies live in [lib/openrouter-config.json](../lib/openrouter-config.json).
 Chat pins the DeepInfra FP8 endpoint, disables reasoning, and limits replies to
 600 tokens within an 8,192-token prompt budget. Chat overrides must be supported
 by that endpoint. The judge uses reasoning and a structured response schema;
-its token budget includes reasoning and the verdict.
+its token budget includes reasoning and the verdict. The judge explicitly asks
+for `high` reasoning effort instead of GLM's `max` default. Effort is a model
+control, not a hard token cap; unfinished verdicts still fail. Set effort only
+when reasoning is enabled.
+
+The implicit `high` setting applies to the default GLM judge. Other model
+overrides keep their provider's default effort unless explicitly configured;
+an explicit effort must be supported by the selected model.
 
 Both configurations disable provider fallback, require supported parameters,
 deny data collection, and request zero data retention. The judge lets OpenRouter
