@@ -17,16 +17,12 @@ import {
 const scope = createProcessScope();
 try {
   loadLocalEnvironment();
-  const config = getSupportModelConfig({
-    ...process.env,
-    OPENROUTER_SUPPORT_MODEL:
-      process.env.OPENROUTER_JUDGE_MODEL?.trim() || defaults.judgeModel,
-  });
-  supportModelHeaders(config);
   const { values } = parseArgs({
     options: {
       transcript: { type: 'string' },
-      suite: { type: 'string', default: 'legacy' },
+      suite: { type: 'string' },
+      category: { type: 'string', multiple: true },
+      list: { type: 'boolean', default: false },
       concurrency: { type: 'string', default: '1' },
       holdout: { type: 'boolean', default: false },
       'claims-pilot': { type: 'boolean', default: false },
@@ -34,6 +30,23 @@ try {
     },
     allowPositionals: false,
   });
+  const historicalMode = [
+    values.transcript,
+    values.holdout,
+    values['claims-pilot'],
+    values['direct-claim-pilot'],
+  ].some(Boolean);
+  values.suite ??= historicalMode ? 'legacy' : 'collection';
+  if ((values.category || values.list) && values.suite !== 'collection')
+    throw new Error('--category and --list require the current collection.');
+  const config = values.list
+    ? null
+    : getSupportModelConfig({
+        ...process.env,
+        OPENROUTER_SUPPORT_MODEL:
+          process.env.OPENROUTER_JUDGE_MODEL?.trim() || defaults.judgeModel,
+      });
+  if (config) supportModelHeaders(config);
   if (
     [
       values.transcript,
@@ -47,6 +60,7 @@ try {
     );
   if (
     ![
+      'collection',
       'legacy',
       'coverage',
       'benchmark',
@@ -66,7 +80,7 @@ try {
     ].includes(values.suite)
   )
     throw new Error(
-      'Choose --suite legacy, coverage, benchmark, claims, extraction, qualification, qualification-v2, qualification-v3, qualification-v4, qualification-v5, calibration, calibration-v2, quality, record-access, record-access-v2, or output-budget.',
+      'Choose --suite collection, legacy, coverage, benchmark, claims, extraction, qualification, qualification-v2, qualification-v3, qualification-v4, qualification-v5, calibration, calibration-v2, quality, record-access, record-access-v2, or output-budget.',
     );
   if (
     values.suite !== 'legacy' &&
@@ -86,6 +100,8 @@ try {
     throw new Error('The frozen benchmark retains sequential execution.');
   const payload = {
     suite: values.suite,
+    categories: values.category || [],
+    list: values.list,
     concurrency: Number(values.concurrency),
     mode: values['direct-claim-pilot']
       ? 'direct-claim-pilot'
@@ -116,7 +132,8 @@ try {
     'reports/judge-runs',
     `${payload.mode}-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}.json`,
   );
-  console.info(`Judging with ${config.provider}; report: ${reportPath}`);
+  if (config)
+    console.info(`Judging with ${config.provider}; report: ${reportPath}`);
   const evaluation = scope.start(
     python,
     [

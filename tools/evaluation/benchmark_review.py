@@ -54,12 +54,24 @@ def resolve_frozen_path(root, name):
                  V2_SHEET: 'reports/deepeval-benchmark-v2-review.md',
                  V3_SHEET: 'reports/deepeval-benchmark-v3-review.md'}
     if not original.exists() and name in relocated:
-        return root / relocated[name]
+        original = root / relocated[name]
+    if not original.exists() and name in (SHEET, V2_SHEET, V3_SHEET, V4_SHEET, V5_SHEET):
+        return root / 'reports/archive' / (name.split('/')[-1].removesuffix('.md') + '.json')
     return original
 
 
 def digest(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashlib.sha256(review_bytes(path)).hexdigest()
+
+
+def review_bytes(path):
+    if path.suffix == '.json' and path.name.endswith('-review.json') and path.parent.name == 'archive':
+        return json.loads(path.read_text())['originalContent'].encode('utf-8')
+    return path.read_bytes()
+
+
+def frozen_bytes(root, name):
+    return review_bytes(resolve_frozen_path(root, name))
 
 
 def validate_qualification(root, model, generation, concurrency, *, version=1):

@@ -65,7 +65,7 @@ def candidate_root(tmp_path):
     for name in (*gate.V3_LOCK_FILES, gate.V3_FREEZE, gate.V3_REVIEW, "tests/fixtures/judge/holdout.json"):
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(gate.resolve_frozen_path(evaluation.ROOT, name), path)
+        path.write_bytes(gate.frozen_bytes(evaluation.ROOT, name))
     # Fictional current-code freeze in the temporary root only. The actual
     # completed revision-13 freeze and approval remain unchanged.
     freeze_path = tmp_path / gate.V3_FREEZE

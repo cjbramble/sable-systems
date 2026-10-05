@@ -18,7 +18,7 @@ def candidate_root(tmp_path):
                  gate.REVIEW, 'tests/fixtures/judge/holdout.json'):
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(gate.resolve_frozen_path(evaluation.ROOT, name), path)
+        path.write_bytes(gate.frozen_bytes(evaluation.ROOT, name))
     # Fictional current-code freeze only in the temporary test root. The actual
     # reviewed revision-12 freeze remains unchanged after the topic correction.
     freeze_path = tmp_path / gate.V2_FREEZE
@@ -148,7 +148,7 @@ def test_fresh_cases_are_balanced_and_not_copied_from_exposed_answers():
     assert sum(r['correct'] for r in rows) == 20
     assert all(r['correct'] == all(r['expectedDimensions'].values()) for r in rows)
     exposed = set()
-    for name in ('qualification-v1.json', 'quality-controls-v1.json'):
+    for name in ('qualification-v1.json', 'archive/quality-controls-v1.json'):
         old = json.loads((root / 'tests/fixtures/judge' / name).read_text())
         exposed.update(r['text'] for s in old['scenarios'] for r in s['examples'])
     assert not exposed.intersection(r['text'] for r in rows)

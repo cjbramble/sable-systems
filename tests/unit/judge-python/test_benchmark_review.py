@@ -17,7 +17,7 @@ def frozen_root(tmp_path):
                  'tests/fixtures/judge/holdout.json'):
         destination = tmp_path / name
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(review_gate.resolve_frozen_path(evaluation.ROOT, name), destination)
+        destination.write_bytes(review_gate.frozen_bytes(evaluation.ROOT, name))
     # Build a fictional current-code freeze only in the temporary test root.
     # The approved production revision-8 freeze remains unchanged after tuning.
     freeze_path = tmp_path / review_gate.FREEZE

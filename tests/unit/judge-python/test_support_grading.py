@@ -143,7 +143,7 @@ def run_report(monkeypatch, tmp_path, suite, concurrency=1):
 
 
 def test_correct_overall_verdict_cannot_hide_wrong_dimensions(monkeypatch, tmp_path):
-    fixtures = json.loads((evaluation.ROOT / "tests/fixtures/judge/coverage-v3.json").read_text())
+    fixtures = json.loads((evaluation.ROOT / "tests/fixtures/judge/archive/coverage-v3.json").read_text())
     rows = iter(row for scenario in fixtures["scenarios"] for row in scenario["examples"])
     def judge(*args):
         row = next(rows)
@@ -160,7 +160,7 @@ def test_correct_overall_verdict_cannot_hide_wrong_dimensions(monkeypatch, tmp_p
 
 
 def test_unsupported_date_exact_idk_control_and_contradicted_date_no_control(monkeypatch, tmp_path):
-    fixture = json.loads((evaluation.ROOT / "tests/fixtures/judge/claim-controls-v2.json").read_text())
+    fixture = json.loads((evaluation.ROOT / "tests/fixtures/judge/archive/claim-controls-v2.json").read_text())
     rows = iter(row for scenario in fixture["scenarios"] for row in scenario["examples"])
     def judge(*args):
         row = next(rows)
@@ -193,7 +193,7 @@ def test_claim_schema_rejects_missing_or_duplicate_verdicts(scripted, verdicts):
 def test_bounded_parallel_evaluation_preserves_final_sample_order(monkeypatch, tmp_path):
     from threading import Event
     second_started = Event()
-    fixture = json.loads((evaluation.ROOT / "tests/fixtures/judge/coverage-v3.json").read_text())
+    fixture = json.loads((evaluation.ROOT / "tests/fixtures/judge/archive/coverage-v3.json").read_text())
     labels = {(scenario["question"], row["text"]): row for scenario in fixture["scenarios"] for row in scenario["examples"]}
     first, second = fixture["scenarios"][0]["examples"]
     def judge(question, answer, reference):
@@ -270,7 +270,7 @@ def test_valid_refusal_does_not_require_performing_an_action(scripted):
 
 def test_previous_coverage_expectations_are_preserved():
     previous = json.loads((evaluation.ROOT / 'tests/fixtures/judge/coverage-v2.json').read_text())
-    current = json.loads((evaluation.ROOT / 'tests/fixtures/judge/coverage-v3.json').read_text())
+    current = json.loads((evaluation.ROOT / 'tests/fixtures/judge/archive/coverage-v3.json').read_text())
     new_scenarios = {scenario['id']: scenario for scenario in current['scenarios']}
     new_rows = {(scenario['id'], row['id']): row for scenario in current['scenarios'] for row in scenario['examples']}
     for scenario in previous['scenarios']:
@@ -282,7 +282,7 @@ def test_previous_coverage_expectations_are_preserved():
 
 
 def test_false_routes_do_not_get_relabelled_as_missing():
-    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/coverage-v3.json').read_text())
+    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/archive/coverage-v3.json').read_text())
     rows = {row['id']: row for scenario in fixture['scenarios'] if scenario['id'] == 'action-refusal' for row in scenario['examples']}
     assert rows['incorrect']['expectedDimensions'] == {'factualSupport': False, 'taskCompleteness': True, 'answerQuality': False}
     assert rows['partial-refusal']['expectedDimensions'] == {'factualSupport': True, 'taskCompleteness': False, 'answerQuality': True}

@@ -195,7 +195,7 @@ forward your real key or incur inference charges.
 | `npm test`              | Deterministic unit and integration tests                                                         |
 | `npm run test:e2e`      | Production build and browser tests                                                               |
 | `npm run test:model`    | Live chatbot factuality tests, repeated sampling, then advisory judging (billed with OpenRouter) |
-| `npm run test:judge`    | Default 30-case calibration; selectable expanded suites (billed with OpenRouter)                 |
+| `npm run test:judge`    | 132 judge cases with HTML, JUnit XML, and JSON reports (billed with OpenRouter)                  |
 | `npm run test:python`   | Judge-adapter unit tests; no model server required                                               |
 | `npm run validate:data` | Seed-data validation                                                                             |
 | `npm run check`         | Lint, format check, type checks, application and Python tests, seed validation, and build        |
@@ -206,9 +206,61 @@ application unit/integration tests.
 Database tests use disposable local databases. Browser tests use controlled
 model responses.
 
-## Evaluation documentation
+### Judge evaluations
 
-- [Evaluation methods and commands](docs/model-evaluation.md)
-- [Chatbot behavior and threat model](docs/genai-behavior-threat-model.md)
+Run the judge independently of application tests and chatbot generation:
 
-Evaluation results and history are in [reports/](reports/README.md).
+```sh
+npm run test:judge -- --concurrency 2
+```
+
+The collection contains **132 unique cases and 148 checks**. Checks cover whole
+answers, claim extraction, and claim verification. Each case stores its question,
+reference facts, candidate answer, and expected results. A passing check means the
+judge matched those expectations, including correctly rejecting a bad answer.
+The judge remains advisory; these exposed cases are regression checks, not a
+fresh benchmark.
+
+List cases and categories without making API calls, or run a selected category:
+
+```sh
+npm run test:judge -- --list
+npm run test:judge -- --category account-authorization --concurrency 2
+```
+
+Use a category printed by `--list`, such as `account-authorization`, `coverage`,
+`quality`, `claims`, or `extraction`. Multiple `--category` flags select their
+combined cases, with each case run once. Concurrency is limited to 1–4 cases;
+checks within a case run sequentially. All checks on selected cases run. The default is 1.
+
+Each run prints its report location under `reports/judge-runs/`:
+
+| Output   | Purpose                                                                      |
+| -------- | ---------------------------------------------------------------------------- |
+| `.html`  | Open in a browser: totals, categories, and expandable evidence for each case |
+| `.xml`   | JUnit test report for CI and test-report viewers                             |
+| `.json`  | Full settings, expected and actual results, and request totals               |
+| `.jsonl` | Incremental evidence retained as cases finish                                |
+
+Reports show **passed, failed, error, and pending** counts for cases and checks.
+A case passes only when every check passes. Grading disagreements are failures;
+API or response errors are errors. Reports update during the run, so unfinished
+cases remain visible after interruption. Each completed check is saved before
+the next starts. Category counts overlap. Generated
+reports are Git-ignored; no Markdown reports are produced. A failed, errored, or
+incomplete run exits unsuccessfully.
+
+To judge previously generated chatbot samples without generating new answers:
+
+```sh
+npm run test:judge -- --transcript reports/model-runs/<run>.log
+```
+
+Transcript mode retains its separate JSON/JSONL reporting and advisory verdicts.
+HTTP 429s and incomplete HTTP 200 bodies share up to three retries. Other failures
+are recorded without retrying until passing. Historical fixture snapshots and
+frozen review evidence are archived separately; their approvals do not qualify
+current code or settings.
+
+See [OpenRouter configuration](docs/inference.md) and
+[chatbot behavior](docs/genai-behavior-threat-model.md).

@@ -8,7 +8,7 @@ import evaluate_support as evaluation
 
 
 @pytest.mark.parametrize('suite,filename,count,status', [
-    ('quality', 'quality-controls-v1.json', 17, 'authored-calibration'),
+    ('quality', 'archive/quality-controls-v1.json', 17, 'authored-calibration'),
     ('calibration', 'qualification-v1.json', 32, 'retired-calibration'),
     ('calibration-v2', 'qualification-v2.json', 40, 'retired-calibration'),
 ])
@@ -50,7 +50,7 @@ def test_original_approval_cannot_authorize_corrected_rubric(monkeypatch, tmp_pa
 
 
 def test_controls_isolate_fact_source_and_preserve_independent_quality_defects():
-    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/quality-controls-v1.json').read_text())
+    fixture = json.loads((evaluation.ROOT / 'tests/fixtures/judge/archive/quality-controls-v1.json').read_text())
     cases = {scenario['id']: scenario for scenario in fixture['scenarios']}
     for field in ('stock', 'status'):
         rows = [cases[f'{source}-{field}-error']['examples'][0] for source in ('plain', 'question', 'reference')]
