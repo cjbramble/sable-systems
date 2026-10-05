@@ -93,7 +93,7 @@ requires independently reviewed, untouched cases and review of actual judgments.
 
 `qualification-v4` is an exposed benchmark for the frozen revision-14 evaluator. Its [reviewed plan](../reports/deepeval-benchmark-v4-review.md) and [results](../reports/deepeval-benchmark-v4-results.md) are retained in reports. Use fresh, independently reviewed cases to qualify a changed judge; preserve the existing freeze and results.
 
-The fresh revision-15 candidate is `qualification-v5`. [Review its cases and three-run plan](../reports/deepeval-benchmark-v5-review.md) before running. The command is `OPENROUTER_JUDGE_MAX_TOKENS=16384 npm run test:judge -- --suite qualification-v5 --concurrency 2`; human approval is required before calls.
+`qualification-v5` is an exposed benchmark for the frozen revision-15 evaluator. Its [reviewed plan](../reports/deepeval-benchmark-v5-review.md) and [results](../reports/deepeval-benchmark-v5-results.md) are retained in reports. The judge remains advisory; these exposed cases cannot qualify a changed evaluator or settings as an untouched benchmark.
 
 ## Reports
 
