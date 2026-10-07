@@ -13,6 +13,7 @@ from pydantic import BaseModel
 import judge_collection as collection
 import openrouter_judge as adapter
 import support_grading as grading
+from judge_errors import JudgeError
 
 
 class Verdict(BaseModel):
@@ -99,9 +100,9 @@ def test_429_retries_preserve_identical_request_and_redacted_attempts(http_seque
 
 def test_retry_budget_stops_after_four_attempts_and_preserves_error(http_sequence):
     http_sequence["responses"] = [(429, None)] * 5
-    with pytest.raises(RuntimeError, match="429") as caught:
+    with pytest.raises(JudgeError, match="429") as caught:
         grading.judge_answer("Question", "Answer", "Reference")
-    calls = caught.value.judge_calls
+    calls = caught.value.calls
     assert len(calls) == 4
     assert http_sequence["delays"] == [5, 9, 17]
     assert len(http_sequence["responses"]) == 1
@@ -164,8 +165,7 @@ def test_report_separates_recovered_limits_from_exhausted_errors(monkeypatch, tm
         if count == 2:
             calls[-1].update(httpStatus=429, completed=False, retryExhausted=True)
             error = RuntimeError("Judge HTTP failure: 429")
-            error.judge_calls = deepcopy(calls)
-            raise error
+            raise JudgeError(error, deepcopy(calls)) from error
         return {
             "passed": True,
             "dimensions": dict.fromkeys(adapter_summary_dimensions, True),

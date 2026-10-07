@@ -4,36 +4,45 @@ import json
 import os
 import xml.etree.ElementTree as ET
 from collections import Counter
+from collections.abc import Iterable, Mapping
 from html import escape
+from pathlib import Path
 
-STATUSES = ("passed", "failed", "error", "pending")
+from judge_types import (
+    CaseResult,
+    CheckResult,
+    CollectionReport,
+    CollectionSummary,
+    JudgeCase,
+    Status,
+)
+
+STATUSES: tuple[Status, ...] = ("passed", "failed", "error", "pending")
 
 
-def case_checks(case, results):
-    completed = {
-        check["kind"]: check for check in results.get(case["id"], {}).get("checks", [])
-    }
+def case_checks(
+    case: JudgeCase, results: Mapping[str, CaseResult]
+) -> list[CheckResult]:
+    result = results.get(case["id"])
+    completed = {check["kind"]: check for check in result["checks"]} if result else {}
     return [
         completed.get(kind, {"kind": kind, "expected": expected, "status": "pending"})
         for kind, expected in case["checks"].items()
     ]
 
 
-def case_status(checks):
+def case_status(checks: list[CheckResult]) -> Status:
     statuses = {check["status"] for check in checks}
-    return next(
-        status
-        for status in ("error", "failed", "pending", "passed")
-        if status in statuses
-    )
+    priority: tuple[Status, ...] = ("error", "failed", "pending", "passed")
+    return next(status for status in priority if status in statuses)
 
 
-def counts(statuses):
+def counts(statuses: Iterable[Status]) -> dict[Status, int]:
     counter = Counter(statuses)
     return {status: counter[status] for status in STATUSES}
 
 
-def summarize(report):
+def summarize(report: CollectionReport) -> CollectionSummary:
     results = {result["id"]: result for result in report["results"]}
     cases = report["cases"]
     checks = {case["id"]: case_checks(case, results) for case in cases}
@@ -51,11 +60,11 @@ def summarize(report):
     }
 
 
-def render_html(report):
-    def pretty(value):
+def render_html(report: CollectionReport) -> str:
+    def pretty(value: object) -> str:
         return escape(json.dumps(value, indent=2, ensure_ascii=False))
 
-    def table(title, rows):
+    def table(title: str, rows: Iterable[tuple[str, dict[Status, int]]]) -> str:
         header = (
             "<tr><th>Group</th>"
             + "".join(f"<th>{s.title()}</th>" for s in STATUSES)
@@ -106,7 +115,7 @@ def render_html(report):
     )
 
 
-def render_junit(report):
+def render_junit(report: CollectionReport) -> str:
     summary = report["summary"]["checks"]
     root = ET.Element(
         "testsuites",
@@ -170,7 +179,7 @@ def render_junit(report):
     return ET.tostring(root, encoding="unicode", xml_declaration=True) + "\n"
 
 
-def write_reports(destination, report):
+def write_reports(destination: Path, report: CollectionReport) -> None:
     report["summary"] = summarize(report)
     report["successful"] = report["summary"]["cases"]["passed"] == len(report["cases"])
     for suffix, content in (

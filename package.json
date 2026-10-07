@@ -18,7 +18,7 @@
     "test:e2e": "npm run build && playwright test",
     "demo:record": "npm run build && playwright test --config tools/demo/playwright.config.ts",
     "demo:record:tests": "npm run build && playwright test --config tools/demo/playwright-checkout.config.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && npm run typecheck:python",
     "check": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run test:python && npm run validate:data && npm run build",
     "start": "wrangler dev --config dist/server/wrangler.json --ip 127.0.0.1 --var SABLE_LOCAL_DEMO:true",
     "lint": "oxlint && npm run lint:python",
@@ -27,7 +27,8 @@
     "format:python": "uv run --project tools/evaluation --locked --offline ruff format --config tools/evaluation/pyproject.toml tools/evaluation tests/unit/judge-python",
     "format:check": "oxfmt --check && npm run format:python:check",
     "format:python:check": "npm run format:python -- --check",
-    "audit:deps": "npm audit --audit-level=low"
+    "audit:deps": "npm audit --audit-level=low",
+    "typecheck:python": "uv run --project tools/evaluation --locked --offline mypy --config-file tools/evaluation/pyproject.toml"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

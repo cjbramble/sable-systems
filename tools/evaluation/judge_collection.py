@@ -3,12 +3,22 @@
 import hashlib
 import json
 import time
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
 
+from judge_errors import error_calls, error_message
+from judge_inputs import CollectionInput, CollectionOptions
 from judge_report import summarize, write_reports
+from judge_types import (
+    CaseResult,
+    CheckResult,
+    CollectionMetadata,
+    CollectionReport,
+    JudgeCase,
+)
 from openrouter_judge import RETRY_POLICY, ROOT, judge_metadata, summarize_requests
 from support_grading import (
     GRADING_REVISION,
@@ -21,59 +31,15 @@ from support_grading import (
 COLLECTION = ROOT / "tests/fixtures/judge/judge-cases.json"
 
 
-def load_cases(categories=(), *, path=COLLECTION):
-    data = json.loads(path.read_text())
-    cases = data.get("cases")
-    if data.get("schemaVersion") != 1 or not isinstance(cases, list) or not cases:
-        raise ValueError("Invalid judge collection")
-    ids, inputs = set(), set()
+def load_cases(
+    categories: Sequence[str] = (), *, path: Path = COLLECTION
+) -> list[JudgeCase]:
+    data = CollectionInput.model_validate_json(path.read_text())
+    cases = [case.report_data() for case in data.cases]
     for case in cases:
-        for field in ("id", "question", "answer"):
-            if not isinstance(case.get(field), str) or not case[field].strip():
-                raise ValueError(f"Invalid case {field}")
-        for field in ("references", "categories"):
-            if (
-                not isinstance(case.get(field), list)
-                or not case[field]
-                or any(
-                    not isinstance(value, str) or not value.strip()
-                    for value in case[field]
-                )
-            ):
-                raise ValueError(f"Invalid case {field}")
-        key = (case["question"], tuple(case["references"]), case["answer"])
-        if case["id"] in ids or key in inputs:
-            raise ValueError("Duplicate judge case")
-        ids.add(case["id"])
-        inputs.add(key)
-        checks = case.get("checks")
-        if (
-            not isinstance(checks, dict)
-            or not checks
-            or set(checks) - {"answer", "direct", "extraction"}
-        ):
-            raise ValueError("Invalid case checks")
-        for kind, expected in checks.items():
-            if (
-                not isinstance(expected, dict)
-                or type(expected.get("passed")) is not bool
-            ):
-                raise ValueError("Invalid expected decision")
-            dims = expected.get("dimensions")
-            if dims is not None and (
-                kind != "answer"
-                or set(dims) != {"factualSupport", "taskCompleteness", "answerQuality"}
-                or any(type(value) is not bool for value in dims.values())
-                or expected["passed"] != all(dims.values())
-            ):
-                raise ValueError("Invalid expected dimensions")
-            if kind == "direct" and expected.get("verdict") not in ("yes", "no", "idk"):
-                raise ValueError("Invalid expected claim verdict")
-            if kind == "extraction":
-                claims = expected.get("claims")
-                if not isinstance(claims, list) or not claims:
-                    raise ValueError("Invalid expected claims")
-                assess_claim_coverage(case["answer"], claims, claims)
+        if "extraction" in case["checks"]:
+            claims = case["checks"]["extraction"]["claims"]
+            assess_claim_coverage(case["answer"], claims, claims)
     unknown = set(categories) - {tag for case in cases for tag in case["categories"]}
     if unknown:
         raise ValueError("Unknown category: " + ", ".join(sorted(unknown)))
@@ -84,11 +50,14 @@ def load_cases(categories=(), *, path=COLLECTION):
     ]
 
 
-def evaluate_case(case, on_check=None):
+def evaluate_case(
+    case: JudgeCase,
+    on_check: Callable[[str, CheckResult], None] | None = None,
+) -> CaseResult:
     started = time.monotonic()
-    results = []
+    results: list[CheckResult] = []
     for kind, expected in case["checks"].items():
-        check = {"kind": kind, "expected": expected}
+        check: CheckResult = {"kind": kind, "expected": expected, "status": "pending"}
         check_started = time.monotonic()
         try:
             judge = {
@@ -112,12 +81,14 @@ def evaluate_case(case, on_check=None):
                     case["answer"], expected["claims"], actual["claims"]
                 )
                 agrees = agrees and actual["claimCoverage"]["passed"]
-            check.update(status="passed" if agrees else "failed", actual=actual)
+            check.update({"status": "passed" if agrees else "failed", "actual": actual})
         except Exception as error:
             check.update(
-                status="error",
-                error=f"{type(error).__name__}: {error}",
-                actual={"calls": getattr(error, "judge_calls", [])},
+                {
+                    "status": "error",
+                    "error": error_message(error),
+                    "actual": {"calls": error_calls(error)},
+                }
             )
         check["seconds"] = round(time.monotonic() - check_started, 2)
         results.append(check)
@@ -130,7 +101,9 @@ def evaluate_case(case, on_check=None):
     }
 
 
-def new_report(cases, metadata):
+def new_report(
+    cases: list[JudgeCase], metadata: CollectionMetadata
+) -> CollectionReport:
     return {
         "schemaVersion": 1,
         "mode": "judge-collection",
@@ -142,25 +115,20 @@ def new_report(cases, metadata):
     }
 
 
-def run_collection(payload, destination):
-    categories = payload.get("categories", [])
-    if not isinstance(categories, list) or any(
-        not isinstance(c, str) for c in categories
-    ):
-        raise ValueError("Categories must be a list of strings")
+def run_collection(payload: object, destination: str | Path) -> int:
+    options = CollectionOptions.model_validate(payload)
+    categories = options.categories
     cases = load_cases(categories)
-    if payload.get("list"):
+    if options.list_cases:
         print(f"{len(cases)} cases; {sum(len(c['checks']) for c in cases)} checks")
         for category in sorted({tag for case in cases for tag in case["categories"]}):
             print(
                 f"  {category}: {sum(category in c['categories'] for c in cases)} cases"
             )
         return 0
-    concurrency = payload.get("concurrency", 1)
-    if type(concurrency) is not int or not 1 <= concurrency <= 4:
-        raise ValueError("Judge concurrency must be an integer from 1 to 4")
+    concurrency = options.concurrency
     model, generation = judge_metadata()
-    metadata = {
+    metadata: CollectionMetadata = {
         "model": model,
         "generation": generation,
         "gradingRevision": GRADING_REVISION,
@@ -176,6 +144,9 @@ def run_collection(payload, destination):
                 "judge_report.py",
                 "support_grading.py",
                 "openrouter_judge.py",
+                "judge_inputs.py",
+                "judge_types.py",
+                "judge_errors.py",
             )
         },
     }
@@ -193,9 +164,9 @@ def run_collection(payload, destination):
         evidence.flush()
         write_reports(destination, report)
         lock = Lock()
-        completed = {}
+        completed: dict[str, CaseResult] = {}
 
-        def checkpoint():
+        def checkpoint() -> None:
             report["results"] = [
                 completed[case["id"]] for case in cases if case["id"] in completed
             ]
@@ -208,14 +179,14 @@ def run_collection(payload, destination):
             )
             write_reports(destination, report)
 
-        def on_check(case_id, check):
+        def on_check(case_id: str, check: CheckResult) -> None:
             with lock:
                 partial = completed.setdefault(
                     case_id, {"id": case_id, "checks": [], "seconds": 0}
                 )
                 partial["checks"].append(check)
                 partial["seconds"] = round(
-                    sum(c["seconds"] for c in partial["checks"]), 2
+                    sum(c.get("seconds", 0) for c in partial["checks"]), 2
                 )
                 evidence.write(json.dumps({"id": case_id, "check": check}) + "\n")
                 evidence.flush()
