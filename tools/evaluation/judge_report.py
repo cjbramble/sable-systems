@@ -1,21 +1,26 @@
-"""HTML, JUnit and JSON reports for the judge collection."""
+"""Checkpoint and render HTML, JUnit and JSON collection reports."""
 
 import json
 import os
 import xml.etree.ElementTree as ET
 from collections import Counter
 from collections.abc import Iterable, Mapping
+from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
+from threading import Lock
+from typing import TextIO
 
 from judge_types import (
     CaseResult,
     CheckResult,
+    CollectionMetadata,
     CollectionReport,
     CollectionSummary,
     JudgeCase,
     Status,
 )
+from request_summary import summarize_requests
 
 STATUSES: tuple[Status, ...] = ("passed", "failed", "error", "pending")
 
@@ -191,3 +196,77 @@ def write_reports(destination: Path, report: CollectionReport) -> None:
         temporary = path.with_suffix(path.suffix + ".tmp")
         temporary.write_text(content)
         os.replace(temporary, path)
+
+
+def new_report(
+    cases: list[JudgeCase], metadata: CollectionMetadata
+) -> CollectionReport:
+    return {
+        "schemaVersion": 1,
+        "mode": "judge-collection",
+        "policy": "advisory",
+        "startedAt": datetime.now(UTC).isoformat(),
+        "metadata": metadata,
+        "cases": cases,
+        "results": [],
+    }
+
+
+class CollectionReporter:
+    """Serialize worker checkpoints and publish consistent report snapshots."""
+
+    def __init__(
+        self, destination: Path, report: CollectionReport, evidence: TextIO
+    ) -> None:
+        self.destination = destination
+        self.report = report
+        self.evidence = evidence
+        self._completed: dict[str, CaseResult] = {}
+        self._lock = Lock()
+
+    def start(self) -> None:
+        self._record({"run": self.report})
+        write_reports(self.destination, self.report)
+
+    def _record(self, record: object) -> None:
+        self.evidence.write(json.dumps(record) + "\n")
+        self.evidence.flush()
+
+    def _checkpoint(self) -> None:
+        self.report["results"] = [
+            self._completed[case["id"]]
+            for case in self.report["cases"]
+            if case["id"] in self._completed
+        ]
+        self.report["requests"] = summarize_requests(
+            [
+                check["actual"]
+                for result in self.report["results"]
+                for check in result["checks"]
+            ]
+        )
+        write_reports(self.destination, self.report)
+
+    def on_check(self, case_id: str, check: CheckResult) -> None:
+        with self._lock:
+            partial = self._completed.setdefault(
+                case_id, {"id": case_id, "checks": [], "seconds": 0}
+            )
+            partial["checks"].append(check)
+            partial["seconds"] = round(
+                sum(c.get("seconds", 0) for c in partial["checks"]), 2
+            )
+            self._record({"id": case_id, "check": check})
+            self._checkpoint()
+
+    def on_case(self, result: CaseResult) -> dict[Status, int]:
+        with self._lock:
+            self._completed[result["id"]] = result
+            self._record(result)
+            self._checkpoint()
+            return self.report["summary"]["cases"]
+
+    def finish(self) -> None:
+        # All workers have joined; preserve the last completed snapshot on interruption.
+        self.report["finishedAt"] = datetime.now(UTC).isoformat()
+        self._checkpoint()

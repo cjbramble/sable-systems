@@ -1,25 +1,21 @@
 """Run the current judge case collection independently of application tests."""
 
 import hashlib
-import json
 import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime
 from pathlib import Path
-from threading import Lock
 
 from judge_errors import error_calls, error_message
 from judge_inputs import CollectionInput, CollectionOptions
-from judge_report import summarize, write_reports
+from judge_report import CollectionReporter, new_report
 from judge_types import (
     CaseResult,
     CheckResult,
     CollectionMetadata,
-    CollectionReport,
     JudgeCase,
 )
-from openrouter_judge import RETRY_POLICY, ROOT, judge_metadata, summarize_requests
+from openrouter_judge import RETRY_POLICY, ROOT, judge_metadata
 from support_grading import (
     GRADING_REVISION,
     assess_claim_coverage,
@@ -101,20 +97,6 @@ def evaluate_case(
     }
 
 
-def new_report(
-    cases: list[JudgeCase], metadata: CollectionMetadata
-) -> CollectionReport:
-    return {
-        "schemaVersion": 1,
-        "mode": "judge-collection",
-        "policy": "advisory",
-        "startedAt": datetime.now(UTC).isoformat(),
-        "metadata": metadata,
-        "cases": cases,
-        "results": [],
-    }
-
-
 def run_collection(payload: object, destination: str | Path) -> int:
     options = CollectionOptions.model_validate(payload)
     categories = options.categories
@@ -142,6 +124,7 @@ def run_collection(payload: object, destination: str | Path) -> int:
             for name in (
                 "judge_collection.py",
                 "judge_report.py",
+                "request_summary.py",
                 "support_grading.py",
                 "openrouter_judge.py",
                 "judge_inputs.py",
@@ -160,60 +143,23 @@ def run_collection(payload: object, destination: str | Path) -> int:
             )
     # Persist the plan before calls and each check before the next check starts.
     with destination.with_suffix(".jsonl").open("x") as evidence:
-        evidence.write(json.dumps({"run": report}) + "\n")
-        evidence.flush()
-        write_reports(destination, report)
-        lock = Lock()
-        completed: dict[str, CaseResult] = {}
-
-        def checkpoint() -> None:
-            report["results"] = [
-                completed[case["id"]] for case in cases if case["id"] in completed
-            ]
-            report["requests"] = summarize_requests(
-                [
-                    check["actual"]
-                    for result in report["results"]
-                    for check in result["checks"]
-                ]
-            )
-            write_reports(destination, report)
-
-        def on_check(case_id: str, check: CheckResult) -> None:
-            with lock:
-                partial = completed.setdefault(
-                    case_id, {"id": case_id, "checks": [], "seconds": 0}
-                )
-                partial["checks"].append(check)
-                partial["seconds"] = round(
-                    sum(c.get("seconds", 0) for c in partial["checks"]), 2
-                )
-                evidence.write(json.dumps({"id": case_id, "check": check}) + "\n")
-                evidence.flush()
-                checkpoint()
+        reporter = CollectionReporter(destination, report, evidence)
+        reporter.start()
 
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            futures = {
-                executor.submit(evaluate_case, case, on_check): case for case in cases
-            }
+            futures = [
+                executor.submit(evaluate_case, case, reporter.on_check)
+                for case in cases
+            ]
             for future in as_completed(futures):
                 result = future.result()
-                with lock:
-                    completed[result["id"]] = result
-                    evidence.write(json.dumps(result) + "\n")
-                    evidence.flush()
-                    checkpoint()
-                    status = summarize(report)["cases"]
+                status = reporter.on_case(result)
                 print(
                     f"Judge {result['id']}: "
                     + ", ".join(f"{n} {s}" for s, n in status.items()),
                     flush=True,
                 )
-    report["finishedAt"] = datetime.now(UTC).isoformat()
-    report["requests"] = summarize_requests(
-        [check["actual"] for result in report["results"] for check in result["checks"]]
-    )
-    write_reports(destination, report)
+    reporter.finish()
     print(
         "Cases: " + ", ".join(f"{n} {s}" for s, n in report["summary"]["cases"].items())
     )

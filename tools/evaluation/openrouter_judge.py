@@ -8,7 +8,6 @@ import random
 import socket
 import sys
 import time
-from collections.abc import Sequence
 from contextvars import ContextVar
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -20,9 +19,7 @@ from judge_types import (
     GenerationSettings,
     ModelMetadata,
     ReasoningSettings,
-    RequestEvidence,
     RequestRecord,
-    RequestSummary,
     RetryPolicy,
 )
 
@@ -142,47 +139,6 @@ def retry_delay(retry_after: str | None, attempt: int) -> float | None:
             0, RETRY_POLICY["jitterSeconds"]
         )
     return delay if delay <= RETRY_POLICY["maxDelaySeconds"] else None
-
-
-def summarize_requests(rows: Sequence[RequestEvidence]) -> RequestSummary:
-    """Count HTTP attempts separately from logical requests and case errors."""
-    calls = [call for row in rows for call in row.get("calls", [])]
-    groups: list[list[RequestRecord]] = []
-    for row in rows:
-        requests: dict[int, list[RequestRecord]] = {}
-        for index, call in enumerate(row.get("calls", [])):
-            requests.setdefault(call.get("logicalRequest", index + 1), []).append(call)
-        groups.extend(requests.values())
-    limited = [
-        group
-        for group in groups
-        if any(call.get("httpStatus") == 429 for call in group)
-    ]
-    recovered = sum(group[-1].get("completed") is True for group in limited)
-    incomplete = [
-        group
-        for group in groups
-        if any(
-            call.get("httpStatus") == 200 and call.get("errorType") == "IncompleteRead"
-            for call in group
-        )
-    ]
-    recovered_incomplete = sum(
-        group[-1].get("completed") is True for group in incomplete
-    )
-    return {
-        "requestAttempts": len(calls),
-        "retryAttempts": sum(call.get("attempt", 1) > 1 for call in calls),
-        "rateLimitedAttempts": sum(call.get("httpStatus") == 429 for call in calls),
-        "recoveredRateLimitedRequests": recovered,
-        "unresolvedRateLimitedRequests": len(limited) - recovered,
-        "incompleteResponseAttempts": sum(
-            call.get("httpStatus") == 200 and call.get("errorType") == "IncompleteRead"
-            for call in calls
-        ),
-        "recoveredIncompleteResponseRequests": recovered_incomplete,
-        "unresolvedIncompleteResponseRequests": len(incomplete) - recovered_incomplete,
-    }
 
 
 def judge_config() -> tuple[str, str, GenerationSettings]:

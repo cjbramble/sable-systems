@@ -7,6 +7,8 @@ import sys
 import pytest
 
 import evaluate_support as evaluation
+import transcript_evaluation
+from openrouter_judge import ROOT
 
 
 @pytest.mark.parametrize(
@@ -23,7 +25,7 @@ import evaluate_support as evaluation
 )
 def test_retired_modes_fail_before_requests_or_reports(monkeypatch, tmp_path, payload):
     monkeypatch.setattr(
-        evaluation,
+        transcript_evaluation,
         "judge_metadata",
         lambda: pytest.fail("No model request for retired modes"),
     )
@@ -52,7 +54,7 @@ def test_cli_rejects_retired_or_conflicting_flags(arguments, message):
 
     result = subprocess.run(
         ["node", "scripts/test-support-judge.mjs", *arguments],
-        cwd=evaluation.ROOT,
+        cwd=ROOT,
         capture_output=True,
         text=True,
         timeout=10,

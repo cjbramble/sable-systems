@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 import judge_collection as collection
+import judge_report as reporting
 
 
 def test_collection_has_unique_inputs_and_expected_check_coverage():
@@ -99,7 +100,7 @@ def test_correct_rejection_passes_but_dimension_disagreement_fails(monkeypatch):
 
 def test_reports_distinguish_failures_errors_and_pending_and_escape_html(tmp_path):
     cases = collection.load_cases()[:4]
-    report = collection.new_report(cases, {})
+    report = reporting.new_report(cases, {})
     for case, status in zip(cases[:3], ["passed", "failed", "error"]):
         report["results"].append(
             {
@@ -116,7 +117,7 @@ def test_reports_distinguish_failures_errors_and_pending_and_escape_html(tmp_pat
                 "seconds": 1,
             }
         )
-    collection.write_reports(tmp_path / "report.json", report)
+    reporting.write_reports(tmp_path / "report.json", report)
     data = json.loads((tmp_path / "report.json").read_text())
     assert data["summary"]["cases"] == {
         "passed": 1,

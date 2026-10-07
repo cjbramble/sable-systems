@@ -4,7 +4,8 @@ import sys
 
 import pytest
 
-import evaluate_support as evaluation
+import evaluate_support as cli
+import transcript_evaluation as evaluation
 
 
 @pytest.mark.parametrize("phase", ["factuality", "inference", "judge"])
@@ -59,7 +60,7 @@ def test_live_report_separates_application_disagreement_and_execution(
     monkeypatch.setattr(sys, "argv", ["evaluate_support.py", "--output", str(output)])
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
     # Invoke independently: final judge failures must never produce execution success.
-    code = evaluation.main()
+    code = cli.main()
     report = json.loads(output.read_text())
     summary = report["summary"]["overall"]
     assert summary["applicationFailures"] == int(phase == "factuality")
@@ -113,7 +114,7 @@ def test_transcript_verdicts_remain_advisory_and_preserve_source_evidence(
     }
     monkeypatch.setattr(sys, "argv", ["evaluate_support.py", "--output", str(output)])
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
-    assert evaluation.main() == expected_code
+    assert cli.main() == expected_code
     report = json.loads(output.read_text())
     assert report["sourceSha256"] == "source-digest"
     result = report["results"][0]
@@ -174,5 +175,5 @@ def test_invalid_transcripts_cannot_pass_or_call_model(
         io.StringIO(json.dumps({"mode": "transcript", "batches": batches})),
     )
     with pytest.raises(ValueError, match=message):
-        evaluation.main()
+        cli.main()
     assert not list(tmp_path.iterdir())

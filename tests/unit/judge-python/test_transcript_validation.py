@@ -6,14 +6,15 @@ import sys
 
 import pytest
 
-import evaluate_support as evaluation
+import evaluate_support as cli
+import transcript_evaluation as evaluation
 from judge_errors import JudgeError
 
 
 def run_transcript(monkeypatch, output, payload):
     monkeypatch.setattr(sys, "argv", ["evaluate_support.py", "--output", str(output)])
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
-    return evaluation.main()
+    return cli.main()
 
 
 @pytest.fixture

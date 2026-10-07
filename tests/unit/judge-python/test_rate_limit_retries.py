@@ -14,6 +14,7 @@ import judge_collection as collection
 import openrouter_judge as adapter
 import support_grading as grading
 from judge_errors import JudgeError
+from request_summary import summarize_requests
 
 
 class Verdict(BaseModel):
@@ -250,7 +251,7 @@ def test_incomplete_200_response_retries_identical_request_with_partial_evidence
     assert first["retryReason"] == "incomplete-response"
     assert http_sequence["sent"][0] == http_sequence["sent"][1]
     assert last["completed"] is True
-    summary = adapter.summarize_requests([{"calls": judge.requests}])
+    summary = summarize_requests([{"calls": judge.requests}])
     assert summary["recoveredIncompleteResponseRequests"] == 1
     assert summary["unresolvedIncompleteResponseRequests"] == 0
     assert summary["rateLimitedAttempts"] == 0
@@ -272,7 +273,7 @@ def test_mixed_incomplete_and_rate_limit_failures_share_one_retry_budget(http_se
     assert http_sequence["delays"] == [5, 9, 17]
     assert len(http_sequence["responses"]) == 1
     assert all(body == http_sequence["sent"][0] for body in http_sequence["sent"])
-    summary = adapter.summarize_requests([{"calls": judge.requests}])
+    summary = summarize_requests([{"calls": judge.requests}])
     assert summary["unresolvedIncompleteResponseRequests"] == 1
     assert summary["unresolvedRateLimitedRequests"] == 1
 
