@@ -1,5 +1,6 @@
 """Exercise the real adapter and reporting with an offline HTTP transport."""
 
+import http.client
 import io
 import json
 import random
@@ -11,6 +12,7 @@ import pytest
 from pydantic import BaseModel
 
 import judge_collection as collection
+import judge_runtime
 import openrouter_judge as adapter
 import support_grading as grading
 from judge_errors import JudgeError
@@ -41,7 +43,7 @@ def http_sequence(monkeypatch):
                     def makefile(self, mode):
                         return io.BytesIO(wire)
 
-                self.stream = adapter.http.client.HTTPResponse(Socket())
+                self.stream = http.client.HTTPResponse(Socket())
                 self.stream.begin()
 
         def request(self, method, path, body, headers):
@@ -75,11 +77,11 @@ def http_sequence(monkeypatch):
             state["closed"] += 1
 
     def sleep(seconds):
-        assert adapter._openrouter_request.get() is None
+        assert judge_runtime._openrouter_request.get() is None
         assert state["closed"] == len(state["sent"])
         state["delays"].append(seconds)
 
-    monkeypatch.setattr(adapter.http.client, "HTTPSConnection", Connection)
+    monkeypatch.setattr(http.client, "HTTPSConnection", Connection)
     monkeypatch.setattr(time, "sleep", sleep, raising=False)
     monkeypatch.setattr(random, "uniform", lambda low, high: high, raising=False)
     return state
@@ -204,7 +206,7 @@ def test_premature_http_body_eof_is_not_retried(monkeypatch, http_sequence):
                 b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 100\r\n\r\npartial"
             )
 
-    response = adapter.http.client.HTTPResponse(Socket())
+    response = http.client.HTTPResponse(Socket())
     response.begin()
 
     class Connection:
@@ -221,7 +223,7 @@ def test_premature_http_body_eof_is_not_retried(monkeypatch, http_sequence):
             response.close()
             http_sequence["closed"] += 1
 
-    monkeypatch.setattr(adapter.http.client, "HTTPSConnection", Connection)
+    monkeypatch.setattr(http.client, "HTTPSConnection", Connection)
     judge = adapter.OpenRouterJudge()
     with pytest.raises(RuntimeError, match="429"):
         judge.generate("Evaluate", Verdict)
@@ -266,7 +268,7 @@ def test_mixed_incomplete_and_rate_limit_failures_share_one_retry_budget(http_se
         (200, None),
     ]
     judge = adapter.OpenRouterJudge()
-    with pytest.raises(adapter.http.client.IncompleteRead):
+    with pytest.raises(http.client.IncompleteRead):
         judge.generate("Evaluate", Verdict)
     assert len(judge.requests) == 4
     assert judge.requests[-1]["retryExhausted"] is True
@@ -291,7 +293,7 @@ def test_incomplete_non_success_response_remains_terminal(http_sequence, wire):
         (200, None),
     ]
     judge = adapter.OpenRouterJudge()
-    with pytest.raises((RuntimeError, adapter.http.client.IncompleteRead)):
+    with pytest.raises((RuntimeError, http.client.IncompleteRead)):
         judge.generate("Evaluate", Verdict)
     assert len(judge.requests) == 1
     assert http_sequence["delays"] == []

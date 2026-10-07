@@ -9,13 +9,14 @@ from pathlib import Path
 from judge_errors import error_calls, error_message
 from judge_inputs import CollectionInput, CollectionOptions
 from judge_report import CollectionReporter, new_report
+from judge_settings import ROOT, judge_metadata
 from judge_types import (
     CaseResult,
     CheckResult,
     CollectionMetadata,
     JudgeCase,
 )
-from openrouter_judge import RETRY_POLICY, ROOT, judge_metadata
+from openrouter_transport import RETRY_POLICY
 from support_grading import (
     GRADING_REVISION,
     assess_claim_coverage,
@@ -127,6 +128,9 @@ def run_collection(payload: object, destination: str | Path) -> int:
                 "request_summary.py",
                 "support_grading.py",
                 "openrouter_judge.py",
+                "openrouter_transport.py",
+                "judge_runtime.py",
+                "judge_settings.py",
                 "judge_inputs.py",
                 "judge_types.py",
                 "judge_errors.py",

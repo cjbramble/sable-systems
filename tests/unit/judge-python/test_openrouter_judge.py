@@ -1,9 +1,12 @@
+import http.client
 import json
 from typing import Literal
 
 import pytest
 from pydantic import BaseModel
 
+import judge_runtime
+import judge_settings
 import openrouter_judge
 import support_grading as grading
 from judge_errors import JudgeError
@@ -65,7 +68,7 @@ def transport(monkeypatch):
         def close(self):
             state["closed"] = True
 
-    monkeypatch.setattr(openrouter_judge.http.client, "HTTPSConnection", Connection)
+    monkeypatch.setattr(http.client, "HTTPSConnection", Connection)
     return state
 
 
@@ -91,7 +94,7 @@ def test_openrouter_judge_uses_https_schema_routing_without_recording_credential
     assert "seed" not in body and "chat_template_kwargs" not in body
     assert body["response_format"]["json_schema"]["strict"] is True
     assert "offline-test-key" not in json.dumps(judge.requests)
-    assert openrouter_judge._openrouter_request.get() is None
+    assert judge_runtime._openrouter_request.get() is None
     assert transport["closed"] is True
 
 
@@ -184,7 +187,7 @@ def test_truncated_reasoning_verdict_retains_evidence_and_cannot_pass(
     assert len(caught.value.calls) == 1
     assert caught.value.calls[0]["response"]["choices"][0]["finish_reason"] == "length"
     assert "offline-test-key" not in json.dumps(caught.value.calls)
-    assert openrouter_judge._openrouter_request.get() is None
+    assert judge_runtime._openrouter_request.get() is None
     assert transport["closed"] is True
 
 
@@ -206,31 +209,29 @@ def test_openrouter_failures_reset_network_scope_without_logging_credentials(
     assert len(judge.requests) == 1
     assert judge.requests[0]["httpStatus"] == 401
     assert "offline-test-key" not in json.dumps(judge.requests)
-    assert openrouter_judge._openrouter_request.get() is None
+    assert judge_runtime._openrouter_request.get() is None
 
 
 def test_openrouter_network_scope_permits_only_fixed_dns_and_resolved_https_addresses():
     destination = ("198.51.100.1", 443)
-    token = openrouter_judge._openrouter_request.set({destination})
+    token = judge_runtime._openrouter_request.set({destination})
     try:
-        openrouter_judge.restrict_network("socket.getaddrinfo", ("openrouter.ai", 443))
-        openrouter_judge.restrict_network("socket.connect", (None, destination))
+        judge_runtime.restrict_network("socket.getaddrinfo", ("openrouter.ai", 443))
+        judge_runtime.restrict_network("socket.connect", (None, destination))
         with pytest.raises(PermissionError):
-            openrouter_judge.restrict_network(
-                "socket.getaddrinfo", ("example.com", 443)
-            )
+            judge_runtime.restrict_network("socket.getaddrinfo", ("example.com", 443))
         with pytest.raises(PermissionError):
-            openrouter_judge.restrict_network(
+            judge_runtime.restrict_network(
                 "socket.connect", (None, ("198.51.100.2", 443))
             )
     finally:
-        openrouter_judge._openrouter_request.reset(token)
+        judge_runtime._openrouter_request.reset(token)
 
 
 def test_openrouter_metadata_has_no_local_weights_or_local_generation_parameters(
     monkeypatch,
 ):
-    metadata, generation = openrouter_judge.judge_metadata()
+    metadata, generation = judge_settings.judge_metadata()
     assert metadata == {"provider": "openrouter", "alias": "z-ai/glm-5.3-flash"}
     assert "seed" not in generation and "chat_template_kwargs" not in generation
 
@@ -297,7 +298,7 @@ def test_judge_errors_are_not_passing_verdicts(transport, change):
 )
 def test_network_guard_blocks_other_destinations(address):
     with pytest.raises(PermissionError, match="explicit OpenRouter request"):
-        openrouter_judge.restrict_network("socket.connect", (None, address))
+        judge_runtime.restrict_network("socket.connect", (None, address))
 
 
 @pytest.mark.parametrize(
@@ -310,7 +311,7 @@ def test_network_guard_blocks_other_destinations(address):
 )
 def test_network_guard_blocks_all_network_outside_explicit_judging(event, args):
     with pytest.raises(PermissionError, match="explicit OpenRouter request"):
-        openrouter_judge.restrict_network(event, args)
+        judge_runtime.restrict_network(event, args)
 
 
 def test_blank_answers_are_rejected_before_calling_a_model():
@@ -415,9 +416,9 @@ def test_judge_model_override_preserves_privacy_and_reasoning(monkeypatch, trans
     body = transport["request"][2]
     assert body["model"] == "other/model"
     assert body["reasoning"] == {"enabled": True}
-    assert body["provider"] == openrouter_judge.DEFAULTS["judgeProvider"]
-    assert openrouter_judge.DEFAULTS["model"] == "deepseek/deepseek-v4.1-flash"
-    assert openrouter_judge.DEFAULTS["provider"]["only"] == ["deepinfra/fp8"]
+    assert body["provider"] == judge_settings.DEFAULTS["judgeProvider"]
+    assert judge_settings.DEFAULTS["model"] == "deepseek/deepseek-v4.1-flash"
+    assert judge_settings.DEFAULTS["provider"]["only"] == ["deepinfra/fp8"]
 
 
 @pytest.mark.parametrize("kind", ["invalid-json", "upstream", "timeout", "oversized"])
@@ -444,9 +445,7 @@ def test_failed_transport_keeps_bounded_redacted_evidence(monkeypatch, transport
         def close(self):
             pass
 
-    monkeypatch.setattr(
-        openrouter_judge.http.client, "HTTPSConnection", FailureConnection
-    )
+    monkeypatch.setattr(http.client, "HTTPSConnection", FailureConnection)
     with pytest.raises((ValueError, RuntimeError, TimeoutError)) as caught:
         grading.judge_answer("Question", "Answer", "Reference")
     calls = caught.value.calls
@@ -454,7 +453,7 @@ def test_failed_transport_keeps_bounded_redacted_evidence(monkeypatch, transport
     assert "offline-test-key" not in json.dumps(calls)
     assert calls[0]["errorType"]
     assert len(calls[0].get("rawResponse", "")) <= 2_000_000
-    assert openrouter_judge._openrouter_request.get() is None
+    assert judge_runtime._openrouter_request.get() is None
 
 
 def test_cloud_proxy_tunnels_only_to_openrouter_and_resets_transport(
@@ -465,7 +464,7 @@ def test_cloud_proxy_tunnels_only_to_openrouter_and_resets_transport(
     assert judge.generate("Evaluate", Verdict).score == 1
     assert transport["destination"] == ("proxy", 8080, 180)
     assert transport["tunnel"] == ("openrouter.ai", 443)
-    assert openrouter_judge._openrouter_transport.get() == ("openrouter.ai", 443)
+    assert judge_runtime._openrouter_transport.get() == ("openrouter.ai", 443)
     assert "Authorization" not in json.dumps(judge.requests)
 
 
