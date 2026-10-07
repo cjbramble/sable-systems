@@ -13,6 +13,7 @@ __pycache__/
 
 # testing
 .pytest_cache/
+.ruff_cache/
 /coverage
 /playwright-report/
 /test-results/

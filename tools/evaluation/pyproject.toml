@@ -2,10 +2,10 @@
 name = "support-api-judge"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
-dependencies = ["deepeval==4.2.2"]
+dependencies = ["deepeval==4.2.2", "pydantic==2.13.5"]
 
 [dependency-groups]
-dev = ["pytest==9.1.1"]
+dev = ["pytest==9.1.1", "ruff==0.16.10"]
 
 [tool.uv]
 package = false
@@ -13,3 +13,18 @@ package = false
 [tool.pytest.ini_options]
 pythonpath = ["."]
 addopts = ["--import-mode=importlib"]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+  "evaluate_support",
+  "judge_collection",
+  "judge_report",
+  "openrouter_judge",
+  "support_grading",
+]
