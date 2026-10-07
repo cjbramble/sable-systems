@@ -13,11 +13,52 @@ from openrouter_judge import ROOT, judge_metadata, RETRY_POLICY, summarize_reque
 from support_grading import GRADING_REVISION, ANSWER_RULES, judge_answer
 
 
+def _validate_samples(samples, scenario):
+    if not isinstance(samples, list):
+        raise ValueError(f"Scenario samples must be a list: {scenario}")
+    if not samples:
+        raise ValueError(f"Scenario has no samples: {scenario}")
+    if any(not isinstance(sample, dict) for sample in samples):
+        raise ValueError(f"Each sample must be an object: {scenario}")
+    ids = [sample.get("sample") for sample in samples]
+    if any(value is None for value in ids):
+        raise ValueError(f"Missing sample IDs: {scenario}")
+    if any(type(value) is not int or value < 1 for value in ids):
+        raise ValueError(f"Sample IDs must be positive integers: {scenario}")
+    if len(set(ids)) != len(ids):
+        raise ValueError(f"Missing or duplicate sample IDs: {scenario}")
+    for sample in samples:
+        label = f"{scenario}/{sample['sample']}"
+        if type(sample.get("passed")) is not bool:
+            raise ValueError(f"Sample passed must be a boolean: {label}")
+        failure = sample.get("failure")
+        if failure is not None:
+            if not isinstance(failure, dict):
+                raise ValueError(f"Sample failure must be an object: {label}")
+            if failure.get("phase") not in ("inference", "response-format", "factuality"):
+                raise ValueError(f"Invalid sample failure phase: {label}")
+            if not isinstance(failure.get("error"), str) or not failure["error"].strip():
+                raise ValueError(f"Sample failure requires an error message: {label}")
+            if sample["passed"]:
+                raise ValueError(f"Passing sample cannot contain a failure: {label}")
+        if "answer" not in sample:
+            raise ValueError(f"Sample requires an answer field: {label}")
+        answer = sample["answer"]
+        generator_failed = failure is not None and failure["phase"] in ("inference", "response-format")
+        if generator_failed:
+            if answer is not None and not isinstance(answer, str):
+                raise ValueError(f"Failed generator sample answer must be a string or null: {label}")
+        elif not isinstance(answer, str) or not answer.strip():
+            raise ValueError(f"Sample answer must be a nonempty string: {label}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     payload = json.load(sys.stdin)
+    if not isinstance(payload, dict):
+        raise ValueError("Judge payload must be an object")
     if "suite" in payload:
         raise ValueError("Historical judge suite selection is no longer supported")
     mode = payload.get("mode")
@@ -34,24 +75,31 @@ def main():
     live_path = ROOT / "tests/fixtures/judge/live-support-scenarios.json"
     live_scenarios = {row["id"]: row for row in json.loads(live_path.read_text())["scenarios"]}
     batches = payload.get("batches", {})
+    if not isinstance(batches, dict):
+        raise ValueError("Transcript batches must be an object")
     if set(batches) - {"case-pack", "comparison", *live_scenarios}:
         raise ValueError("Transcript contains unsupported scenarios")
     planned = []
     for scenario, batch in batches.items():
+        if not isinstance(batch, dict):
+            raise ValueError(f"Scenario batch must be an object: {scenario}")
         live = live_scenarios.get(scenario)
         fixture_path = live_path if live else ROOT / f"tests/fixtures/judge/{scenario}.json"
         fixture = {"question": live["messages"][-1]["content"], "references": [batch.get("reference")]} if live else json.loads(fixture_path.read_text())
         if live and (not isinstance(fixture["references"][0], str) or not fixture["references"][0].strip()):
             raise ValueError("Live scenario requires its captured authorized reference")
-        rows = batch["samples"]
-        if not rows:
-            raise ValueError(f"Scenario has no samples: {scenario}")
-        ids = [row.get("sample") for row in rows]
-        if any(value is None for value in ids) or len(set(ids)) != len(ids):
-            raise ValueError(f"Missing or duplicate sample IDs: {scenario}")
+        rows = batch.get("samples")
+        _validate_samples(rows, scenario)
         planned.append((scenario, fixture_path, fixture, rows))
     if not planned:
         raise ValueError("No scenarios selected")
+    destination = Path(args.output)
+    evidence_path = destination.with_suffix(".jsonl")
+    if destination == evidence_path:
+        raise ValueError("Report and evidence paths must be different")
+    for path in (destination, evidence_path):
+        if path.exists() or path.is_symlink():
+            raise ValueError(f"Report already exists: {path}")
     model_metadata, generation = judge_metadata()
     report = {
         "schemaVersion": 4, "mode": mode, "model": model_metadata,
@@ -81,7 +129,7 @@ def main():
             "answer": answer, "reference": fixture["references"][0],
             "sourceRequest": batches[scenario].get("request"),
             "fixtureSha256": hashlib.sha256(fixture_path.read_bytes()).hexdigest(),
-            "factualPassed": row.get("passed"), "failure": row.get("failure"),
+            "factualPassed": row["passed"], "failure": row.get("failure"),
         }
         try:
             if (row.get("failure") or {}).get("phase") in ("inference", "response-format"):
@@ -92,14 +140,13 @@ def main():
         except Exception as error:
             result.setdefault("executionPhase", "judge")
             result["error"] = f"{type(error).__name__}: {error}"
-            result["calls"] = getattr(error, "judge_calls", [])
+            result.setdefault("calls", getattr(error, "judge_calls", []))
         result["seconds"] = round(time.monotonic() - started, 2)
         return result
 
-    destination = Path(args.output)
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Exclusive files and incremental records preserve failures and interrupted runs.
-    with destination.with_suffix(".jsonl").open("x") as evidence:
+    with evidence_path.open("x") as evidence:
         evidence.write(json.dumps({"run": report}) + "\n")
         evidence.flush()
         tasks = [(scenario, path, fixture, row) for scenario, path, fixture, rows in planned for row in rows]
