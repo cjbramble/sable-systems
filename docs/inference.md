@@ -1,76 +1,97 @@
 # OpenRouter inference
 
-COV-E uses `deepseek/deepseek-v4.1-flash`; the advisory judge uses
-`z-ai/glm-5.3-flash`. Both use OpenRouter. No local inference server is required.
+COV-E and the advisory judge use OpenRouter. No local inference server is required.
 
 ## Configuration
 
-Copy `.env.example` to `.env`, set `OPENROUTER_API_KEY`, and run `npm run dev`.
-The launchers load `.env`; existing shell values take precedence. Keep the key
-server-side, out of Git, and out of browser-visible variables.
+Set `OPENROUTER_API_KEY` in `.env`. Launchers load that file; shell values take
+precedence. Keep credentials server-side and out of Git.
 
-| Variable                            | Default                        |
-| ----------------------------------- | ------------------------------ |
-| `OPENROUTER_SUPPORT_MODEL`          | `deepseek/deepseek-v4.1-flash` |
-| `OPENROUTER_JUDGE_MODEL`            | `z-ai/glm-5.3-flash`           |
-| `OPENROUTER_JUDGE_REASONING`        | `true`                         |
-| `OPENROUTER_JUDGE_REASONING_EFFORT` | `high` (`low`, `high`, `max`)  |
-| `OPENROUTER_JUDGE_MAX_TOKENS`       | `16384` (256–32768)            |
+| Variable                           | Default                       |
+| ---------------------------------- | ----------------------------- |
+| `OPENROUTER_SUPPORT_MODEL`         | `deepseek/deepseek-v4.1-flash` |
+| `OPENROUTER_JUDGE_MODEL`           | `z-ai/glm-5.3-flash`          |
+| `OPENROUTER_JUDGE_REASONING`       | `true`                       |
+| `OPENROUTER_JUDGE_REASONING_EFFORT` | `high` (`low`, `high`, `max`) |
+| `OPENROUTER_JUDGE_MAX_TOKENS`      | `16384` (256–32768)           |
 
-Defaults and provider policies live in [lib/openrouter-config.json](../lib/openrouter-config.json).
-Chat pins the DeepInfra FP8 endpoint, disables reasoning, and limits replies to
-600 tokens within an 8,192-token prompt budget. Chat overrides must be supported
-by that endpoint. The judge uses reasoning and a structured response schema;
-its token budget includes reasoning and the verdict. The judge explicitly asks
-for `high` reasoning effort instead of GLM's `max` default. Effort is a model
-control, not a hard token cap; unfinished verdicts still fail. Set effort only
-when reasoning is enabled.
+Defaults and provider policies are in
+[lib/openrouter-config.json](../lib/openrouter-config.json).
 
-The implicit `high` setting applies to the default GLM judge. Other model
-overrides keep their provider's default effort unless explicitly configured;
-an explicit effort must be supported by the selected model.
+- Chat pins DeepInfra FP8, disables reasoning, and uses an 8,192-token prompt
+  budget with a 600-token reply limit. Model overrides must work on that endpoint.
+- The judge uses reasoning and structured responses. Its token limit covers
+  both reasoning and the verdict; unfinished responses are errors. Configure
+  effort only with reasoning enabled. Other model overrides use their provider's
+  default effort unless explicitly set.
+- Both request zero data retention, deny data collection, require supported
+  parameters, and disable provider fallback.
 
-Both configurations disable provider fallback, require supported parameters,
-deny data collection, and request zero data retention. The judge lets OpenRouter
-select a compatible endpoint. Unsupported settings fail rather than switching
-to another model. Explicit environment overrides remain in effect.
+Requests send customer questions, authorized records, and saved history to
+OpenRouter and the selected provider. Authentication, account scoping, quotas,
+and response validation remain in the app. Chat allows one corrective retry.
 
-## Application behavior
+`/api/status` checks key access and reachability, not credits or inference capacity.
 
-Chat requests send customer questions, authorized records, and saved history to
-OpenRouter and the selected provider. The seed data is fictional. Review service
-terms and account privacy settings before using real customer data.
+## Judge evaluations
 
-Authentication, account-scoped lookups, quotas, and response guards remain in
-the application. Chat makes at most one corrective model retry. Missing credentials
-or provider failures return safe errors without saving a completed exchange.
-Judge transport retries are separate; see [judge evaluations](../README.md#judge-evaluations).
+Prepare Python with `npm run setup:judge`; live judging requires the API key and
+incurs OpenRouter charges. DeepEval telemetry and cloud reporting are disabled.
 
-`/api/status` checks the non-generating key endpoint for credentials and reachability.
-It does not establish credits, inference capacity, or response quality.
+```sh
+npm run test:judge
+npm run test:judge -- --list
+npm run test:judge -- --category account-authorization --concurrency 2
+npm run test:judge -- --transcript reports/model-runs/<run>.log
+```
 
-## Cloud runtime
+The collection checks answer facts, completeness, quality, claim extraction,
+and claim truth. Expected results are stored in
+[the case collection](../tests/fixtures/judge/judge-cases.json).
+A pass means agreement with those expectations. Cases have informed development;
+they are regression coverage, not an untouched benchmark.
 
-Install Node dependencies with `npm ci`; prepare Python with `npm run setup:judge`
-when running evaluator checks. Provide the API key as a runtime secret and allow
-HTTPS to `openrouter.ai`. Offline checks do not require an API key.
+`--list` needs no API key and makes no requests. Repeat `--category` to combine
+categories without duplicate cases. All checks on each selected case run.
+Concurrency is 1–4 cases (default 1); checks within a case run sequentially.
+Transcript mode judges saved answers without generating new ones and cannot be
+combined with category selection or listing.
 
-When the environment requires an HTTP proxy, the judge honors `HTTPS_PROXY` or
-`https_proxy` through a verified TLS CONNECT tunnel. Live Worker tests use the
-host proxy bridge for the OpenRouter key and completion endpoints. Offline tests
-retain dummy credentials. Neither transport follows redirects or disables TLS
-verification.
+Collection reports are saved under `reports/judge-runs/`:
 
-Worker and browser tests require local sockets. In environments that supply a
-child-process subreaper, use it for test launchers; give `uv` a writable cache.
+| Format   | Use |
+| -------- | --- |
+| HTML     | Browser report with totals and expandable evidence |
+| JUnit XML | CI and test-report viewers |
+| JSON     | Settings, expected/actual results, and request totals |
+| JSONL    | Incremental evidence |
 
-Builds disable the published demo accounts. `npm start` enables them for a
-loopback-only local preview. Public deployment requires private accounts and a
-separate access policy.
+Reports show passed, failed, error, and pending counts. A case passes when all
+its checks pass. Disagreements are failures; API or response problems are errors.
+Each completed check is saved before the next starts, preserving partial runs.
+Category totals overlap. Failed, errored, or incomplete collection runs exit
+unsuccessfully.
+
+Transcript reports use JSON/JSONL. Judge verdicts are advisory; application
+failures and execution errors still fail the run. Reports are Git-ignored.
+
+HTTP 429s and incomplete HTTP 200 bodies share up to three retries.
+Other failures are recorded without retrying.
+
+## Runtime setup
+
+Allow HTTPS to `openrouter.ai` and local sockets for Worker and browser tests.
+Offline checks use dummy credentials and make no model requests.
+
+The judge supports `HTTPS_PROXY` or `https_proxy` through a verified TLS tunnel.
+Live Worker tests use the host proxy bridge. Neither transport follows redirects
+or disables TLS verification.
+
+Provide the key as a runtime secret when hosted. Public deployment also requires
+private accounts and a separate access policy; builds disable demo access.
 
 ## References
 
 - [Provider routing](https://openrouter.ai/docs/guides/routing/provider-selection)
 - [Reasoning controls](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)
 - [Provider privacy](https://openrouter.ai/docs/guides/privacy/provider-logging)
-- [Judge evaluations and reports](../README.md#judge-evaluations)
