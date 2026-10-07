@@ -8,6 +8,7 @@ from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from threading import Lock
 from typing import TextIO
 
@@ -193,9 +194,11 @@ def write_reports(destination: Path, report: CollectionReport) -> None:
         (".xml", render_junit(report)),
     ):
         path = destination.with_suffix(suffix)
-        temporary = path.with_suffix(path.suffix + ".tmp")
-        temporary.write_text(content)
-        os.replace(temporary, path)
+        # Keep replacement atomic without reusing another run's temporary path.
+        with TemporaryDirectory(dir=path.parent, prefix=f".{path.name}.") as directory:
+            temporary = Path(directory) / path.name
+            temporary.write_text(content, encoding="utf-8")
+            os.replace(temporary, path)
 
 
 def new_report(

@@ -109,6 +109,11 @@ def run_collection(payload: object, destination: str | Path) -> int:
                 f"  {category}: {sum(category in c['categories'] for c in cases)} cases"
             )
         return 0
+    destination = Path(destination)
+    for suffix in (".json", ".jsonl", ".html", ".xml"):
+        path = destination.with_suffix(suffix)
+        if path.exists() or path.is_symlink():
+            raise ValueError(f"Report already exists: {path}")
     concurrency = options.concurrency
     model, generation = judge_metadata()
     metadata: CollectionMetadata = {
@@ -138,13 +143,7 @@ def run_collection(payload: object, destination: str | Path) -> int:
         },
     }
     report = new_report(cases, metadata)
-    destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    for suffix in (".json", ".jsonl", ".html", ".xml"):
-        if destination.with_suffix(suffix).exists():
-            raise ValueError(
-                "Report already exists: " + str(destination.with_suffix(suffix))
-            )
     # Persist the plan before calls and each check before the next check starts.
     with destination.with_suffix(".jsonl").open("x") as evidence:
         reporter = CollectionReporter(destination, report, evidence)
