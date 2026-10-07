@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 import openrouter_judge
 import support_grading as grading
+from judge_errors import JudgeError
 
 
 @pytest.fixture(autouse=True)
@@ -178,14 +179,11 @@ def test_truncated_reasoning_verdict_retains_evidence_and_cannot_pass(
 ):
     monkeypatch.setenv("OPENROUTER_API_KEY", "offline-test-key")
     transport.update({"finish": "length", "content": ""})
-    with pytest.raises(RuntimeError, match="did not finish") as caught:
+    with pytest.raises(JudgeError, match="did not finish") as caught:
         grading.judge_answer("Question", "Answer", "Reference")
-    assert len(caught.value.judge_calls) == 1
-    assert (
-        caught.value.judge_calls[0]["response"]["choices"][0]["finish_reason"]
-        == "length"
-    )
-    assert "offline-test-key" not in json.dumps(caught.value.judge_calls)
+    assert len(caught.value.calls) == 1
+    assert caught.value.calls[0]["response"]["choices"][0]["finish_reason"] == "length"
+    assert "offline-test-key" not in json.dumps(caught.value.calls)
     assert openrouter_judge._openrouter_request.get() is None
     assert transport["closed"] is True
 
@@ -341,9 +339,9 @@ def test_claim_judging_retains_evidence_and_rejects_ambiguous_or_missing_verdict
         )
     ]
     if verdict is None:
-        with pytest.raises(ValueError) as caught:
+        with pytest.raises(JudgeError) as caught:
             grading.judge_claims("What can ship?", answer, expected)
-        assert len(caught.value.judge_calls) == 2
+        assert len(caught.value.calls) == 2
         return
     result = grading.judge_claims("What can ship?", answer, expected)
     assert result["passed"] is (verdict == "yes")
@@ -368,9 +366,9 @@ def test_claim_judging_retains_evidence_and_rejects_ambiguous_or_missing_verdict
 @pytest.mark.parametrize("claims", [[], [" "]])
 def test_empty_claim_extraction_cannot_pass(transport, claims):
     transport["content"] = json.dumps({"claims": claims})
-    with pytest.raises(ValueError) as caught:
+    with pytest.raises(JudgeError) as caught:
         grading.judge_claims("Question", "Answer", "Reference")
-    assert len(caught.value.judge_calls) == 1
+    assert len(caught.value.calls) == 1
 
 
 @pytest.mark.parametrize(
@@ -396,9 +394,9 @@ def test_direct_claim_verification_uses_one_call_and_the_unmodified_reference(
         }
     )
     if invalid:
-        with pytest.raises(ValueError) as caught:
+        with pytest.raises(JudgeError) as caught:
             grading.judge_direct_claim("Stock question", claim, reference)
-        assert len(caught.value.judge_calls) == 1
+        assert len(caught.value.calls) == 1
         return
     result = grading.judge_direct_claim("Stock question", claim, reference)
     assert result["passed"] is (verdict == "yes")
@@ -451,7 +449,7 @@ def test_failed_transport_keeps_bounded_redacted_evidence(monkeypatch, transport
     )
     with pytest.raises((ValueError, RuntimeError, TimeoutError)) as caught:
         grading.judge_answer("Question", "Answer", "Reference")
-    calls = caught.value.judge_calls
+    calls = caught.value.calls
     assert len(calls) == 1
     assert "offline-test-key" not in json.dumps(calls)
     assert calls[0]["errorType"]

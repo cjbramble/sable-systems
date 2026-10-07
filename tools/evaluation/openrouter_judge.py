@@ -8,12 +8,29 @@ import random
 import socket
 import sys
 import time
+from collections.abc import Sequence
 from contextvars import ContextVar
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
-_openrouter_request = ContextVar("openrouter_request", default=None)
+from pydantic import BaseModel
+
+from judge_types import (
+    GenerationSettings,
+    ModelMetadata,
+    ReasoningSettings,
+    RequestEvidence,
+    RequestRecord,
+    RequestSummary,
+    RetryPolicy,
+)
+
+type SocketAddress = tuple[str, int] | tuple[str, int, int, int] | tuple[int, bytes]
+
+_openrouter_request: ContextVar[set[SocketAddress] | None] = ContextVar(
+    "openrouter_request", default=None
+)
 _openrouter_transport = ContextVar(
     "openrouter_transport", default=("openrouter.ai", 443)
 )
@@ -31,7 +48,7 @@ os.environ.update(
 )
 
 
-def restrict_network(event, args):
+def restrict_network(event: str, args: tuple[object, ...]) -> None:
     # The adapter fixes the HTTPS destination and verifies its TLS certificate.
     # Background SDK calls remain blocked, including during threaded judging.
     destinations = _openrouter_request.get()
@@ -52,7 +69,11 @@ def restrict_network(event, args):
 sys.addaudithook(restrict_network)
 
 
-def connect_openrouter(address, timeout, source_address=None):
+def connect_openrouter(
+    address: tuple[str, int],
+    timeout: float,
+    source_address: tuple[str, int] | None = None,
+) -> socket.socket:
     if address != _openrouter_transport.get() or source_address is not None:
         raise PermissionError("Unexpected judge HTTPS destination")
     destinations = _openrouter_request.get()
@@ -80,9 +101,14 @@ from deepeval.models import DeepEvalBaseLLM  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULTS = json.loads((ROOT / "lib/openrouter-config.json").read_text())
-GENERATION = {"temperature": 0, "top_p": 1, "max_tokens": 16384, "stream": False}
+GENERATION: GenerationSettings = {
+    "temperature": 0,
+    "top_p": 1,
+    "max_tokens": 16384,
+    "stream": False,
+}
 
-RETRY_POLICY = {
+RETRY_POLICY: RetryPolicy = {
     "httpStatuses": [429],
     "transportErrors": ["IncompleteRead"],
     "transportHttpStatuses": [200],
@@ -94,9 +120,9 @@ RETRY_POLICY = {
 }
 
 
-def retry_delay(retry_after, attempt):
+def retry_delay(retry_after: str | None, attempt: int) -> float | None:
     """Honor a valid server delay; decline waits beyond our bounded budget."""
-    delay = None
+    delay: float | None = None
     if isinstance(retry_after, str):
         value = retry_after.strip()
         if value.isascii() and value.isdigit():
@@ -118,12 +144,12 @@ def retry_delay(retry_after, attempt):
     return delay if delay <= RETRY_POLICY["maxDelaySeconds"] else None
 
 
-def summarize_requests(rows):
+def summarize_requests(rows: Sequence[RequestEvidence]) -> RequestSummary:
     """Count HTTP attempts separately from logical requests and case errors."""
     calls = [call for row in rows for call in row.get("calls", [])]
-    groups = []
+    groups: list[list[RequestRecord]] = []
     for row in rows:
-        requests = {}
+        requests: dict[int, list[RequestRecord]] = {}
         for index, call in enumerate(row.get("calls", [])):
             requests.setdefault(call.get("logicalRequest", index + 1), []).append(call)
         groups.extend(requests.values())
@@ -159,7 +185,7 @@ def summarize_requests(rows):
     }
 
 
-def judge_config():
+def judge_config() -> tuple[str, str, GenerationSettings]:
     model = (
         os.environ.get("OPENROUTER_JUDGE_MODEL", "").strip() or DEFAULTS["judgeModel"]
     )
@@ -181,7 +207,7 @@ def judge_config():
             + ", ".join(efforts)
             + " with reasoning enabled"
         )
-    reasoning_settings = {"enabled": reasoning == "true"}
+    reasoning_settings: ReasoningSettings = {"enabled": reasoning == "true"}
     if reasoning == "true" and (effort or default_glm):
         reasoning_settings["effort"] = effort or "high"
     try:
@@ -197,7 +223,7 @@ def judge_config():
         raise ValueError(
             "OPENROUTER_JUDGE_MAX_TOKENS must be an integer from 256 to 32768"
         )
-    generation = dict(GENERATION)
+    generation = GENERATION.copy()
     generation.update(
         {
             "max_tokens": max_tokens,
@@ -208,27 +234,31 @@ def judge_config():
     return "openrouter", model, generation
 
 
-def judge_metadata():
+def judge_metadata() -> tuple[ModelMetadata, GenerationSettings]:
     provider, model, generation = judge_config()
     return {"provider": provider, "alias": model}, generation
 
 
 class OpenRouterJudge(DeepEvalBaseLLM):
-    def __init__(self):
-        self.requests = []
+    def __init__(self) -> None:
+        self.requests: list[RequestRecord] = []
         self.provider, self.model_name, self.generation = judge_config()
         super().__init__()
 
-    def load_model(self):
+    def load_model(self) -> str:
         return self.model_name
 
-    def get_model_name(self):
+    def get_model_name(self) -> str:
         return self.model_name
 
-    def generate(self, prompt, schema=None):
+    def generate[Response: BaseModel](
+        self,
+        prompt: str,
+        schema: type[Response] | None = None,
+    ) -> Response:
         if schema is None:
             raise ValueError("Judging requires a response schema")
-        body = {
+        body: dict[str, object] = {
             "model": self.model_name,
             "messages": [{"role": "user", "content": prompt}],
             **self.generation,
@@ -273,10 +303,11 @@ class OpenRouterJudge(DeepEvalBaseLLM):
             connection = http.client.HTTPSConnection(*destination, timeout=180)
             if proxy_url:
                 connection.set_tunnel("openrouter.ai", 443)
-            connection._create_connection = connect_openrouter
+            # HTTPConnection uses this private hook for the guarded socket factory.
+            connection._create_connection = connect_openrouter  # type: ignore[attr-defined]
             transport_scope = _openrouter_transport.set(destination)
             network_scope = _openrouter_request.set(set())
-            record = {
+            record: RequestRecord = {
                 "request": body,
                 "logicalRequest": logical_request,
                 "attempt": attempt,
@@ -365,5 +396,11 @@ class OpenRouterJudge(DeepEvalBaseLLM):
                 connection.close()
             time.sleep(delay)
 
-    async def a_generate(self, prompt, schema=None):
+        raise RuntimeError("Judge exhausted request attempts")
+
+    async def a_generate[Response: BaseModel](
+        self,
+        prompt: str,
+        schema: type[Response] | None = None,
+    ) -> Response:
         return await asyncio.to_thread(self.generate, prompt, schema)

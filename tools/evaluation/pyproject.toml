@@ -5,7 +5,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = ["deepeval==4.2.2", "pydantic==2.13.5"]
 
 [dependency-groups]
-dev = ["pytest==9.1.1", "ruff==0.16.10"]
+dev = ["mypy==2.4.0", "pytest==9.1.1", "ruff==0.16.10"]
 
 [tool.uv]
 package = false
@@ -24,7 +24,23 @@ select = ["E4", "E7", "E9", "F", "I", "UP"]
 known-first-party = [
   "evaluate_support",
   "judge_collection",
+  "judge_errors",
+  "judge_inputs",
+  "judge_types",
   "judge_report",
   "openrouter_judge",
   "support_grading",
 ]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["tools/evaluation"]
+mypy_path = "tools/evaluation"
+check_untyped_defs = true
+disallow_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["deepeval.*"]
+follow_imports = "skip"

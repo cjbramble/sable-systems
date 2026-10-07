@@ -9,62 +9,19 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from judge_errors import error_calls, error_message
+from judge_inputs import (
+    FixtureInput,
+    PlannedScenario,
+    TranscriptInput,
+    TranscriptSample,
+)
+from judge_types import TranscriptReport, TranscriptResult, TranscriptSummary
 from openrouter_judge import RETRY_POLICY, ROOT, judge_metadata, summarize_requests
 from support_grading import ANSWER_RULES, GRADING_REVISION, judge_answer
 
 
-def _validate_samples(samples, scenario):
-    if not isinstance(samples, list):
-        raise ValueError(f"Scenario samples must be a list: {scenario}")
-    if not samples:
-        raise ValueError(f"Scenario has no samples: {scenario}")
-    if any(not isinstance(sample, dict) for sample in samples):
-        raise ValueError(f"Each sample must be an object: {scenario}")
-    ids = [sample.get("sample") for sample in samples]
-    if any(value is None for value in ids):
-        raise ValueError(f"Missing sample IDs: {scenario}")
-    if any(type(value) is not int or value < 1 for value in ids):
-        raise ValueError(f"Sample IDs must be positive integers: {scenario}")
-    if len(set(ids)) != len(ids):
-        raise ValueError(f"Missing or duplicate sample IDs: {scenario}")
-    for sample in samples:
-        label = f"{scenario}/{sample['sample']}"
-        if type(sample.get("passed")) is not bool:
-            raise ValueError(f"Sample passed must be a boolean: {label}")
-        failure = sample.get("failure")
-        if failure is not None:
-            if not isinstance(failure, dict):
-                raise ValueError(f"Sample failure must be an object: {label}")
-            if failure.get("phase") not in (
-                "inference",
-                "response-format",
-                "factuality",
-            ):
-                raise ValueError(f"Invalid sample failure phase: {label}")
-            if (
-                not isinstance(failure.get("error"), str)
-                or not failure["error"].strip()
-            ):
-                raise ValueError(f"Sample failure requires an error message: {label}")
-            if sample["passed"]:
-                raise ValueError(f"Passing sample cannot contain a failure: {label}")
-        if "answer" not in sample:
-            raise ValueError(f"Sample requires an answer field: {label}")
-        answer = sample["answer"]
-        generator_failed = failure is not None and failure["phase"] in (
-            "inference",
-            "response-format",
-        )
-        if generator_failed:
-            if answer is not None and not isinstance(answer, str):
-                raise ValueError(
-                    f"Failed generator sample answer must be a string or null: {label}"
-                )
-        elif not isinstance(answer, str) or not answer.strip():
-            raise ValueError(f"Sample answer must be a nonempty string: {label}")
-
-
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
@@ -84,42 +41,35 @@ def main():
         raise ValueError(
             "Transcript mode cannot select collection categories or list cases"
         )
-    concurrency = payload.get("concurrency", 1)
-    if type(concurrency) is not int or not 1 <= concurrency <= 4:
-        raise ValueError("Judge concurrency must be an integer from 1 to 4")
+    transcript = TranscriptInput.model_validate(payload)
+    concurrency = transcript.concurrency
     live_path = ROOT / "tests/fixtures/judge/live-support-scenarios.json"
     live_scenarios = {
         row["id"]: row for row in json.loads(live_path.read_text())["scenarios"]
     }
-    batches = payload.get("batches", {})
-    if not isinstance(batches, dict):
-        raise ValueError("Transcript batches must be an object")
+    batches = transcript.batches
     if set(batches) - {"case-pack", "comparison", *live_scenarios}:
         raise ValueError("Transcript contains unsupported scenarios")
-    planned = []
+    planned: list[PlannedScenario] = []
     for scenario, batch in batches.items():
-        if not isinstance(batch, dict):
-            raise ValueError(f"Scenario batch must be an object: {scenario}")
         live = live_scenarios.get(scenario)
         fixture_path = (
             live_path if live else ROOT / f"tests/fixtures/judge/{scenario}.json"
         )
-        fixture = (
-            {
-                "question": live["messages"][-1]["content"],
-                "references": [batch.get("reference")],
-            }
-            if live
-            else json.loads(fixture_path.read_text())
-        )
-        if live and (
-            not isinstance(fixture["references"][0], str)
-            or not fixture["references"][0].strip()
-        ):
-            raise ValueError("Live scenario requires its captured authorized reference")
-        rows = batch.get("samples")
-        _validate_samples(rows, scenario)
-        planned.append((scenario, fixture_path, fixture, rows))
+        if live:
+            if batch.reference is None:
+                raise ValueError(
+                    "Live scenario requires its captured authorized reference"
+                )
+            fixture = FixtureInput.model_validate(
+                {
+                    "question": live["messages"][-1]["content"],
+                    "references": [batch.reference],
+                }
+            )
+        else:
+            fixture = FixtureInput.model_validate_json(fixture_path.read_text())
+        planned.append(PlannedScenario(scenario, fixture_path, fixture, batch))
     if not planned:
         raise ValueError("No scenarios selected")
     destination = Path(args.output)
@@ -130,7 +80,7 @@ def main():
         if path.exists() or path.is_symlink():
             raise ValueError(f"Report already exists: {path}")
     model_metadata, generation = judge_metadata()
-    report = {
+    report: TranscriptReport = {
         "schemaVersion": 4,
         "mode": mode,
         "model": model_metadata,
@@ -154,6 +104,9 @@ def main():
                     "openrouter_judge.py",
                     "evaluate_support.py",
                     "support_grading.py",
+                    "judge_inputs.py",
+                    "judge_types.py",
+                    "judge_errors.py",
                     "uv.lock",
                 )
             },
@@ -161,46 +114,46 @@ def main():
                 (ROOT / "lib/openrouter-config.json").read_bytes()
             ).hexdigest(),
         },
-        "sourceTranscript": payload.get("sourceTranscript"),
-        "sourceSha256": payload.get("sourceSha256"),
+        "sourceTranscript": transcript.sourceTranscript,
+        "sourceSha256": transcript.sourceSha256,
         "coverage": {
-            "expectedScenarios": [item[0] for item in planned],
-            "expectedSamples": sum(len(item[3]) for item in planned),
+            "expectedScenarios": [item.scenario for item in planned],
+            "expectedSamples": sum(len(item.batch.samples) for item in planned),
         },
         "results": [],
     }
 
-    def evaluate_row(scenario, fixture_path, fixture, row):
+    def evaluate_row(plan: PlannedScenario, row: TranscriptSample) -> TranscriptResult:
         started = time.monotonic()
-        answer = row["answer"]
-        result = {
-            "scenario": scenario,
-            "id": row["sample"],
+        answer = row.answer
+        result: TranscriptResult = {
+            "scenario": plan.scenario,
+            "id": row.sample,
             "answer": answer,
-            "reference": fixture["references"][0],
-            "sourceRequest": batches[scenario].get("request"),
-            "fixtureSha256": hashlib.sha256(fixture_path.read_bytes()).hexdigest(),
-            "factualPassed": row["passed"],
-            "failure": row.get("failure"),
+            "reference": plan.fixture.references[0],
+            "sourceRequest": plan.batch.request,
+            "fixtureSha256": hashlib.sha256(plan.fixture_path.read_bytes()).hexdigest(),
+            "factualPassed": row.passed,
+            "failure": row.failure.model_dump(exclude_unset=True)
+            if row.failure
+            else None,
         }
         try:
-            if (row.get("failure") or {}).get("phase") in (
-                "inference",
-                "response-format",
-            ):
+            if row.generator_failed:
                 result["executionPhase"] = "generator"
+                assert row.failure is not None
                 raise RuntimeError(
-                    "Generator did not produce a usable answer: "
-                    + row["failure"]["error"]
+                    "Generator did not produce a usable answer: " + row.failure.error
                 )
+            assert answer is not None  # Validated for every usable sample.
             result.update(
-                judge_answer(fixture["question"], answer, fixture["references"][0])
+                judge_answer(plan.fixture.question, answer, plan.fixture.references[0])
             )
-            result["judgeApplicationAgrees"] = result["passed"] == row["passed"]
+            result["judgeApplicationAgrees"] = result["passed"] == row.passed
         except Exception as error:
             result.setdefault("executionPhase", "judge")
-            result["error"] = f"{type(error).__name__}: {error}"
-            result.setdefault("calls", getattr(error, "judge_calls", []))
+            result["error"] = error_message(error)
+            result.setdefault("calls", error_calls(error))
         result["seconds"] = round(time.monotonic() - started, 2)
         return result
 
@@ -209,17 +162,13 @@ def main():
     with evidence_path.open("x") as evidence:
         evidence.write(json.dumps({"run": report}) + "\n")
         evidence.flush()
-        tasks = [
-            (scenario, path, fixture, row)
-            for scenario, path, fixture, rows in planned
-            for row in rows
-        ]
+        tasks = [(plan, row) for plan in planned for row in plan.batch.samples]
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             pending = {
                 executor.submit(evaluate_row, *task): index
                 for index, task in enumerate(tasks)
             }
-            completed = {}
+            completed: dict[int, TranscriptResult] = {}
             for future in as_completed(pending):
                 result = future.result()
                 completed[pending[future]] = result
@@ -240,7 +189,7 @@ def main():
         }
     )
 
-    def summarize(rows):
+    def summarize(rows: list[TranscriptResult]) -> TranscriptSummary:
         completed = [row for row in rows if "error" not in row]
         return {
             **summarize_requests(rows),

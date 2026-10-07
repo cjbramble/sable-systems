@@ -129,15 +129,33 @@ def test_transcript_verdicts_remain_advisory_and_preserve_source_evidence(
     "batches,message",
     [
         ({}, "No scenarios"),
-        ({"unknown": {"samples": []}}, "unsupported scenarios"),
+        (
+            {
+                "unknown": {
+                    "samples": [{"sample": 1, "answer": "Answer", "passed": True}]
+                }
+            },
+            "unsupported scenarios",
+        ),
         ({"comparison": {"samples": []}}, "no samples"),
         (
-            {"case-pack": {"samples": [{"sample": 1}, {"sample": 1}]}},
-            "duplicate sample IDs",
+            {
+                "case-pack": {
+                    "samples": [
+                        {"sample": 1, "answer": "Answer", "passed": True},
+                        {"sample": 1, "answer": "Answer", "passed": True},
+                    ]
+                }
+            },
+            "Duplicate sample IDs",
         ),
-        ({"case-pack": {"samples": [{}]}}, "Missing"),
+        ({"case-pack": {"samples": [{}]}}, "Field required"),
         (
-            {"order-status": {"samples": [{"sample": 1}]}},
+            {
+                "order-status": {
+                    "samples": [{"sample": 1, "answer": "Answer", "passed": True}]
+                }
+            },
             "captured authorized reference",
         ),
     ],

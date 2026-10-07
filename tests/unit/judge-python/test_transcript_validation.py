@@ -7,6 +7,7 @@ import sys
 import pytest
 
 import evaluate_support as evaluation
+from judge_errors import JudgeError
 
 
 def run_transcript(monkeypatch, output, payload):
@@ -213,8 +214,7 @@ def test_execution_errors_preserve_requests_in_both_reports(
     def judge(*args):
         if failure_point == "judge":
             error = ValueError("Invalid verdict")
-            error.judge_calls = calls
-            raise error
+            raise JudgeError(error, calls) from error
         # Missing verdict triggers an error after the request evidence is retained.
         return {"calls": calls}
 

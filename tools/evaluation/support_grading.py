@@ -2,10 +2,12 @@
 
 import json
 import re
-from typing import Literal
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from judge_errors import JudgeError
+from judge_types import ClaimCoverage, ClaimMatch, Dimensions, JudgeResult
 from openrouter_judge import OpenRouterJudge
 
 # The adapter must install privacy settings and the network guard before DeepEval.
@@ -221,13 +223,15 @@ class SourceClaims(StrictAssessment):
     claims: list[str] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def nonempty_quotes(self):
+    def nonempty_quotes(self) -> Self:
         if any(not quote.strip() for quote in self.claims):
             raise ValueError("Extracted quotes must be nonempty")
         return self
 
 
-def quote_spans(text, quote, *, overlapping=False):
+def quote_spans(
+    text: str, quote: str, *, overlapping: bool = False
+) -> list[tuple[int, int]]:
     # Whole-word edges prevent 48 from matching inside 148, for example.
     start = r"(?<!\w)" if quote[0].isalnum() or quote[0] == "_" else ""
     end = r"(?!\w)" if quote[-1].isalnum() or quote[-1] == "_" else ""
@@ -237,7 +241,7 @@ def quote_spans(text, quote, *, overlapping=False):
     return [(match.start(), match.end()) for match in re.finditer(pattern, text)]
 
 
-def trace_answer_quote(answer, quote):
+def trace_answer_quote(answer: str, quote: str) -> str:
     if quote_spans(answer, quote):
         return quote
     # A model may decorate a copied quote with enclosing quotation marks.
@@ -261,7 +265,9 @@ def trace_answer_quote(answer, quote):
     raise ValueError("Every assessed claim must quote the answer verbatim")
 
 
-def assess_claim_coverage(answer, expected, extracted):
+def assess_claim_coverage(
+    answer: str, expected: list[str], extracted: list[str]
+) -> ClaimCoverage:
     if (
         not isinstance(expected, list)
         or not expected
@@ -279,7 +285,7 @@ def assess_claim_coverage(answer, expected, extracted):
         not isinstance(quote, str) or not quote.strip() for quote in extracted
     ):
         raise ValueError("Extracted claims must be nonempty quote strings")
-    matches = [
+    matches: list[ClaimMatch] = [
         {
             "claim": quote,
             "extractedIndices": [
@@ -346,7 +352,7 @@ class QualityAssessment(StrictAssessment):
     reason: str = Field(min_length=1)
 
     @property
-    def defects(self):
+    def defects(self) -> list[str]:
         return [
             name
             for name in (
@@ -360,7 +366,7 @@ class QualityAssessment(StrictAssessment):
         ]
 
     @property
-    def appropriate(self):
+    def appropriate(self) -> bool:
         return not self.defects
 
 
@@ -379,7 +385,7 @@ class AnswerAssessment(StrictAssessment):
     quality: QualityAssessment
 
 
-def _validate_inputs(question, answer, reference):
+def _validate_inputs(question: str, answer: str, reference: str) -> None:
     if not all(
         isinstance(value, str) and value.strip()
         for value in (question, answer, reference)
@@ -387,7 +393,7 @@ def _validate_inputs(question, answer, reference):
         raise ValueError("Question, answer and expected facts must be nonempty strings")
 
 
-def judge_answer(question, answer, reference):
+def judge_answer(question: str, answer: str, reference: str) -> JudgeResult:
     _validate_inputs(question, answer, reference)
     judge = OpenRouterJudge()
     try:
@@ -405,7 +411,7 @@ def judge_answer(question, answer, reference):
         )
         for fact in result.facts:
             fact.claim = trace_answer_quote(answer, fact.claim)
-        dimensions = {
+        dimensions: Dimensions = {
             "factualSupport": all(
                 fact.verdict in ("yes", "not_applicable") for fact in result.facts
             ),
@@ -426,11 +432,10 @@ def judge_answer(question, answer, reference):
             "calls": judge.requests,
         }
     except Exception as error:
-        error.judge_calls = judge.requests
-        raise
+        raise JudgeError(error, judge.requests) from error
 
 
-def _verify_claim(judge, claim, reference):
+def _verify_claim(judge: OpenRouterJudge, claim: str, reference: str) -> ClaimVerdict:
     prompt = FaithfulnessTemplate.generate_verdicts(
         claims=[claim], retrieval_context=reference, multimodal=False
     )
@@ -451,7 +456,7 @@ def _verify_claim(judge, claim, reference):
     return verdict
 
 
-def judge_direct_claim(question, claim, reference):
+def judge_direct_claim(question: str, claim: str, reference: str) -> JudgeResult:
     _validate_inputs(question, claim, reference)
     judge = OpenRouterJudge()
     try:
@@ -463,15 +468,14 @@ def judge_direct_claim(question, claim, reference):
             "reason": verdict.reason,
             "reference": reference,
             "claims": [claim],
-            "verdicts": [verdict.model_dump()],
+            "verdicts": [{"verdict": verdict.verdict, "reason": verdict.reason}],
             "calls": judge.requests,
         }
     except Exception as error:
-        error.judge_calls = judge.requests
-        raise
+        raise JudgeError(error, judge.requests) from error
 
 
-def judge_claims(question, answer, reference):
+def judge_claims(question: str, answer: str, reference: str) -> JudgeResult:
     _validate_inputs(question, answer, reference)
     judge = OpenRouterJudge()
     try:
@@ -494,9 +498,11 @@ def judge_claims(question, answer, reference):
             ),
             "reference": reference,
             "claims": claims,
-            "verdicts": [verdict.model_dump() for verdict in verdicts],
+            "verdicts": [
+                {"verdict": verdict.verdict, "reason": verdict.reason}
+                for verdict in verdicts
+            ],
             "calls": judge.requests,
         }
     except Exception as error:
-        error.judge_calls = judge.requests
-        raise
+        raise JudgeError(error, judge.requests) from error
