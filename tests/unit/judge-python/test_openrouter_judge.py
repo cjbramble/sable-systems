@@ -26,7 +26,11 @@ class Verdict(BaseModel):
 
 @pytest.fixture
 def transport(monkeypatch):
-    state = {"status": 200, "finish": "stop", "content": '{"score":1,"reason":"Grounded"}'}
+    state = {
+        "status": 200,
+        "finish": "stop",
+        "content": '{"score":1,"reason":"Grounded"}',
+    }
 
     class Connection:
         def __init__(self, host, port, timeout):
@@ -43,8 +47,19 @@ def transport(monkeypatch):
             return self
 
         def read(self, limit):
-            content = state["responses"].pop(0) if "responses" in state else state["content"]
-            return json.dumps({"choices": [{"finish_reason": state["finish"], "message": {"content": content}}]}).encode()
+            content = (
+                state["responses"].pop(0) if "responses" in state else state["content"]
+            )
+            return json.dumps(
+                {
+                    "choices": [
+                        {
+                            "finish_reason": state["finish"],
+                            "message": {"content": content},
+                        }
+                    ]
+                }
+            ).encode()
 
         def close(self):
             state["closed"] = True
@@ -53,7 +68,9 @@ def transport(monkeypatch):
     return state
 
 
-def test_openrouter_judge_uses_https_schema_routing_without_recording_credentials(monkeypatch, transport):
+def test_openrouter_judge_uses_https_schema_routing_without_recording_credentials(
+    monkeypatch, transport
+):
     monkeypatch.setenv("OPENROUTER_API_KEY", "offline-test-key")
     judge = openrouter_judge.OpenRouterJudge()
     assert judge.generate("Evaluate this answer", Verdict).score == 1
@@ -62,7 +79,12 @@ def test_openrouter_judge_uses_https_schema_routing_without_recording_credential
     assert (method, path) == ("POST", "/api/v1/chat/completions")
     assert headers["Authorization"] == "Bearer offline-test-key"
     assert body["model"] == "z-ai/glm-5.3-flash"
-    assert body["provider"] == {"allow_fallbacks": False, "require_parameters": True, "data_collection": "deny", "zdr": True}
+    assert body["provider"] == {
+        "allow_fallbacks": False,
+        "require_parameters": True,
+        "data_collection": "deny",
+        "zdr": True,
+    }
     assert body["reasoning"] == {"enabled": True, "effort": "high"}
     assert body["max_tokens"] == 16384
     assert "seed" not in body and "chat_template_kwargs" not in body
@@ -72,7 +94,9 @@ def test_openrouter_judge_uses_https_schema_routing_without_recording_credential
     assert transport["closed"] is True
 
 
-def test_openrouter_judge_comparison_overrides_reach_the_request(monkeypatch, transport):
+def test_openrouter_judge_comparison_overrides_reach_the_request(
+    monkeypatch, transport
+):
     monkeypatch.setenv("OPENROUTER_API_KEY", "offline-test-key")
     monkeypatch.setenv("OPENROUTER_JUDGE_REASONING", "false")
     monkeypatch.setenv("OPENROUTER_JUDGE_MAX_TOKENS", "4096")
@@ -82,67 +106,85 @@ def test_openrouter_judge_comparison_overrides_reach_the_request(monkeypatch, tr
     assert body["max_tokens"] == 4096
 
 
-@pytest.mark.parametrize('effort', ['low', 'high', 'max'])
-def test_explicit_reasoning_effort_reaches_request_without_changing_model_or_budget(monkeypatch, transport, effort):
-    monkeypatch.setenv('OPENROUTER_JUDGE_REASONING_EFFORT', effort)
-    openrouter_judge.OpenRouterJudge().generate('Evaluate', Verdict)
-    body = transport['request'][2]
-    assert body['reasoning'] == {'enabled': True, 'effort': effort}
-    assert body['model'] == 'z-ai/glm-5.3-flash'
-    assert body['max_tokens'] == 16384
-    assert body['provider']['require_parameters'] is True
+@pytest.mark.parametrize("effort", ["low", "high", "max"])
+def test_explicit_reasoning_effort_reaches_request_without_changing_model_or_budget(
+    monkeypatch, transport, effort
+):
+    monkeypatch.setenv("OPENROUTER_JUDGE_REASONING_EFFORT", effort)
+    openrouter_judge.OpenRouterJudge().generate("Evaluate", Verdict)
+    body = transport["request"][2]
+    assert body["reasoning"] == {"enabled": True, "effort": effort}
+    assert body["model"] == "z-ai/glm-5.3-flash"
+    assert body["max_tokens"] == 16384
+    assert body["provider"]["require_parameters"] is True
 
 
-@pytest.mark.parametrize('effort', ['medium', 'none', 'unbounded'])
-def test_unsupported_glm_reasoning_effort_fails_before_connecting(monkeypatch, transport, effort):
-    monkeypatch.setenv('OPENROUTER_JUDGE_REASONING_EFFORT', effort)
-    with pytest.raises(ValueError, match='OPENROUTER_JUDGE_REASONING_EFFORT'):
+@pytest.mark.parametrize("effort", ["medium", "none", "unbounded"])
+def test_unsupported_glm_reasoning_effort_fails_before_connecting(
+    monkeypatch, transport, effort
+):
+    monkeypatch.setenv("OPENROUTER_JUDGE_REASONING_EFFORT", effort)
+    with pytest.raises(ValueError, match="OPENROUTER_JUDGE_REASONING_EFFORT"):
         openrouter_judge.OpenRouterJudge()
-    assert 'destination' not in transport
+    assert "destination" not in transport
 
 
-def test_explicit_effort_cannot_be_silently_ignored_when_reasoning_is_disabled(monkeypatch, transport):
-    monkeypatch.setenv('OPENROUTER_JUDGE_REASONING', 'false')
-    monkeypatch.setenv('OPENROUTER_JUDGE_REASONING_EFFORT', 'high')
-    with pytest.raises(ValueError, match='OPENROUTER_JUDGE_REASONING_EFFORT'):
+def test_explicit_effort_cannot_be_silently_ignored_when_reasoning_is_disabled(
+    monkeypatch, transport
+):
+    monkeypatch.setenv("OPENROUTER_JUDGE_REASONING", "false")
+    monkeypatch.setenv("OPENROUTER_JUDGE_REASONING_EFFORT", "high")
+    with pytest.raises(ValueError, match="OPENROUTER_JUDGE_REASONING_EFFORT"):
         openrouter_judge.OpenRouterJudge()
-    assert 'destination' not in transport
+    assert "destination" not in transport
 
 
 def test_alternate_model_keeps_its_own_default_effort(monkeypatch, transport):
-    monkeypatch.setenv('OPENROUTER_JUDGE_MODEL', 'qwen/qwen3.8-27b')
-    openrouter_judge.OpenRouterJudge().generate('Evaluate', Verdict)
-    assert transport['request'][2]['reasoning'] == {'enabled': True}
+    monkeypatch.setenv("OPENROUTER_JUDGE_MODEL", "qwen/qwen3.8-27b")
+    openrouter_judge.OpenRouterJudge().generate("Evaluate", Verdict)
+    assert transport["request"][2]["reasoning"] == {"enabled": True}
 
 
-@pytest.mark.parametrize('effort', ['medium', 'xhigh'])
-def test_alternate_model_can_use_standard_explicit_efforts(monkeypatch, transport, effort):
-    monkeypatch.setenv('OPENROUTER_JUDGE_MODEL', 'qwen/qwen3.8-27b')
-    monkeypatch.setenv('OPENROUTER_JUDGE_REASONING_EFFORT', effort)
-    openrouter_judge.OpenRouterJudge().generate('Evaluate', Verdict)
-    assert transport['request'][2]['reasoning'] == {'enabled': True, 'effort': effort}
+@pytest.mark.parametrize("effort", ["medium", "xhigh"])
+def test_alternate_model_can_use_standard_explicit_efforts(
+    monkeypatch, transport, effort
+):
+    monkeypatch.setenv("OPENROUTER_JUDGE_MODEL", "qwen/qwen3.8-27b")
+    monkeypatch.setenv("OPENROUTER_JUDGE_REASONING_EFFORT", effort)
+    openrouter_judge.OpenRouterJudge().generate("Evaluate", Verdict)
+    assert transport["request"][2]["reasoning"] == {"enabled": True, "effort": effort}
 
 
-@pytest.mark.parametrize("name,value", [
-    ("OPENROUTER_JUDGE_REASONING", "yes"),
-    ("OPENROUTER_JUDGE_MAX_TOKENS", "255"),
-    ("OPENROUTER_JUDGE_MAX_TOKENS", "32769"),
-    ("OPENROUTER_JUDGE_MAX_TOKENS", "4096.5"),
-])
-def test_invalid_hosted_judge_settings_fail_before_a_request(monkeypatch, transport, name, value):
+@pytest.mark.parametrize(
+    "name,value",
+    [
+        ("OPENROUTER_JUDGE_REASONING", "yes"),
+        ("OPENROUTER_JUDGE_MAX_TOKENS", "255"),
+        ("OPENROUTER_JUDGE_MAX_TOKENS", "32769"),
+        ("OPENROUTER_JUDGE_MAX_TOKENS", "4096.5"),
+    ],
+)
+def test_invalid_hosted_judge_settings_fail_before_a_request(
+    monkeypatch, transport, name, value
+):
     monkeypatch.setenv(name, value)
     with pytest.raises(ValueError, match=name):
         openrouter_judge.OpenRouterJudge()
     assert "destination" not in transport
 
 
-def test_truncated_reasoning_verdict_retains_evidence_and_cannot_pass(monkeypatch, transport):
+def test_truncated_reasoning_verdict_retains_evidence_and_cannot_pass(
+    monkeypatch, transport
+):
     monkeypatch.setenv("OPENROUTER_API_KEY", "offline-test-key")
     transport.update({"finish": "length", "content": ""})
     with pytest.raises(RuntimeError, match="did not finish") as caught:
         grading.judge_answer("Question", "Answer", "Reference")
     assert len(caught.value.judge_calls) == 1
-    assert caught.value.judge_calls[0]["response"]["choices"][0]["finish_reason"] == "length"
+    assert (
+        caught.value.judge_calls[0]["response"]["choices"][0]["finish_reason"]
+        == "length"
+    )
     assert "offline-test-key" not in json.dumps(caught.value.judge_calls)
     assert openrouter_judge._openrouter_request.get() is None
     assert transport["closed"] is True
@@ -155,7 +197,9 @@ def test_openrouter_judge_requires_a_key_before_connecting(monkeypatch, transpor
     assert "destination" not in transport
 
 
-def test_openrouter_failures_reset_network_scope_without_logging_credentials(monkeypatch, transport):
+def test_openrouter_failures_reset_network_scope_without_logging_credentials(
+    monkeypatch, transport
+):
     monkeypatch.setenv("OPENROUTER_API_KEY", "offline-test-key")
     transport["status"] = 401
     judge = openrouter_judge.OpenRouterJudge()
@@ -174,27 +218,51 @@ def test_openrouter_network_scope_permits_only_fixed_dns_and_resolved_https_addr
         openrouter_judge.restrict_network("socket.getaddrinfo", ("openrouter.ai", 443))
         openrouter_judge.restrict_network("socket.connect", (None, destination))
         with pytest.raises(PermissionError):
-            openrouter_judge.restrict_network("socket.getaddrinfo", ("example.com", 443))
+            openrouter_judge.restrict_network(
+                "socket.getaddrinfo", ("example.com", 443)
+            )
         with pytest.raises(PermissionError):
-            openrouter_judge.restrict_network("socket.connect", (None, ("198.51.100.2", 443)))
+            openrouter_judge.restrict_network(
+                "socket.connect", (None, ("198.51.100.2", 443))
+            )
     finally:
         openrouter_judge._openrouter_request.reset(token)
 
 
-def test_openrouter_metadata_has_no_local_weights_or_local_generation_parameters(monkeypatch):
+def test_openrouter_metadata_has_no_local_weights_or_local_generation_parameters(
+    monkeypatch,
+):
     metadata, generation = openrouter_judge.judge_metadata()
     assert metadata == {"provider": "openrouter", "alias": "z-ai/glm-5.3-flash"}
     assert "seed" not in generation and "chat_template_kwargs" not in generation
 
 
 def test_current_grading_uses_fixed_rules_in_one_structured_judgment(transport):
-    transport["content"] = json.dumps({
-        "facts": [{"claim": "Candidate answer", "verdict": "yes", "reason": "Grounded"}],
-        "requirements": [{"requirement": "Customer question", "status": "supplied", "reason": "Complete"}],
-        "quality": dict(evaluator_instruction=False, off_topic=False, unauthorized_action=False,
-                        foreign_account_disclosure=False, invented_resource=False, reason="Clear"),
-    })
-    result = grading.judge_answer("Customer question", "Candidate answer", "Authoritative facts")
+    transport["content"] = json.dumps(
+        {
+            "facts": [
+                {"claim": "Candidate answer", "verdict": "yes", "reason": "Grounded"}
+            ],
+            "requirements": [
+                {
+                    "requirement": "Customer question",
+                    "status": "supplied",
+                    "reason": "Complete",
+                }
+            ],
+            "quality": dict(
+                evaluator_instruction=False,
+                off_topic=False,
+                unauthorized_action=False,
+                foreign_account_disclosure=False,
+                invented_resource=False,
+                reason="Clear",
+            ),
+        }
+    )
+    result = grading.judge_answer(
+        "Customer question", "Candidate answer", "Authoritative facts"
+    )
 
     assert result["passed"] is True
     assert len(result["calls"]) == 1
@@ -210,10 +278,15 @@ def test_current_grading_uses_fixed_rules_in_one_structured_judgment(transport):
     assert result["score"] == 1
 
 
-@pytest.mark.parametrize("change", [
-    {"status": 503}, {"finish": "length"}, {"content": "not json"},
-    {"content": '{"score":9,"reason":"Invalid"}'},
-])
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"status": 503},
+        {"finish": "length"},
+        {"content": "not json"},
+        {"content": '{"score":9,"reason":"Invalid"}'},
+    ],
+)
 def test_judge_errors_are_not_passing_verdicts(transport, change):
     transport.update(change)
     with pytest.raises((ValueError, RuntimeError)):
@@ -221,17 +294,22 @@ def test_judge_errors_are_not_passing_verdicts(transport, change):
     assert transport["closed"] is True
 
 
-@pytest.mark.parametrize("address", [("example.com", 443), ("127.0.0.1", 8080), ("192.168.1.1", 8017)])
+@pytest.mark.parametrize(
+    "address", [("example.com", 443), ("127.0.0.1", 8080), ("192.168.1.1", 8017)]
+)
 def test_network_guard_blocks_other_destinations(address):
     with pytest.raises(PermissionError, match="explicit OpenRouter request"):
         openrouter_judge.restrict_network("socket.connect", (None, address))
 
 
-@pytest.mark.parametrize("event,args", [
-    ("socket.getaddrinfo", ("openrouter.ai", 443)),
-    ("socket.getaddrinfo", ("127.0.0.1", 8017)),
-    ("socket.connect", (None, ("127.0.0.1", 8017))),
-])
+@pytest.mark.parametrize(
+    "event,args",
+    [
+        ("socket.getaddrinfo", ("openrouter.ai", 443)),
+        ("socket.getaddrinfo", ("127.0.0.1", 8017)),
+        ("socket.connect", (None, ("127.0.0.1", 8017))),
+    ],
+)
 def test_network_guard_blocks_all_network_outside_explicit_judging(event, args):
     with pytest.raises(PermissionError, match="explicit OpenRouter request"):
         openrouter_judge.restrict_network(event, args)
@@ -243,16 +321,25 @@ def test_blank_answers_are_rejected_before_calling_a_model():
 
 
 @pytest.mark.parametrize("verdict", ["yes", "no", "idk", None])
-def test_claim_judging_retains_evidence_and_rejects_ambiguous_or_missing_verdicts(transport, verdict):
+def test_claim_judging_retains_evidence_and_rejects_ambiguous_or_missing_verdicts(
+    transport, verdict
+):
     expected = "Available stock is 312 units."
     answer = "320 units can be supplied from current stock."
     claims = [answer, "A separate claim to verify after the first verdict."]
     # Scripted responses test the metric wiring, not the model's factual judgment.
-    transport["responses"] = [json.dumps(value) for value in (
-        {"claims": claims},
-        {"verdicts": [] if verdict is None else [{"verdict": verdict, "reason": "Test evidence"}]},
-        {"verdicts": [{"verdict": "yes", "reason": None}]},
-    )]
+    transport["responses"] = [
+        json.dumps(value)
+        for value in (
+            {"claims": claims},
+            {
+                "verdicts": []
+                if verdict is None
+                else [{"verdict": verdict, "reason": "Test evidence"}]
+            },
+            {"verdicts": [{"verdict": "yes", "reason": None}]},
+        )
+    ]
     if verdict is None:
         with pytest.raises(ValueError) as caught:
             grading.judge_claims("What can ship?", answer, expected)
@@ -262,7 +349,10 @@ def test_claim_judging_retains_evidence_and_rejects_ambiguous_or_missing_verdict
     assert result["passed"] is (verdict == "yes")
     assert result["reference"] == expected
     assert result["claims"] == claims
-    assert result["verdicts"] == [{"verdict": verdict, "reason": "Test evidence"}, {"verdict": "yes", "reason": None}]
+    assert result["verdicts"] == [
+        {"verdict": verdict, "reason": "Test evidence"},
+        {"verdict": "yes", "reason": None},
+    ]
     assert len(result["calls"]) == 3
     extraction_prompt = result["calls"][0]["request"]["messages"][0]["content"]
     assert answer in extraction_prompt
@@ -283,15 +373,28 @@ def test_empty_claim_extraction_cannot_pass(transport, claims):
     assert len(caught.value.judge_calls) == 1
 
 
-@pytest.mark.parametrize("verdict,reason,invalid", [
-    ("yes", None, False), ("no", "Stock is insufficient", False),
-    ("idk", "Not enough evidence", False), ("no", None, True),
-    (None, None, True),
-])
-def test_direct_claim_verification_uses_one_call_and_the_unmodified_reference(transport, verdict, reason, invalid):
+@pytest.mark.parametrize(
+    "verdict,reason,invalid",
+    [
+        ("yes", None, False),
+        ("no", "Stock is insufficient", False),
+        ("idk", "Not enough evidence", False),
+        ("no", None, True),
+        (None, None, True),
+    ],
+)
+def test_direct_claim_verification_uses_one_call_and_the_unmodified_reference(
+    transport, verdict, reason, invalid
+):
     reference = "Redline has 312 units available. Orders must be multiples of eight."
     claim = "We can supply 320 Redline units from current stock."
-    transport["content"] = json.dumps({"verdicts": [] if verdict is None else [{"verdict": verdict, "reason": reason}]})
+    transport["content"] = json.dumps(
+        {
+            "verdicts": []
+            if verdict is None
+            else [{"verdict": verdict, "reason": reason}]
+        }
+    )
     if invalid:
         with pytest.raises(ValueError) as caught:
             grading.judge_direct_claim("Stock question", claim, reference)
@@ -324,21 +427,28 @@ def test_failed_transport_keeps_bounded_redacted_evidence(monkeypatch, transport
     class FailureConnection:
         def __init__(self, *args, **kwargs):
             pass
+
         def request(self, *args):
             if kind == "timeout":
                 raise TimeoutError("connection failed")
+
         def getresponse(self):
             self.status = 200
             return self
+
         def read(self, limit):
             if kind == "invalid-json":
                 return b"invalid offline-test-key"
             if kind == "oversized":
                 return b"x" * limit
             return b'{"error":{"message":"offline-test-key"}}'
+
         def close(self):
             pass
-    monkeypatch.setattr(openrouter_judge.http.client, "HTTPSConnection", FailureConnection)
+
+    monkeypatch.setattr(
+        openrouter_judge.http.client, "HTTPSConnection", FailureConnection
+    )
     with pytest.raises((ValueError, RuntimeError, TimeoutError)) as caught:
         grading.judge_answer("Question", "Answer", "Reference")
     calls = caught.value.judge_calls
@@ -349,7 +459,9 @@ def test_failed_transport_keeps_bounded_redacted_evidence(monkeypatch, transport
     assert openrouter_judge._openrouter_request.get() is None
 
 
-def test_cloud_proxy_tunnels_only_to_openrouter_and_resets_transport(monkeypatch, transport):
+def test_cloud_proxy_tunnels_only_to_openrouter_and_resets_transport(
+    monkeypatch, transport
+):
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy:8080")
     judge = openrouter_judge.OpenRouterJudge()
     assert judge.generate("Evaluate", Verdict).score == 1
@@ -359,8 +471,13 @@ def test_cloud_proxy_tunnels_only_to_openrouter_and_resets_transport(monkeypatch
     assert "Authorization" not in json.dumps(judge.requests)
 
 
-@pytest.mark.parametrize("proxy", ["https://proxy:8080", "http://name:secret@proxy:8080", "http://proxy/path"])
-def test_invalid_proxy_configuration_fails_before_connection(monkeypatch, transport, proxy):
+@pytest.mark.parametrize(
+    "proxy",
+    ["https://proxy:8080", "http://name:secret@proxy:8080", "http://proxy/path"],
+)
+def test_invalid_proxy_configuration_fails_before_connection(
+    monkeypatch, transport, proxy
+):
     monkeypatch.setenv("HTTPS_PROXY", proxy)
     with pytest.raises(ValueError, match="proxy"):
         openrouter_judge.OpenRouterJudge().generate("Evaluate", Verdict)

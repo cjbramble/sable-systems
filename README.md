@@ -166,10 +166,11 @@ remove it when the application adopts a Vinext release that no longer needs it.
 | Miniflare                | Local Workers runtime setup and disposable D1 databases               |
 | Playwright               | Chromium browser workflows using page objects                         |
 | pytest                   | Python judge-adapter and mocked HTTPS tests                           |
+| Ruff                     | Python formatting, import sorting, and lint checks                    |
 | DeepEval                 | Advisory rubric judgments using OpenRouter with reasoning             |
 
-Oxlint provides lint checks, TypeScript checks types, and a custom validator checks
-the seed dataset.
+Oxlint checks JavaScript and TypeScript, Ruff checks Python, TypeScript checks
+types, and a custom validator checks the seed dataset.
 
 ### Test setup
 
@@ -194,18 +195,22 @@ forward your real key or incur inference charges.
 
 ### Commands
 
-| Command                 | Runs                                                                                             |
-| ----------------------- | ------------------------------------------------------------------------------------------------ |
-| `npm test`              | Deterministic unit and integration tests                                                         |
-| `npm run test:e2e`      | Production build and browser tests                                                               |
-| `npm run test:model`    | Live chatbot factuality tests, repeated sampling, then advisory judging (billed with OpenRouter) |
-| `npm run test:judge`    | 132 judge cases with HTML, JUnit XML, and JSON reports (billed with OpenRouter)                  |
-| `npm run test:python`   | Judge-adapter unit tests; no model server required                                               |
-| `npm run validate:data` | Seed-data validation                                                                             |
-| `npm run check`         | Lint, format check, type checks, application and Python tests, seed validation, and build        |
+| Command                       | Runs                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------ |
+| `npm test`                    | Deterministic unit and integration tests                                                         |
+| `npm run test:e2e`            | Production build and browser tests                                                               |
+| `npm run test:model`          | Live chatbot factuality tests, repeated sampling, then advisory judging (billed with OpenRouter) |
+| `npm run test:judge`          | 132 judge cases with HTML, JUnit XML, and JSON reports (billed with OpenRouter)                  |
+| `npm run test:python`         | Judge-adapter unit tests; no model server required                                               |
+| `npm run lint:python`         | Python lint and import-order checks                                                              |
+| `npm run format:python`       | Format Python files                                                                              |
+| `npm run format:python:check` | Check Python formatting without changing files                                                   |
+| `npm run validate:data`       | Seed-data validation                                                                             |
+| `npm run check`               | Lint, format check, type checks, application and Python tests, seed validation, and build        |
 
-Python evaluator tests are included in `npm run check`; run `npm run setup:judge`
-first. Browser and live-model suites run separately. `npm test` covers only the
+Python lint, formatting checks, and evaluator tests are included in `npm run check`;
+run `npm run setup:judge` first. `npm run format` formats both application and Python
+files. Browser and live-model suites run separately. `npm test` covers only the
 application unit/integration tests.
 Database tests use disposable local databases. Browser tests use controlled
 model responses.
