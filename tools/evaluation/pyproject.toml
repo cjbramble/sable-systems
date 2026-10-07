@@ -30,6 +30,9 @@ known-first-party = [
   "judge_report",
   "openrouter_judge",
   "support_grading",
+  "request_summary",
+  "transcript_evaluation",
+  "transcript_report",
 ]
 
 [tool.mypy]
