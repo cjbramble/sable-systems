@@ -8,7 +8,7 @@ import pytest
 
 import evaluate_support as evaluation
 import transcript_evaluation
-from openrouter_judge import ROOT
+from judge_settings import ROOT
 
 
 @pytest.mark.parametrize(

@@ -15,8 +15,9 @@ from judge_inputs import (
     TranscriptInput,
     TranscriptSample,
 )
+from judge_settings import ROOT, judge_metadata
 from judge_types import TranscriptReport, TranscriptResult
-from openrouter_judge import RETRY_POLICY, ROOT, judge_metadata
+from openrouter_transport import RETRY_POLICY
 from support_grading import ANSWER_RULES, GRADING_REVISION, judge_answer
 from transcript_report import complete_report
 
@@ -83,6 +84,9 @@ def new_report(
                 ).hexdigest()
                 for name in (
                     "openrouter_judge.py",
+                    "openrouter_transport.py",
+                    "judge_runtime.py",
+                    "judge_settings.py",
                     "evaluate_support.py",
                     "transcript_evaluation.py",
                     "transcript_report.py",
