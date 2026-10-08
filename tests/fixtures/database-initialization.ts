@@ -1,5 +1,10 @@
 import { env } from 'cloudflare:workers';
 import { expect, onTestFinished, test as base, vi } from 'vitest';
+import { buildSeedStatements } from '@/db/seed';
+import {
+  historicalSchemaStatements,
+  type HistoricalSchemaVersion,
+} from './historical-schema';
 
 const dropOrder = [
   'request_limits',
@@ -80,6 +85,32 @@ export async function databaseSnapshot(database: D1Database) {
     );
   }
   return { objects: objects.results, tables };
+}
+
+// Historical DDL is frozen; the compatible seed version is intentionally fixed.
+export async function seedHistoricalDatabase(
+  database: D1Database,
+  version: HistoricalSchemaVersion,
+) {
+  await database.batch(
+    historicalSchemaStatements(version).map((sql) => database.prepare(sql)),
+  );
+  const seed = buildSeedStatements();
+  for (let index = 0; index < seed.length; index += 75) {
+    await database.batch(
+      seed
+        .slice(index, index + 75)
+        .map(({ sql, params }) => database.prepare(sql).bind(...params)),
+    );
+  }
+  await database.batch([
+    database
+      .prepare('INSERT INTO metadata VALUES (?, ?)')
+      .bind('schema_version', version),
+    database
+      .prepare('INSERT INTO metadata VALUES (?, ?)')
+      .bind('seed_version', 'sable-distribution-2026-09-02-v7'),
+  ]);
 }
 
 export async function addUserRecords(

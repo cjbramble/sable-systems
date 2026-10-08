@@ -311,8 +311,8 @@ No return matching ${identifier} is available within ${user.distributorDisplayNa
       FROM return_items ri
       JOIN order_items oi
         ON oi.order_id = ri.order_id AND oi.line_number = ri.line_number
-      WHERE ri.return_id = ? ORDER BY ri.line_number`)
-    .bind(identifier)
+      WHERE ri.return_id = ? AND ri.order_id = ? ORDER BY ri.line_number`)
+    .bind(identifier, returnRow.order_id)
     .all<Record<string, string | number>>();
   return `<authorized_records>
 Authorization: ${user.distributorDisplayName} (${user.distributorId}) only.

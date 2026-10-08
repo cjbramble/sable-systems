@@ -2,9 +2,11 @@ import { describe, expect } from 'vitest';
 
 import { schemaStatements, SCHEMA_VERSION, SEED_VERSION } from '@/db/schema';
 import { buildSeedStatements } from '@/db/seed';
+import { historicalSchemaStatements } from '../fixtures/historical-schema';
 import {
   addUserRecords,
   databaseSnapshot,
+  seedHistoricalDatabase,
   test,
 } from '../fixtures/database-initialization';
 
@@ -17,6 +19,24 @@ async function expectStartupFailure(
 }
 
 describe('database initialization', () => {
+  test('refuses a prior-schema initialization checkpoint without modifying it', async ({
+    initialization,
+  }) => {
+    const { database, getDatabase } = initialization;
+    await database.batch([
+      ...historicalSchemaStatements('9').map((sql) => database.prepare(sql)),
+      database.prepare('INSERT INTO metadata VALUES (?, ?)').bind(
+        'initialization_progress',
+        JSON.stringify({
+          version: `9/${SEED_VERSION}/75/1`,
+          nextStatement: 0,
+        }),
+      ),
+    ]);
+    const before = await databaseSnapshot(database);
+    await expectStartupFailure(getDatabase(), /unsupported database/i);
+    expect(await databaseSnapshot(database)).toEqual(before);
+  });
   test('seeds once for concurrent callers and preserves current records after restart', async ({
     initialization,
   }) => {
@@ -72,20 +92,31 @@ describe('database initialization', () => {
     },
   );
 
-  test.for(['6', '7', '8'])(
-    'upgrades supported schema %s without reseeding',
+  test.for(['6', '7', '8', '9'] as const)(
+    'upgrades historical schema %s without reseeding or losing records',
     async (version, { initialization }) => {
       const { database, getDatabase, restart } = initialization;
-      await getDatabase();
-      await addUserRecords(database);
+      await seedHistoricalDatabase(database, version);
+      if (Number(version) >= 8) {
+        await addUserRecords(database);
+        await database
+          .prepare(
+            "INSERT INTO metadata VALUES ('support_incidents_seed_version', '1')",
+          )
+          .run();
+      }
       await database
-        .prepare("UPDATE metadata SET value = ? WHERE key = 'schema_version'")
-        .bind(version)
+        .prepare(
+          "UPDATE orders SET customer_po_number = 'HISTORICAL-PO' WHERE order_id = 'SBL-2026-000417'",
+        )
         .run();
       const before = await databaseSnapshot(database);
-      await (
-        await restart()
-      )();
+      await getDatabase();
+      const after = await databaseSnapshot(database);
+      for (const [table, rows] of Object.entries(before.tables)) {
+        if (table !== 'metadata')
+          expect(after.tables[table], table).toEqual(rows);
+      }
       expect(
         await database
           .prepare("SELECT value FROM metadata WHERE key = 'schema_version'")
@@ -96,11 +127,31 @@ describe('database initialization', () => {
           .prepare("SELECT value FROM metadata WHERE key = 'seed_version'")
           .first(),
       ).toEqual({ value: SEED_VERSION });
-      await database
-        .prepare("UPDATE metadata SET value = ? WHERE key = 'schema_version'")
-        .bind(version)
-        .run();
-      expect(await databaseSnapshot(database)).toEqual(before);
+      for (const [child, parent, key] of [
+        ['shipment_items', 'shipments', 'shipment_id'],
+        ['return_items', 'returns', 'return_id'],
+      ]) {
+        const { results } = await database
+          .prepare(`PRAGMA foreign_key_list(${child})`)
+          .all();
+        expect(results).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ table: parent, from: key, to: key }),
+            expect.objectContaining({
+              table: parent,
+              from: 'order_id',
+              to: 'order_id',
+            }),
+          ]),
+        );
+      }
+      expect(
+        (await database.prepare('PRAGMA foreign_key_check').all()).results,
+      ).toEqual([]);
+      await (
+        await restart()
+      )();
+      expect(await databaseSnapshot(database)).toEqual(after);
     },
   );
 

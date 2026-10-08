@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = '9';
+export const SCHEMA_VERSION = '10';
 export const SEED_VERSION = 'sable-distribution-2026-09-02-v7';
 
 export const METADATA_TABLE_SQL = `CREATE TABLE IF NOT EXISTS metadata (
@@ -112,6 +112,27 @@ export const ACCOUNT_CHARGES_TABLE_SQL = `CREATE TABLE IF NOT EXISTS account_cha
 export const ACCOUNT_CHARGES_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_account_charges_order
   ON account_charges(order_id)`;
 
+export const SHIPMENT_ITEMS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS shipment_items (
+  shipment_id TEXT NOT NULL,
+  order_id TEXT NOT NULL,
+  line_number INTEGER NOT NULL,
+  shipped_quantity INTEGER NOT NULL CHECK (shipped_quantity > 0),
+  PRIMARY KEY (shipment_id, order_id, line_number),
+  FOREIGN KEY (shipment_id, order_id) REFERENCES shipments(shipment_id, order_id) ON DELETE CASCADE,
+  FOREIGN KEY (order_id, line_number) REFERENCES order_items(order_id, line_number)
+) STRICT`;
+
+export const RETURN_ITEMS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS return_items (
+  return_id TEXT NOT NULL,
+  order_id TEXT NOT NULL,
+  line_number INTEGER NOT NULL,
+  return_quantity INTEGER NOT NULL CHECK (return_quantity > 0),
+  disposition TEXT NOT NULL CHECK (disposition IN ('restock', 'repair', 'quarantine', 'scrap')),
+  PRIMARY KEY (return_id, order_id, line_number),
+  FOREIGN KEY (return_id, order_id) REFERENCES returns(return_id, order_id) ON DELETE CASCADE,
+  FOREIGN KEY (order_id, line_number) REFERENCES order_items(order_id, line_number)
+) STRICT`;
+
 export const schemaStatements = [
   METADATA_TABLE_SQL,
   `CREATE TABLE IF NOT EXISTS distributors (
@@ -208,14 +229,9 @@ export const schemaStatements = [
     estimated_delivery_date TEXT,
     delivered_on TEXT
   ) STRICT`,
-  `CREATE TABLE IF NOT EXISTS shipment_items (
-    shipment_id TEXT NOT NULL REFERENCES shipments(shipment_id) ON DELETE CASCADE,
-    order_id TEXT NOT NULL,
-    line_number INTEGER NOT NULL,
-    shipped_quantity INTEGER NOT NULL CHECK (shipped_quantity > 0),
-    PRIMARY KEY (shipment_id, order_id, line_number),
-    FOREIGN KEY (order_id, line_number) REFERENCES order_items(order_id, line_number)
-  ) STRICT`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_shipments_parent_order
+    ON shipments(shipment_id, order_id)`,
+  SHIPMENT_ITEMS_TABLE_SQL,
   `CREATE TABLE IF NOT EXISTS returns (
     return_id TEXT PRIMARY KEY,
     order_id TEXT NOT NULL REFERENCES orders(order_id),
@@ -225,15 +241,9 @@ export const schemaStatements = [
     authorized_on TEXT,
     received_on TEXT
   ) STRICT`,
-  `CREATE TABLE IF NOT EXISTS return_items (
-    return_id TEXT NOT NULL REFERENCES returns(return_id) ON DELETE CASCADE,
-    order_id TEXT NOT NULL,
-    line_number INTEGER NOT NULL,
-    return_quantity INTEGER NOT NULL CHECK (return_quantity > 0),
-    disposition TEXT NOT NULL CHECK (disposition IN ('restock', 'repair', 'quarantine', 'scrap')),
-    PRIMARY KEY (return_id, order_id, line_number),
-    FOREIGN KEY (order_id, line_number) REFERENCES order_items(order_id, line_number)
-  ) STRICT`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_returns_parent_order
+    ON returns(return_id, order_id)`,
+  RETURN_ITEMS_TABLE_SQL,
   ACCOUNT_CHARGES_TABLE_SQL,
   ORDER_USER_INSERT_TRIGGER_SQL,
   ORDER_USER_UPDATE_TRIGGER_SQL,
