@@ -27,5 +27,22 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "work"]
+  "exclude": [
+    "node_modules",
+    "work",
+    "reports",
+    "dist",
+    "out",
+    "build",
+    "coverage",
+    ".vinext",
+    ".wrangler",
+    "outputs",
+    "tmp",
+    "temp",
+    ".cache",
+    ".turbo",
+    "playwright-report",
+    "test-results"
+  ]
 }
