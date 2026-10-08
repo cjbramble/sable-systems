@@ -1024,8 +1024,7 @@ describe('support response safety', () => {
         expect(fetchMock).toHaveBeenCalledOnce();
         expect(failed.status).toBe(expectedStatus);
         expect(await failed.json()).toEqual({ error: expectedError });
-        if (modelResponse)
-          expect(modelResponse.bodyUsed).toBe(failure !== 'HTTP');
+        if (modelResponse) expect(modelResponse.bodyUsed).toBe(true);
         expect(await fixture.findIncident(incidentId)).toEqual(initialIncident);
         expect((await fixture.messages(incidentId)).results).toEqual(
           initialMessages.results,

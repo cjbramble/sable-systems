@@ -28,7 +28,7 @@ import {
   createSupportModelRequest,
   extractSupportModelContent,
   isIncompleteSupportModelReply,
-  isContextOverflowResponse,
+  isContextOverflowPayload,
 } from '@/lib/support-model';
 
 const MAX_RESOURCE_ATTEMPTS = 2;
@@ -178,8 +178,38 @@ export async function POST(request: Request) {
         correction,
       });
       const modelResponse = await fetch(modelUrl, modelRequest);
+      if (modelResponse.status >= 300 && modelResponse.status < 400) {
+        await modelResponse.body?.cancel();
+        return Response.json(
+          { error: failureResponses.model.error },
+          { status: failureResponses.model.status },
+        );
+      }
 
-      if (await isContextOverflowResponse(modelResponse)) {
+      // Read success and error bodies under the same request deadline.
+      let modelPayload: unknown = null;
+      try {
+        modelPayload = await modelResponse.json();
+      } catch (error) {
+        if (
+          error instanceof DOMException &&
+          (error.name === 'TimeoutError' || error.name === 'AbortError')
+        )
+          throw error;
+        if (modelResponse.ok)
+          return Response.json(
+            {
+              error:
+                'The support model returned an invalid response. Please try again.',
+            },
+            { status: 502 },
+          );
+      }
+
+      if (
+        modelResponse.status === 400 &&
+        isContextOverflowPayload(modelPayload)
+      ) {
         return Response.json(
           {
             error:
@@ -198,20 +228,6 @@ export async function POST(request: Request) {
         );
       }
 
-      let modelPayload: unknown;
-      try {
-        modelPayload = await modelResponse.json();
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'TimeoutError')
-          throw error;
-        return Response.json(
-          {
-            error:
-              'The support model returned an invalid response. Please try again.',
-          },
-          { status: 502 },
-        );
-      }
       if (isIncompleteSupportModelReply(modelPayload)) {
         return Response.json(
           {

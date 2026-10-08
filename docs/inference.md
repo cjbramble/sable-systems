@@ -44,6 +44,9 @@ terms and account privacy settings before using real customer data.
 Authentication, account-scoped lookups, quotas, and response guards remain in
 the application. Chat makes at most one corrective model retry. Missing credentials
 or provider failures return safe errors without saving a completed exchange.
+Chat and readiness requests reject redirects. Chat's two-minute deadline covers
+response headers and bodies, including provider error responses. Timeouts return
+504; cancelled model requests return 503. Neither triggers a corrective retry.
 Judge transport retries are separate; see [judge evaluations](../README.md#judge-evaluations).
 
 `/api/status` checks the non-generating key endpoint for credentials and reachability.
