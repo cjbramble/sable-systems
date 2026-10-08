@@ -83,6 +83,7 @@ test('removes a cart item, places a charge-account order, and finds it in persis
   expect(response.status()).toBe(201);
   expect(response.request().postDataJSON()).toEqual({
     ...details,
+    expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
     items: [{ itemNumber: retainedItem, quantity: 8 }],
   });
   const receipt = await response.json();
@@ -212,6 +213,7 @@ test('reduces a stale oversized cart one case at a time without rewriting the re
         headers: { Origin: app.url },
         data: {
           ...orderDetails('CPD-COMPETING-CART'),
+          expectedSubject: { userId: 'USR-CPD-001', customerId: 'WHS-0427' },
           items: [{ itemNumber, quantity: 304 }],
         },
       })
@@ -258,6 +260,7 @@ test('reduces a stale oversized cart one case at a time without rewriting the re
   expect(response.status()).toBe(201);
   expect(response.request().postDataJSON()).toEqual({
     ...details,
+    expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
     items: [{ itemNumber, quantity: 8 }],
   });
   const saved = await app.database
@@ -368,6 +371,7 @@ test('locks cart and form edits across closing and reopening pending checkout, t
         );
       expect(submitted).toEqual({
         ...details,
+        expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
         items: expect.arrayContaining(
           pendingProducts.map(({ itemNumber, quantity }) => ({
             itemNumber,

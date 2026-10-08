@@ -1,14 +1,11 @@
 import type { AuthenticatedUser } from './auth';
-import type { CatalogProduct } from '@/lib/contracts';
+import type {
+  CatalogProduct,
+  CheckoutFailure,
+  CheckoutInput,
+} from '@/lib/contracts';
 import { parseCustomerPo } from '@/lib/support-references';
-
-type CheckoutLine = { itemNumber: string; quantity: number };
-type CheckoutInput = {
-  customerPoNumber: string;
-  requestedShipDate: string;
-  shippingRegion: string;
-  items: CheckoutLine[];
-};
+import { parseSessionSubject, sameSessionSubject } from '@/lib/session-subject';
 
 type ProductRow = {
   item_number: string;
@@ -79,6 +76,7 @@ function isCalendarDate(value: string): boolean {
 export function parseCheckoutInput(value: unknown): CheckoutInput | null {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Record<string, unknown>;
+  const expectedSubject = parseSessionSubject(candidate.expectedSubject);
   const customerPoNumber = parseCustomerPo(candidate.customerPoNumber);
   const requestedShipDate =
     typeof candidate.requestedShipDate === 'string'
@@ -89,6 +87,7 @@ export function parseCheckoutInput(value: unknown): CheckoutInput | null {
       ? candidate.shippingRegion.trim()
       : '';
   if (
+    !expectedSubject ||
     !customerPoNumber ||
     !isCalendarDate(requestedShipDate) ||
     shippingRegion.length < 3 ||
@@ -99,7 +98,7 @@ export function parseCheckoutInput(value: unknown): CheckoutInput | null {
   )
     return null;
 
-  const items: CheckoutLine[] = [];
+  const items: CheckoutInput['items'] = [];
   const seen = new Set<string>();
   for (const rawLine of candidate.items) {
     if (!rawLine || typeof rawLine !== 'object') return null;
@@ -118,7 +117,13 @@ export function parseCheckoutInput(value: unknown): CheckoutInput | null {
       quantity: Number(line.quantity),
     });
   }
-  return { customerPoNumber, requestedShipDate, shippingRegion, items };
+  return {
+    expectedSubject,
+    customerPoNumber,
+    requestedShipDate,
+    shippingRegion,
+    items,
+  };
 }
 
 export async function placeChargeAccountOrder(
@@ -126,6 +131,18 @@ export async function placeChargeAccountOrder(
   input: CheckoutInput,
   user: AuthenticatedUser,
 ) {
+  if (
+    !sameSessionSubject(input.expectedSubject, {
+      userId: user.userId,
+      customerId: user.distributorId,
+    })
+  ) {
+    throw new CheckoutError(
+      'Your signed-in account changed. Reload and review the order before authorizing it again.',
+      409,
+      'account_changed',
+    );
+  }
   const createdAt = new Date().toISOString();
   const today = createdAt.slice(0, 10);
   if (!isCalendarDate(input.requestedShipDate)) {
@@ -294,6 +311,7 @@ export class CheckoutError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    public readonly code?: CheckoutFailure['code'],
   ) {
     super(message);
   }

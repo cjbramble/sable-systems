@@ -3,11 +3,32 @@ import { describe, expect, it } from 'vitest';
 import { parseCheckoutInput } from '@/db/shop';
 
 const checkout = {
+  expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
   customerPoNumber: 'TEST-CALENDAR',
   requestedShipDate: '2031-01-01',
   shippingRegion: 'Great Lakes District',
   items: [{ itemNumber: 'SBL-RPC-12', quantity: 8 }],
 };
+
+describe('checkout account context', () => {
+  it.each([
+    undefined,
+    null,
+    [],
+    {},
+    { userId: 'USR-MCS-001' },
+    { customerId: 'WHS-1098' },
+    { userId: '', customerId: 'WHS-1098' },
+    { userId: '   ', customerId: 'WHS-1098' },
+    { userId: 'USR-MCS-001', customerId: 1098 },
+    { userId: 'USR-MCS-001', customerId: 'x'.repeat(129) },
+  ])(
+    'rejects a missing or malformed expected subject: %j',
+    (expectedSubject) => {
+      expect(parseCheckoutInput({ ...checkout, expectedSubject })).toBeNull();
+    },
+  );
+});
 
 describe('checkout date parsing', () => {
   it('rejects invalid calendar dates and non-date-only inputs', () => {

@@ -139,6 +139,13 @@ firewall: do not expose the opted-in local runtime through a proxy or tunnel.
 Public hosting requires replacing demo provisioning with private accounts and a
 deployment-specific access policy.
 
+Checkout carries the user and distributor from the account shown during review. The server
+rejects a changed account before reserving inventory or creating an order or charge.
+Account changes detected in another tab or on returning to a page pause the shop,
+order history, and support views. Reloading clears the cart, charge authorization,
+and unsent drafts; saved records remain with their original account. Renewing a
+session for the same user and distributor preserves the current view.
+
 Login permits 10 attempts per normalized email and 60 attempts across the app per
 60-second window. Model generation permits 30 customer requests per user per
 60-second window, shared across sessions; an automatic corrective model retry is

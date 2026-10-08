@@ -49,6 +49,7 @@ describe('orders API', () => {
       expect(owned).toHaveLength(scenario.count);
       const account = {
         customerId: scenario.customerId,
+        userId: user.userId,
         displayName: user.distributorDisplayName,
         userDisplayName: user.userDisplayName,
         accountTier: user.accountTier,
@@ -147,8 +148,12 @@ describe('orders API', () => {
       new Request('http://localhost/api/orders', {
         method: 'POST',
         headers,
-        // The client supplies neither account identity nor prices/totals.
+        // The expected subject is a stale-context guard; server identity owns the order.
         body: JSON.stringify({
+          expectedSubject: {
+            userId: user.userId,
+            customerId: user.distributorId,
+          },
           customerPoNumber,
           requestedShipDate,
           shippingRegion,
@@ -292,6 +297,10 @@ describe('orders API', () => {
       '2026-09-09',
     ]) {
       const input = {
+        expectedSubject: {
+          userId: user.userId,
+          customerId: user.distributorId,
+        },
         customerPoNumber,
         requestedShipDate,
         shippingRegion: 'Great Lakes District',
@@ -353,6 +362,10 @@ describe('orders API', () => {
       receipt = await placeChargeAccountOrder(
         database,
         {
+          expectedSubject: {
+            userId: user.userId,
+            customerId: user.distributorId,
+          },
           customerPoNumber,
           requestedShipDate: '2028-02-29',
           shippingRegion: 'Great Lakes District',
@@ -431,6 +444,10 @@ describe('orders API', () => {
         method: 'POST',
         headers,
         body: JSON.stringify({
+          expectedSubject: {
+            userId: user.userId,
+            customerId: user.distributorId,
+          },
           customerPoNumber,
           requestedShipDate: '2026-10-15',
           shippingRegion: 'Great Lakes District',
@@ -554,6 +571,10 @@ describe('orders API', () => {
               method: 'POST',
               headers,
               body: JSON.stringify({
+                expectedSubject: {
+                  userId: user.userId,
+                  customerId: user.distributorId,
+                },
                 customerPoNumber,
                 requestedShipDate: '2026-10-15',
                 shippingRegion: 'Great Lakes District',

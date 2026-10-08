@@ -1,5 +1,23 @@
 export type AccountRole = 'account_admin' | 'buyer' | 'support';
 
+export type SessionSubject = {
+  userId: string;
+  customerId: string;
+};
+
+export type CheckoutInput = {
+  expectedSubject: SessionSubject;
+  customerPoNumber: string;
+  requestedShipDate: string;
+  shippingRegion: string;
+  items: { itemNumber: string; quantity: number }[];
+};
+
+export type CheckoutFailure = {
+  error: string;
+  code?: 'account_changed';
+};
+
 export type AccountSummary = {
   customerId: string;
   displayName: string;
@@ -71,6 +89,7 @@ export type OrderHistoryResponse = {
   account: Pick<
     AccountSummary,
     | 'customerId'
+    | 'userId'
     | 'displayName'
     | 'userDisplayName'
     | 'accountTier'
