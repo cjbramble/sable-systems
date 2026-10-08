@@ -12,12 +12,17 @@ import {
   SEED_VERSION,
 } from './schema';
 import { buildSeedStatements } from './seed';
+import {
+  auditOrderLineParents,
+  hasLegacyOrderLineTables,
+  orderLineMigrationStatements,
+} from './order-line-migration';
 
 const BATCH_SIZE = 75;
 const INITIALIZATION_KEY = 'initialization_progress';
 // Change this protocol if batch boundaries or the seed statement order change.
 const INITIALIZATION_VERSION = `${SCHEMA_VERSION}/${SEED_VERSION}/${BATCH_SIZE}/1`;
-const SUPPORTED_SCHEMA_VERSIONS = new Set(['6', '7', '8', SCHEMA_VERSION]);
+const SUPPORTED_SCHEMA_VERSIONS = new Set(['6', '7', '8', '9', SCHEMA_VERSION]);
 let initialization: Promise<D1Database> | null = null;
 
 export function getDatabase(): Promise<D1Database> {
@@ -34,6 +39,12 @@ async function initializeDatabase() {
 
   const seedStatements = buildSeedStatements();
   const state = await inspectDatabase(db, seedStatements.length);
+  const needsOrderLineMigration =
+    state.kind === 'ready'
+      ? ['6', '7', '8', '9'].includes(state.schemaVersion)
+      : await hasLegacyOrderLineTables(db);
+  if (state.kind === 'ready' && needsOrderLineMigration)
+    await auditOrderLineParents(db);
   if (state.kind === 'empty') {
     // Claim only an empty database, atomically, before any schema/seed work.
     await db.batch([
@@ -51,17 +62,24 @@ async function initializeDatabase() {
   await migrateChargeAccountTable(db);
   await migrateDistributorUsers(db);
   await migrateAuthTables(db);
-  await db.batch(schemaStatements.map((sql) => db.prepare(sql)));
+  const schemaBatch = schemaStatements.map((sql) => db.prepare(sql));
+  if (needsOrderLineMigration)
+    schemaBatch.push(
+      ...orderLineMigrationStatements.map((sql) => db.prepare(sql)),
+    );
+  if (state.kind === 'ready' && state.schemaVersion !== SCHEMA_VERSION)
+    schemaBatch.push(
+      db
+        .prepare(`INSERT INTO metadata (key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+        .bind('schema_version', SCHEMA_VERSION),
+    );
+  // Constraints, copied rows, and the upgrade marker commit together.
+  await db.batch(schemaBatch);
   if (state.kind === 'ready') {
     await seedSupportIncidents(db);
-    if (state.schemaVersion !== SCHEMA_VERSION) {
-      await db
-        .prepare(`INSERT INTO metadata (key, value) VALUES (?, ?)
-          ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
-        .bind('schema_version', SCHEMA_VERSION)
-        .run();
+    if (state.schemaVersion !== SCHEMA_VERSION)
       await db.prepare('PRAGMA optimize').run();
-    }
     return db;
   }
 

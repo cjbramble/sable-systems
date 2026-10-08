@@ -119,8 +119,11 @@ interrupted initialization resumes from the last committed batch.
 
 Database setup and supported upgrades run automatically; no manual SQL step is required.
 
-Schema versions 6, 7, and 8 upgrade to 9 with the current `SEED_VERSION`. Unsupported
-versions or populated databases without version metadata stop startup without
+Schema versions 6–9 upgrade to 10 with the current `SEED_VERSION`. Shipment and
+return lines must reference their parent's order. Startup audits legacy relationships
+before upgrading; mismatches stop startup without changes and require explicit repair.
+The line-table migration and version marker commit together, preserving valid records.
+Unsupported versions or populated databases without version metadata stop startup without
 modifying records. Preserve the database and inspect its metadata before migration.
 
 Seed changes must update `SEED_VERSION` to prevent resuming initialization with a
