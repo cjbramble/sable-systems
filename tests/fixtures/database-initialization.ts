@@ -8,6 +8,7 @@ import {
 
 const dropOrder = [
   'request_limits',
+  'support_incident_deletions',
   'support_messages',
   'support_incidents',
   'sessions',

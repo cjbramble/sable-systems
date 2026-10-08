@@ -2,7 +2,8 @@ import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { consumeRequestQuota, requestLimitResponse } from '@/db/request-limits';
 import {
-  canAccessSupportIncident,
+  getSupportIncidentState,
+  IncidentDeletedError,
   getSavedSupportExchange,
   getSupportConversationHistory,
   hasSupportMessageIdConflict,
@@ -102,11 +103,9 @@ export async function POST(request: Request) {
       );
     const customerMessage = messages.at(-1)?.content ?? '';
     if (incidentId && messageId) {
-      if (!(await canAccessSupportIncident(db, user, incidentId)))
-        return Response.json(
-          { error: 'Incident access denied.' },
-          { status: 403 },
-        );
+      const state = await getSupportIncidentState(db, user, incidentId);
+      if (state === 'forbidden') throw new IncidentAccessDeniedError();
+      if (state === 'deleted') throw new IncidentDeletedError();
       if (await hasSupportMessageIdConflict(db, incidentId, messageId))
         throw new SupportMessageIdConflictError();
       const savedExchange = await getSavedSupportExchange(
@@ -294,6 +293,11 @@ export async function POST(request: Request) {
       error instanceof SupportMessageIdConflictError
     )
       return Response.json({ error: error.message }, { status: 409 });
+    if (error instanceof IncidentDeletedError)
+      return Response.json(
+        { error: error.message, code: 'incident_deleted' },
+        { status: 410 },
+      );
     if (error instanceof IncidentAccessDeniedError)
       return Response.json(
         { error: 'Incident access denied.' },

@@ -5,7 +5,6 @@ import {
   revokeSession,
   type AuthenticatedUser,
 } from '@/db/auth';
-import { deleteSupportIncident } from '@/db/incidents';
 
 const CHAT_URL = 'http://localhost/api/chat';
 
@@ -53,11 +52,32 @@ export function createSupportApiFixture(database: D1Database) {
     // Register before the test creates an incident. Existing seed records may
     // be inspected, but must never be registered for deletion.
     async trackTemporaryIncident(incidentId: string, user: AuthenticatedUser) {
-      if (await findIncident(incidentId))
+      if (
+        (await findIncident(incidentId)) ||
+        (await database
+          .prepare(
+            'SELECT 1 FROM support_incident_deletions WHERE incident_id = ?',
+          )
+          .bind(incidentId)
+          .first())
+      )
         throw new Error(
           `Refusing to clean up an existing incident: ${incidentId}`,
         );
-      cleanups.push(() => deleteSupportIncident(database, user, incidentId));
+      cleanups.push(async () => {
+        await database.batch([
+          database
+            .prepare(
+              'DELETE FROM support_incidents WHERE incident_id = ? AND user_id = ?',
+            )
+            .bind(incidentId, user.userId),
+          database
+            .prepare(
+              'DELETE FROM support_incident_deletions WHERE incident_id = ? AND user_id = ?',
+            )
+            .bind(incidentId, user.userId),
+        ]);
+      });
     },
 
     async session(user: AuthenticatedUser): Promise<SupportApiSession> {
