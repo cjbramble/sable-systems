@@ -148,6 +148,7 @@ export async function getOrderHistory(
   return {
     account: {
       customerId: user.distributorId,
+      userId: user.userId,
       displayName: user.distributorDisplayName,
       userDisplayName: user.userDisplayName,
       accountTier: user.accountTier,

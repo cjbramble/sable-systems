@@ -1,6 +1,7 @@
 import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { getOrderHistory, parseOrderHistoryInput } from '@/db/orders';
+import type { CheckoutFailure } from '@/lib/contracts';
 import {
   CheckoutError,
   parseCheckoutInput,
@@ -52,7 +53,10 @@ export async function POST(request: Request) {
   const input = parseCheckoutInput(body);
   if (!input) {
     return Response.json(
-      { error: 'Enter a valid PO, ship date, destination, and order lines.' },
+      {
+        error:
+          'Enter a valid account context, PO, ship date, destination, and order lines.',
+      },
       { status: 400 },
     );
   }
@@ -69,7 +73,10 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof CheckoutError) {
-      return Response.json({ error: error.message }, { status: error.status });
+      return Response.json(
+        { error: error.message, code: error.code } satisfies CheckoutFailure,
+        { status: error.status },
+      );
     }
     return Response.json(
       { error: 'The order could not be placed.' },

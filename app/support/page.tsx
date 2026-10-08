@@ -45,7 +45,12 @@ import {
   SheetClose,
 } from '@/components/ui/sheet';
 import { buildChatRequestHistory } from '@/lib/chat-history';
-import { redirectToLogin, useSignOut } from '@/lib/client-session';
+import {
+  redirectToLogin,
+  useSessionGuard,
+  useSignOut,
+} from '@/lib/client-session';
+import { SessionChangedNotice } from '@/components/session-changed-notice';
 import type { AccountSummary } from '@/lib/contracts';
 import {
   createIncidentTitle,
@@ -147,6 +152,7 @@ export default function SupportPage() {
     isSending || deletingIds.includes(activeIncidentId ?? '');
   const [runtime, setRuntime] = useState<RuntimeState>('checking');
   const [account, setAccount] = useState<AccountSummary | null>(null);
+  const { sessionChanged } = useSessionGuard(account, '/support');
   const [loadStatus, setLoadStatus] = useState<
     'loading' | 'ready' | 'error' | 'redirecting'
   >('loading');
@@ -536,6 +542,17 @@ export default function SupportPage() {
       event.preventDefault();
       void sendMessage();
     }
+  }
+
+  if (sessionChanged) {
+    return (
+      <SessionChangedNotice>
+        <p>
+          Reloading clears unsent drafts. Saved conversations remain with their
+          original account.
+        </p>
+      </SessionChangedNotice>
+    );
   }
 
   if (loadStatus !== 'ready') {

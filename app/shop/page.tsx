@@ -24,6 +24,7 @@ import {
 import { BrandWordmark } from '@/components/brand-wordmark';
 import { CategoryOrbitGlyph } from '@/components/category-orbit-glyph';
 import { QuantityControl } from '@/components/quantity-control';
+import { SessionChangedNotice } from '@/components/session-changed-notice';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,8 +41,17 @@ import {
   isCatalogCategory,
   type CatalogCategory,
 } from '@/lib/catalog-categories';
-import type { AccountSummary, CatalogProduct } from '@/lib/contracts';
-import { redirectToLogin, useSignOut } from '@/lib/client-session';
+import type {
+  AccountSummary,
+  CatalogProduct,
+  CheckoutFailure,
+  CheckoutInput,
+} from '@/lib/contracts';
+import {
+  redirectToLogin,
+  useSessionGuard,
+  useSignOut,
+} from '@/lib/client-session';
 import { shopDestination } from '@/lib/auth-navigation';
 import { formatCurrency } from '@/lib/format';
 
@@ -95,6 +105,10 @@ export default function ShopPage() {
   const checkoutPending = useRef(false);
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [account, setAccount] = useState<AccountSummary | null>(null);
+  const { sessionChanged, invalidateSession } = useSessionGuard(
+    account,
+    requestedDestination,
+  );
   const [accountStatus, setAccountStatus] = useState<
     'loading' | 'ready' | 'error' | 'redirecting'
   >('loading');
@@ -281,7 +295,13 @@ export default function ShopPage() {
   async function submitOrder(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     const signal = pageRequest.current?.signal;
-    if (!signal || signal.aborted || accountStatus !== 'ready' || !account)
+    if (
+      !signal ||
+      signal.aborted ||
+      sessionChanged ||
+      accountStatus !== 'ready' ||
+      !account
+    )
       return;
     if (
       !cartProducts.length ||
@@ -298,6 +318,10 @@ export default function ShopPage() {
         signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          expectedSubject: {
+            userId: account.userId,
+            customerId: account.customerId,
+          },
           customerPoNumber: poNumber,
           requestedShipDate: shipDate,
           shippingRegion: region,
@@ -305,15 +329,19 @@ export default function ShopPage() {
             itemNumber: product.itemNumber,
             quantity: cart[product.itemNumber],
           })),
-        }),
+        } satisfies CheckoutInput),
       });
-      const payload = (await response.json()) as Confirmation & {
-        error?: string;
-      };
+      const payload = (await response.json()) as Confirmation &
+        Partial<CheckoutFailure>;
       if (signal.aborted) return;
       if (response.status === 401) {
         setAccountStatus('redirecting');
         redirectToLogin(requestedDestination());
+        return;
+      }
+      if (response.status === 409 && payload.code === 'account_changed') {
+        setChargeAccountAuthorized(false);
+        invalidateSession();
         return;
       }
       if (!response.ok)
@@ -333,6 +361,18 @@ export default function ShopPage() {
       checkoutPending.current = false;
       if (!signal.aborted) setSubmitting(false);
     }
+  }
+
+  if (sessionChanged) {
+    return (
+      <SessionChangedNotice>
+        <p>Reloading clears your cart and charge authorization.</p>
+        <p>
+          If you submitted an order, check the order history for the original
+          account before ordering again.
+        </p>
+      </SessionChangedNotice>
+    );
   }
 
   if (accountStatus !== 'ready' || !account) {

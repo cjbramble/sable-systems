@@ -31,7 +31,12 @@ import type {
   OrderHistoryResponse,
   OrderStatus,
 } from '@/lib/contracts';
-import { redirectToLogin, useSignOut } from '@/lib/client-session';
+import {
+  redirectToLogin,
+  useSessionGuard,
+  useSignOut,
+} from '@/lib/client-session';
+import { SessionChangedNotice } from '@/components/session-changed-notice';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -59,6 +64,7 @@ function statusTone(status: OrderStatus) {
 export default function OrdersPage() {
   const { signOut, signingOut, signOutError } = useSignOut();
   const [data, setData] = useState<OrderHistoryResponse | null>(null);
+  const { sessionChanged } = useSessionGuard(data?.account ?? null, '/orders');
   const [filter, setFilter] = useState<OrderHistoryFilter>('all');
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState('');
@@ -147,6 +153,8 @@ export default function OrdersPage() {
     setError('');
     setPage(nextPage);
   }
+
+  if (sessionChanged) return <SessionChangedNotice />;
 
   if (redirecting || (!data && loading)) {
     return (

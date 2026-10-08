@@ -8,6 +8,7 @@ import { BrandWordmark } from '@/components/brand-wordmark';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { safeLoginDestination } from '@/lib/auth-navigation';
+import { notifySessionChanged } from '@/lib/client-session';
 
 const requestedDestination = () => safeLoginDestination(window.location.search);
 
@@ -55,6 +56,7 @@ export default function LoginPage() {
       if (signal.aborted) return;
       if (!response.ok)
         throw new Error(payload.error || 'Access could not be verified.');
+      notifySessionChanged();
       window.location.replace(destination);
     } catch (requestError) {
       if (signal.aborted) return;

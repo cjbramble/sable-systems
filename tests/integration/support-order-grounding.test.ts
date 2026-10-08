@@ -58,6 +58,7 @@ describe('support order grounding', () => {
     const reference = 'REVIEW-CUSTOM-PO';
     expect(
       parseCheckoutInput({
+        expectedSubject: { userId: 'USR-CPD-001', customerId: 'WHS-0427' },
         customerPoNumber: reference.toLowerCase(),
         requestedShipDate: '2031-01-01',
         shippingRegion: 'North Atlantic Trade District',
