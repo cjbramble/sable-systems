@@ -3,6 +3,7 @@ import { Response as WorkerResponse } from 'miniflare';
 import { cloudflareTest } from '@cloudflare/vitest-plugin';
 import { fileURLToPath } from 'node:url';
 import { configDefaults, defineConfig } from 'vitest/config';
+import { createModelTransportFixture } from './tests/fixtures/model-transport.ts';
 
 const modelTest = process.env.SUPPORT_MODEL_TEST === '1';
 const proxy =
@@ -66,7 +67,9 @@ export default defineConfig({
                       headers: Object.fromEntries(response.headers),
                     });
                   }
-                : undefined,
+                : modelTest
+                  ? undefined
+                  : createModelTransportFixture(),
             },
           }),
         ],

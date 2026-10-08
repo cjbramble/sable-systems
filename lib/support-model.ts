@@ -93,6 +93,8 @@ export function createSupportModelRequest({
     config.url,
     {
       method: 'POST',
+      // Workers require manual handling to reject redirects.
+      redirect: 'manual',
       headers: supportModelHeaders(config),
       body: JSON.stringify({
         model: config.model,
@@ -153,18 +155,14 @@ export function isIncompleteSupportModelReply(payload: unknown) {
 
 // History is already trimmed, so an upstream context error means the latest
 // message and records alone do not fit.
-export async function isContextOverflowResponse(response: Response) {
-  if (response.status !== 400) return false;
-  try {
-    const error = ((await response.json()) as { error?: unknown })?.error;
-    if (!error || typeof error !== 'object') return false;
-    const { message } = error as Record<string, unknown>;
-    return (
-      typeof message === 'string' &&
-      (message.includes('exceeds the available context size') ||
-        /(?:maximum context length|context length exceeded)/i.test(message))
-    );
-  } catch {
-    return false;
-  }
+export function isContextOverflowPayload(payload: unknown) {
+  if (!payload || typeof payload !== 'object') return false;
+  const error = (payload as Record<string, unknown>).error;
+  if (!error || typeof error !== 'object') return false;
+  const { message } = error as Record<string, unknown>;
+  return (
+    typeof message === 'string' &&
+    (message.includes('exceeds the available context size') ||
+      /(?:maximum context length|context length exceeded)/i.test(message))
+  );
 }
