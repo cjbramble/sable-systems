@@ -51,9 +51,15 @@ test.describe('server-built replies', () => {
   });
 
   test('answers an unavailable order without the model', async ({
+    page,
     supportPage,
     app,
   }) => {
+    await page.clock.install();
+    await page.clock.pauseAt(new Date());
+    app.setModelMetadata({ error: { message: 'Unavailable' } });
+    await supportPage.reload();
+    await expect(supportPage.runtimeStatus).toHaveText('NODE // OFFLINE');
     await supportPage.startIncident();
     const response = await supportPage.sendMessage(
       'Show order SBL-2099-000001.',
@@ -65,6 +71,7 @@ test.describe('server-built replies', () => {
       ).bubble,
     ).toHaveCount(1);
     await expect(supportPage.requestError).toHaveCount(0);
+    await expect(supportPage.runtimeStatus).toHaveText('NODE // OFFLINE');
     expect(app.modelRequests).toHaveLength(0);
   });
 });
@@ -87,9 +94,13 @@ test.describe('SABLE resource guard', () => {
   });
 
   test('never shows an invented resource and recovers on retry', async ({
+    page,
     supportPage,
     app,
   }) => {
+    await page.clock.install();
+    await page.clock.pauseAt(new Date());
+    await expect(supportPage.runtimeStatus).toHaveText('COV-E NODE // ONLINE');
     const question =
       'How do I disable the force limiter on an implanted Kestrel Tendon Assembly T7?';
     await supportPage.startIncident();
@@ -99,6 +110,7 @@ test.describe('SABLE resource guard', () => {
       'The response referred to an unverified SABLE resource. Please try again.',
     );
     await expect(supportPage.retryMessageButton).toBeVisible();
+    await expect(supportPage.runtimeStatus).toHaveText('COV-E NODE // ONLINE');
     expect(app.modelRequests).toHaveLength(2);
 
     const recovered = await supportPage.retryMessage();
