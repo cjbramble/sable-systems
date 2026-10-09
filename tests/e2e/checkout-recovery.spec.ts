@@ -3,6 +3,72 @@ import { expect, test } from './fixtures/app';
 test.use({ modelResponses: [] });
 const itemNumber = 'SBL-RPC-12';
 
+for (const lostResponse of [false, true]) {
+  test(`accepts lowercase account currency ${lostResponse ? 'after a lost response' : 'on first submission'}`, async ({
+    page,
+    app,
+    loginPage,
+    shopPage,
+  }) => {
+    await loginPage.goto('/shop');
+    await loginPage.signIn(
+      'imani.kade@meridiancivic.example',
+      'Sable-WHS-1098!',
+      '/shop',
+    );
+    await app.database
+      .prepare(
+        "UPDATE distributors SET currency = 'usd' WHERE customer_id = 'WHS-1098'",
+      )
+      .run();
+    await shopPage.addCase(itemNumber);
+    await shopPage.openCart();
+    const customerPoNumber = 'MCS-LOWERCASE-CURRENCY';
+    await shopPage.fillOrder({
+      customerPoNumber,
+      requestedShipDate: '2031-01-01',
+      shippingRegion: 'Great Lakes District',
+    });
+    await shopPage.chargeConsent.check();
+    if (lostResponse) {
+      await page.route(
+        '**/api/orders',
+        async (route) => {
+          expect((await route.fetch()).status()).toBe(201);
+          await route.abort('failed');
+        },
+        { times: 1 },
+      );
+    }
+    await shopPage.submitOrder();
+    if (lostResponse) {
+      await expect(shopPage.checkoutError).toContainText(
+        'could not be verified',
+      );
+      await shopPage.cart
+        .getByRole('button', { name: 'Retry this order', exact: true })
+        .click();
+    }
+    await expect(shopPage.confirmationHeading).toBeVisible();
+    await expect(shopPage.confirmationValue('Order total')).toHaveText(
+      '$5,440.00',
+    );
+    await expect(shopPage.cartLines).toHaveCount(0);
+    expect(
+      (
+        await app.database
+          .prepare(`SELECT o.currency, c.amount_cents, c.currency AS charge_currency
+        FROM orders o JOIN account_charges c USING(order_id)
+        WHERE o.customer_po_number = ?`)
+          .bind(customerPoNumber)
+          .all()
+      ).results,
+    ).toEqual([
+      { currency: 'usd', amount_cents: 544000, charge_currency: 'usd' },
+    ]);
+  });
+}
+
 test('an account switch cannot recover another account’s uncertain checkout', async ({
   page,
   app,

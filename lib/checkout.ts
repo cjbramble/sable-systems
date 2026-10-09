@@ -100,7 +100,7 @@ export function parseCheckoutReceipt(
     !Number.isSafeInteger(receipt.totalCents) ||
     receipt.totalCents < 0 ||
     typeof receipt.currency !== 'string' ||
-    !/^[A-Z]{3}$/.test(receipt.currency) ||
+    !/^[A-Z]{3}$/i.test(receipt.currency) ||
     typeof receipt.requestedShipDate !== 'string' ||
     !isCalendarDate(receipt.requestedShipDate)
   )

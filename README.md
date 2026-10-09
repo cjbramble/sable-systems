@@ -119,7 +119,7 @@ interrupted initialization resumes from the last committed batch.
 
 Database setup and supported upgrades run automatically; no manual SQL step is required.
 
-Schema versions 6–10 upgrade to 11 with the current `SEED_VERSION`. Shipment and
+Schema versions 6–11 upgrade to 12 with the current `SEED_VERSION`. Shipment and
 return lines must reference their parent's order. Startup audits legacy relationships
 before upgrading; mismatches stop startup without changes and require explicit repair.
 Schema changes and the version marker commit together, preserving valid records.

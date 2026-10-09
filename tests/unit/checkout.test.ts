@@ -57,6 +57,15 @@ describe('checkout command parsing', () => {
 });
 
 describe('checkout receipt decoding', () => {
+  it.each(['usd', 'uSd'])(
+    'accepts a receipt with currency %s without rewriting the saved value',
+    (currency) => {
+      const savedReceipt = { ...receipt, currency };
+      expect(parseCheckoutReceipt(savedReceipt, commandId)).toEqual(
+        savedReceipt,
+      );
+    },
+  );
   it('returns only the validated receipt fields for the expected command', () => {
     expect(
       parseCheckoutReceipt({ ...receipt, extra: true }, commandId),
@@ -74,6 +83,8 @@ describe('checkout receipt decoding', () => {
     { ...receipt, totalCents: 0.5 },
     { ...receipt, totalCents: Number.MAX_SAFE_INTEGER + 1 },
     { ...receipt, currency: 'dollars' },
+    { ...receipt, currency: '123' },
+    { ...receipt, currency: '$US' },
     { ...receipt, requestedShipDate: '2031-02-29' },
   ])('rejects malformed or unrelated successful responses', (value) => {
     expect(parseCheckoutReceipt(value, commandId)).toBeNull();
