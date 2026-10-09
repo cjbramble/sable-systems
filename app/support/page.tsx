@@ -70,10 +70,12 @@ import {
   supportTimeLabel,
 } from '@/lib/support-time';
 import { cn } from '@/lib/utils';
+import { reconcileSupportSnapshot } from '@/lib/support-reconciliation';
+import { parseIncidentSnapshot } from '@/lib/support-snapshot';
 import {
-  parseIncidentSnapshot,
-  reconcileSupportSnapshot,
-} from '@/lib/support-reconciliation';
+  loadSupportSnapshot,
+  SupportSessionExpiredError,
+} from '@/lib/support-loader';
 import {
   initialSupportConversation,
   supportConversationReducer,
@@ -236,51 +238,29 @@ export default function SupportPage() {
   useEffect(() => {
     const controller = new AbortController();
     pageRequest.current = controller;
-    Promise.all([
-      fetch('/api/account', { cache: 'no-store', signal: controller.signal }),
-      fetch('/api/incidents', { cache: 'no-store', signal: controller.signal }),
-    ])
-      .then(async ([accountResponse, incidentsResponse]) => {
-        if (controller.signal.aborted) return;
-        if (
-          accountResponse.status === 401 ||
-          incidentsResponse.status === 401
-        ) {
+    loadSupportSnapshot(controller.signal)
+      .then(({ account: summary, incidents: savedIncidents }) => {
+        if (controller.signal.aborted || pageRequest.current !== controller)
+          return;
+        dispatch({ type: 'load', incidents: savedIncidents });
+        setAccount(summary);
+        setLoadStatus('ready');
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted || pageRequest.current !== controller)
+          return;
+        if (error instanceof SupportSessionExpiredError) {
           clearConversationState();
           setLoadStatus('redirecting');
           redirectToLogin('/support');
           return;
         }
-        if (!accountResponse.ok)
-          throw new Error(
-            'Support account details could not be loaded. Please try again.',
-          );
-        if (!incidentsResponse.ok)
-          throw new Error(
-            'Support history could not be loaded. Please try again.',
-          );
-        return Promise.all([
-          accountResponse.json() as Promise<AccountSummary>,
-          incidentsResponse.json() as Promise<{ incidents: SupportIncident[] }>,
-        ]);
-      })
-      .then((payload) => {
-        if (!controller.signal.aborted && payload) {
-          const [summary, incidentPayload] = payload;
-          dispatch({ type: 'load', incidents: incidentPayload.incidents });
-          setAccount(summary);
-          setLoadStatus('ready');
-        }
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted) {
-          setLoadError(
-            error instanceof Error
-              ? error.message
-              : 'Support account and history could not be loaded. Please try again.',
-          );
-          setLoadStatus('error');
-        }
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : 'Support account and history could not be loaded. Please try again.',
+        );
+        setLoadStatus('error');
       });
     return () => {
       controller.abort();
