@@ -69,11 +69,11 @@ test('removes a cart item, places a charge-account order, and finds it in persis
   await expect(shopPage.cartQuantity(retainedItem)).toHaveText('8');
   await expect(shopPage.cartQuantity(removedItem)).toHaveText('12');
   // Independently authored totals: 8 x $680 + 12 x $290, then only 8 x $680.
-  await expect(shopPage.cartTotal).toHaveText('$8,920');
+  await expect(shopPage.cartTotal).toHaveText('$8,920.00');
   await shopPage.removeItem(removedItem);
   await expect(shopPage.cartLine(removedItem)).toHaveCount(0);
   await expect(shopPage.cartLines).toHaveCount(1);
-  await expect(shopPage.cartTotal).toHaveText('$5,440');
+  await expect(shopPage.cartTotal).toHaveText('$5,440.00');
 
   await shopPage.fillOrder(details);
   await expect(shopPage.placeOrderButton).toBeDisabled();
@@ -84,7 +84,9 @@ test('removes a cart item, places a charge-account order, and finds it in persis
   expect(response.request().postDataJSON()).toEqual({
     ...details,
     expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
-    items: [{ itemNumber: retainedItem, quantity: 8 }],
+    items: [
+      { itemNumber: retainedItem, quantity: 8, expectedUnitPriceCents: 68000 },
+    ],
   });
   const receipt = await response.json();
   expect(receipt).toEqual({
@@ -99,7 +101,9 @@ test('removes a cart item, places a charge-account order, and finds it in persis
   await expect(shopPage.confirmationValue('Authorization')).toHaveText(
     receipt.authorizationCode,
   );
-  await expect(shopPage.confirmationValue('Order total')).toHaveText('$5,440');
+  await expect(shopPage.confirmationValue('Order total')).toHaveText(
+    '$5,440.00',
+  );
   await expect(shopPage.confirmationValue('Requested ship')).toHaveText(
     requestedShipDate,
   );
@@ -152,7 +156,7 @@ test('removes a cart item, places a charge-account order, and finds it in persis
     'confirmed',
     'Imani Kade',
     '1 line',
-    '$5,440',
+    '$5,440.00',
   ]);
   await expect(ordersPage.orderCells(receipt.orderId)).toContainText([
     `PO ${details.customerPoNumber}`,
@@ -169,7 +173,7 @@ test('removes a cart item, places a charge-account order, and finds it in persis
     receipt.orderId,
     'Imani Kade',
     '8 units',
-    '$5,440',
+    '$5,440.00',
   ]);
   expect(app.modelRequests).toEqual([]);
 });
@@ -214,7 +218,7 @@ test('reduces a stale oversized cart one case at a time without rewriting the re
         data: {
           ...orderDetails('CPD-COMPETING-CART'),
           expectedSubject: { userId: 'USR-CPD-001', customerId: 'WHS-0427' },
-          items: [{ itemNumber, quantity: 304 }],
+          items: [{ itemNumber, quantity: 304, expectedUnitPriceCents: 68000 }],
         },
       })
     ).status(),
@@ -264,7 +268,7 @@ test('reduces a stale oversized cart one case at a time without rewriting the re
   expect(response.request().postDataJSON()).toEqual({
     ...details,
     expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
-    items: [{ itemNumber, quantity: 8 }],
+    items: [{ itemNumber, quantity: 8, expectedUnitPriceCents: 68000 }],
   });
   const saved = await app.database
     .prepare(`SELECT o.customer_id, o.order_total_cents, i.item_number, i.ordered_quantity
@@ -290,11 +294,17 @@ test('locks cart and form edits across closing and reopening pending checkout, t
 }) => {
   const details = orderDetails('MCS-PENDING-CART');
   const products = [
-    { itemNumber: 'SBL-RPC-12', name: 'Redline Power Cell R12', quantity: 8 },
+    {
+      itemNumber: 'SBL-RPC-12',
+      name: 'Redline Power Cell R12',
+      quantity: 8,
+      expectedUnitPriceCents: 68000,
+    },
     {
       itemNumber: 'SBL-SWC-12',
       name: 'Signal-Weave Active Cable, 12 m',
       quantity: 12,
+      expectedUnitPriceCents: 29000,
     },
   ];
   await loginPage.goto('/shop');
@@ -377,10 +387,13 @@ test('locks cart and form edits across closing and reopening pending checkout, t
         ...details,
         expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
         items: expect.arrayContaining(
-          pendingProducts.map(({ itemNumber, quantity }) => ({
-            itemNumber,
-            quantity,
-          })),
+          pendingProducts.map(
+            ({ itemNumber, quantity, expectedUnitPriceCents }) => ({
+              itemNumber,
+              quantity,
+              expectedUnitPriceCents,
+            }),
+          ),
         ),
       });
       expect((submitted as { items: unknown[] }).items).toHaveLength(

@@ -77,8 +77,6 @@ const productNotes: Record<string, string> = {
   'SBL-RLY-1Y': 'Encrypted node orchestration across unreliable links.',
 };
 
-const money = (cents: number) => formatCurrency(cents, 'USD', 0);
-
 function dateOffset(days: number) {
   const date = new Date();
   date.setDate(date.getDate() + days);
@@ -248,6 +246,7 @@ export default function ShopPage() {
     totalCents: subtotal,
     canOrder: cartReady,
   } = useMemo(() => reconcileCart(cart, products), [cart, products]);
+  const money = (cents: number) => formatCurrency(cents, account?.currency);
   const cartTotalLabel = subtotal === null ? 'Unavailable' : money(subtotal);
 
   function changeQuantity(product: CatalogProduct, delta: number) {
@@ -274,6 +273,7 @@ export default function ShopPage() {
     });
     setConfirmation(null);
     setCheckoutError('');
+    setChargeAccountAuthorized(false);
   }
 
   function removeFromCart(itemNumber: string) {
@@ -285,6 +285,7 @@ export default function ShopPage() {
     });
     setConfirmation(null);
     setCheckoutError('');
+    setChargeAccountAuthorized(false);
   }
 
   function chooseCategory(nextCategory: ShopCategory) {
@@ -325,9 +326,11 @@ export default function ShopPage() {
           customerPoNumber: poNumber,
           requestedShipDate: shipDate,
           shippingRegion: region,
-          items: cartLines.map(({ itemNumber, quantity }) => ({
+          items: cartLines.map(({ itemNumber, quantity, product }) => ({
             itemNumber,
             quantity,
+            // cartReady ensures every selected item has a current product.
+            expectedUnitPriceCents: product!.unitPriceCents,
           })),
         } satisfies CheckoutInput),
       });
@@ -353,6 +356,7 @@ export default function ShopPage() {
       await loadCatalog();
     } catch (error) {
       if (signal.aborted) return;
+      setChargeAccountAuthorized(false);
       setCheckoutError(
         error instanceof Error ? error.message : 'Order could not be placed.',
       );
@@ -482,7 +486,7 @@ export default function ShopPage() {
           <span>
             {String(filteredProducts.length).padStart(2, '0')} systems online
           </span>
-          <span>USD // WHOLESALE UNIT PRICING</span>
+          <span>{`${account.currency} // WHOLESALE UNIT PRICING`}</span>
         </div>
         {loadError ? (
           <div className="catalog-state" role="alert">
@@ -734,8 +738,10 @@ export default function ShopPage() {
                     value={poNumber}
                     disabled={submitting}
                     onChange={(event) => {
-                      if (!checkoutPending.current)
+                      if (!checkoutPending.current) {
                         setPoNumber(event.target.value);
+                        setChargeAccountAuthorized(false);
+                      }
                     }}
                     placeholder="ACCOUNT-PO-260901"
                   />
@@ -750,8 +756,10 @@ export default function ShopPage() {
                     value={shipDate}
                     disabled={submitting}
                     onChange={(event) => {
-                      if (!checkoutPending.current)
+                      if (!checkoutPending.current) {
                         setShipDate(event.target.value);
+                        setChargeAccountAuthorized(false);
+                      }
                     }}
                   />
                 </label>
@@ -765,8 +773,10 @@ export default function ShopPage() {
                     value={region}
                     disabled={submitting}
                     onChange={(event) => {
-                      if (!checkoutPending.current)
+                      if (!checkoutPending.current) {
                         setRegion(event.target.value);
+                        setChargeAccountAuthorized(false);
+                      }
                     }}
                   />
                 </label>

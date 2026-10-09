@@ -180,7 +180,7 @@ test('landing to checkout to live COV-E order lookup', async ({
       shippingRegion: 'North Atlantic Trade District',
     });
     await shop.chargeConsent.check();
-    await expect(shop.cartTotal).toHaveText('$5,440');
+    await expect(shop.cartTotal).toHaveText('$5,440.00');
     mark('checkout');
     await page.screenshot({ path: resolve(directory, '03-checkout.png') });
     await pause(2300);

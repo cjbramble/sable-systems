@@ -83,7 +83,7 @@ test('checkout rejects a retired product even with available physical stock', as
         customerPoNumber: 'CPD-RETIRED-REJECT',
         requestedShipDate: '2099-01-01',
         shippingRegion: calderPikeUser.region,
-        items: [{ itemNumber, quantity: 8 }],
+        items: [{ itemNumber, quantity: 8, expectedUnitPriceCents: 98000 }],
       }),
     }),
   );

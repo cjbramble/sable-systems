@@ -62,7 +62,13 @@ describe('support order grounding', () => {
         customerPoNumber: reference.toLowerCase(),
         requestedShipDate: '2031-01-01',
         shippingRegion: 'North Atlantic Trade District',
-        items: [{ itemNumber: 'SBL-RPC-12', quantity: 8 }],
+        items: [
+          {
+            itemNumber: 'SBL-RPC-12',
+            quantity: 8,
+            expectedUnitPriceCents: 68000,
+          },
+        ],
       })?.customerPoNumber,
     ).toBe(reference);
     const meridian = await loadActiveUserFixture(database, 'USR-MCS-001');

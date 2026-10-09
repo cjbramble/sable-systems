@@ -158,8 +158,16 @@ describe('orders API', () => {
           requestedShipDate,
           shippingRegion,
           items: [
-            { itemNumber: 'SBL-RPC-12', quantity: 16 },
-            { itemNumber: 'SBL-SWC-12', quantity: 36 },
+            {
+              itemNumber: 'SBL-RPC-12',
+              quantity: 16,
+              expectedUnitPriceCents: 68000,
+            },
+            {
+              itemNumber: 'SBL-SWC-12',
+              quantity: 36,
+              expectedUnitPriceCents: 29000,
+            },
           ],
         }),
       }),
@@ -304,7 +312,13 @@ describe('orders API', () => {
         customerPoNumber,
         requestedShipDate,
         shippingRegion: 'Great Lakes District',
-        items: [{ itemNumber: 'SBL-RPC-12', quantity: 8 }],
+        items: [
+          {
+            itemNumber: 'SBL-RPC-12',
+            quantity: 8,
+            expectedUnitPriceCents: 68000,
+          },
+        ],
       };
       const response = await POST(
         new Request('http://localhost/api/orders', {
@@ -369,7 +383,13 @@ describe('orders API', () => {
           customerPoNumber,
           requestedShipDate: '2028-02-29',
           shippingRegion: 'Great Lakes District',
-          items: [{ itemNumber: 'SBL-RPC-12', quantity: 8 }],
+          items: [
+            {
+              itemNumber: 'SBL-RPC-12',
+              quantity: 8,
+              expectedUnitPriceCents: 68000,
+            },
+          ],
         },
         user,
       );
@@ -453,9 +473,17 @@ describe('orders API', () => {
           shippingRegion: 'Great Lakes District',
           items: [
             // A valid first line must not be reserved when a later line fails.
-            { itemNumber: 'SBL-RPC-12', quantity: 16 },
+            {
+              itemNumber: 'SBL-RPC-12',
+              quantity: 16,
+              expectedUnitPriceCents: 68000,
+            },
             // Valid pack of 12, but 732 requested exceeds 720 available.
-            { itemNumber: 'SBL-SWC-12', quantity: 732 },
+            {
+              itemNumber: 'SBL-SWC-12',
+              quantity: 732,
+              expectedUnitPriceCents: 29000,
+            },
           ],
         }),
       }),
@@ -580,8 +608,16 @@ describe('orders API', () => {
                 shippingRegion: 'Great Lakes District',
                 items: [
                   // Its reservation precedes the scarce item in the real batch.
-                  { itemNumber: 'SBL-SWC-12', quantity: 12 },
-                  { itemNumber: 'SBL-RPC-12', quantity: 8 },
+                  {
+                    itemNumber: 'SBL-SWC-12',
+                    quantity: 12,
+                    expectedUnitPriceCents: 29000,
+                  },
+                  {
+                    itemNumber: 'SBL-RPC-12',
+                    quantity: 8,
+                    expectedUnitPriceCents: 68000,
+                  },
                 ],
               }),
             }),

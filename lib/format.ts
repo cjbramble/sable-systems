@@ -1,12 +1,9 @@
-export function formatCurrency(
-  cents: number,
-  currency = 'USD',
-  maximumFractionDigits = 2,
-) {
+export function formatCurrency(cents: number, currency = 'USD') {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency,
-    maximumFractionDigits,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(cents / 100);
 }
 

@@ -10,12 +10,16 @@ export type CheckoutInput = {
   customerPoNumber: string;
   requestedShipDate: string;
   shippingRegion: string;
-  items: { itemNumber: string; quantity: number }[];
+  items: {
+    itemNumber: string;
+    quantity: number;
+    expectedUnitPriceCents: number;
+  }[];
 };
 
 export type CheckoutFailure = {
   error: string;
-  code?: 'account_changed';
+  code?: 'account_changed' | 'price_changed';
 };
 
 export type AccountSummary = {
