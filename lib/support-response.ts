@@ -1,15 +1,24 @@
-import { parseSupportReferences } from './support-references.ts';
+import {
+  parseSupportReferences,
+  type SupportRecordReference,
+} from './support-references.ts';
+import type {
+  OrderReference,
+  SupportRecordsContext,
+  VerifiedSupportReference,
+} from './support-outcomes.ts';
 
-// Accept any suffix length so malformed IDs (including extra zeros) are checked,
-// not silently ignored by a regex that only recognizes valid database formats.
+// Match complete hyphenated tokens, including POs such as MY-SBL-1234. Accept
+// any suffix length so malformed IDs cannot evade validation by adding zeros.
 const SUPPORT_IDENTIFIER_PATTERN =
-  /\b(?:(?:SBL|SHP|RTN|AST|INC)-[A-Z0-9]+(?:-[A-Z0-9]+)*|[A-Z]{3}-(?:PO|REL)-[A-Z0-9]+(?:-[A-Z0-9]+)*)\b/gi;
+  /(?<![\w-])(?:[A-Z0-9]+-)*(?:(?:SBL|SHP|RTN|AST|INC)-[A-Z0-9]+(?:-[A-Z0-9]+)*|[A-Z]{3}-(?:PO|REL)-[A-Z0-9]+(?:-[A-Z0-9]+)*)(?![\w-])/gi;
 
 // The current context adapter uses labeled fields and two order-list formats.
 // Read those fields rather than authorizing custom IDs mentioned in event prose.
-function authorizedOrderReferences(context: string) {
+function legacyRecordFields(context: string) {
   const orderIds = new Set<string>();
   const customerPos = new Set<string>();
+  const legacyReferences: SupportRecordReference[] = [];
   let list: 'orders' | 'charges' | undefined;
   for (const line of context.split('\n')) {
     if (line.startsWith('Order search')) {
@@ -35,55 +44,174 @@ function authorizedOrderReferences(context: string) {
     }
     list = undefined;
     if (!/^(?:Order|Shipment|Return|Customer PO):/i.test(line)) continue;
-    for (const [, field, identifier] of line.matchAll(
-      /(?:^|;)\s*(order|customer PO):\s*`?([A-Z0-9-]+)`?(?=[;.]|$)/gi,
-    ))
-      (field.toLowerCase() === 'order' ? orderIds : customerPos).add(
-        identifier.toUpperCase(),
-      );
+    for (const [, field, value] of line.matchAll(
+      /(?:^|;)\s*(order|customer PO|shipment|tracking|return):\s*`?([A-Z0-9-]+)`?(?=[;,.]|$)/gi,
+    )) {
+      const identifier = value.toUpperCase();
+      switch (field.toLowerCase()) {
+        case 'order':
+          orderIds.add(identifier);
+          break;
+        case 'customer po':
+          customerPos.add(identifier);
+          break;
+        case 'shipment':
+          legacyReferences.push({
+            kind: 'shipment',
+            namespace: 'shipment_id',
+            identifier,
+          });
+          break;
+        case 'tracking':
+          legacyReferences.push({
+            kind: 'shipment',
+            namespace: 'tracking_reference',
+            identifier,
+          });
+          break;
+        case 'return':
+          legacyReferences.push({
+            kind: 'return',
+            namespace: 'return_id',
+            identifier,
+          });
+          break;
+      }
+    }
   }
-  return { orderIds, customerPos };
+  return { orderIds, customerPos, legacyReferences };
+}
+
+type IdentifierEvidence = {
+  identifiers: Set<string>;
+  orderIds: Set<string>;
+  customerPos: Set<string>;
+  unavailableOrders: OrderReference[];
+  verifiedReferences: VerifiedSupportReference[];
+  legacyIdentifiers: Set<string>;
+  legacyReferences: SupportRecordReference[];
+  hasTypedOrders: boolean;
+};
+
+// Compatibility for untouched record kinds and string callers only. Remove in
+// Phase 5D. Never feed rendered typed-order parts into this prose adapter.
+function legacyIdentifierEvidence(records: string): IdentifierEvidence {
+  const identifiers = new Set(
+    Array.from(records.matchAll(SUPPORT_IDENTIFIER_PATTERN), ([id]) =>
+      id.toUpperCase(),
+    ),
+  );
+  return {
+    identifiers,
+    legacyIdentifiers: identifiers,
+    hasTypedOrders: false,
+    verifiedReferences: [],
+    ...legacyRecordFields(records),
+    unavailableOrders: Array.from(
+      records.matchAll(/^No order matching ([A-Z0-9-]+) is available\b/gm),
+      ([, identifier]) => ({
+        kind: 'order',
+        namespace: 'unresolved',
+        identifier,
+      }),
+    ),
+  };
+}
+
+function identifierEvidence(
+  context: string | SupportRecordsContext,
+): IdentifierEvidence {
+  if (typeof context === 'string') return legacyIdentifierEvidence(context);
+  const evidence: IdentifierEvidence = {
+    identifiers: new Set(),
+    orderIds: new Set(),
+    customerPos: new Set(),
+    unavailableOrders: [],
+    verifiedReferences: [],
+    legacyIdentifiers: new Set(),
+    legacyReferences: [],
+    hasTypedOrders: context.parts.some((part) => part.kind === 'order'),
+  };
+  for (const part of context.parts) {
+    if (part.kind === 'legacy') {
+      const legacy = legacyIdentifierEvidence(part.records);
+      for (const id of legacy.identifiers) evidence.identifiers.add(id);
+      for (const id of legacy.orderIds) evidence.orderIds.add(id);
+      for (const id of legacy.customerPos) evidence.customerPos.add(id);
+      evidence.unavailableOrders.push(...legacy.unavailableOrders);
+      for (const id of legacy.identifiers) evidence.legacyIdentifiers.add(id);
+      evidence.legacyReferences.push(...legacy.legacyReferences);
+    } else if (part.outcome === 'unavailable') {
+      // Echoing the requested reference does not verify a record's existence.
+      evidence.unavailableOrders.push(part.reference);
+      evidence.identifiers.add(part.reference.identifier.toUpperCase());
+    } else {
+      evidence.verifiedReferences.push(...part.verifiedReferences);
+      for (const reference of part.verifiedReferences) {
+        const id = reference.identifier.toUpperCase();
+        evidence.identifiers.add(id);
+        if (reference.namespace === 'order_id') evidence.orderIds.add(id);
+        if (reference.namespace === 'customer_po') evidence.customerPos.add(id);
+      }
+    }
+  }
+  return evidence;
 }
 
 export function hasGroundedSupportIdentifiers(
   content: string,
-  authorizedContext: string,
+  context: string | SupportRecordsContext,
 ): boolean {
-  const authorizedIdentifiers = new Set(
-    Array.from(authorizedContext.matchAll(SUPPORT_IDENTIFIER_PATTERN), ([id]) =>
-      id.toUpperCase(),
-    ),
-  );
-  const { orderIds, customerPos } =
-    authorizedOrderReferences(authorizedContext);
-  // Unresolved inquiries may still be echoed without claiming a match. The
-  // prose adapter does not retain the namespace of an unavailable reference.
-  const unavailableOrders = new Set(
-    Array.from(
-      authorizedContext.matchAll(
-        /^No order matching ([A-Z0-9-]+) is available\b/gm,
-      ),
-      ([, identifier]) => identifier,
-    ),
-  );
+  const evidence = identifierEvidence(context);
+  const { identifiers, orderIds, customerPos, unavailableOrders } = evidence;
   return (
     parseSupportReferences(content).occurrences.every(({ reference }) => {
-      if (reference.kind !== 'order') return true;
       const { identifier, namespace } = reference;
-      if (unavailableOrders.has(identifier)) return true;
+      if (reference.kind !== 'order') {
+        if (!evidence.hasTypedOrders) return true;
+        // A requested order/PO cannot authorize a shipment or return. Legacy
+        // parts retain their own evidence until their migration in Phase 5D.
+        return (
+          evidence.legacyIdentifiers.has(identifier) ||
+          evidence.legacyReferences.some(
+            (legacy) =>
+              legacy.kind === reference.kind &&
+              legacy.identifier === identifier &&
+              (legacy.namespace === 'unresolved' ||
+                namespace === 'unresolved' ||
+                legacy.namespace === namespace),
+          ) ||
+          evidence.verifiedReferences.some(
+            (verified) =>
+              verified.identifier.toUpperCase() === identifier &&
+              (namespace === 'unresolved'
+                ? verified.namespace === 'shipment_id' ||
+                  verified.namespace === 'tracking_reference'
+                : verified.namespace === namespace),
+          )
+        );
+      }
+      if (
+        unavailableOrders.some(
+          (requested) =>
+            requested.identifier === identifier &&
+            (requested.namespace === 'unresolved' ||
+              namespace === 'unresolved' ||
+              requested.namespace === namespace),
+        )
+      )
+        return true;
       if (namespace === 'order_id') return orderIds.has(identifier);
       if (namespace === 'customer_po') return customerPos.has(identifier);
       return (
         orderIds.has(identifier) ||
         customerPos.has(identifier) ||
-        authorizedIdentifiers.has(identifier)
+        identifiers.has(identifier)
       );
     }) &&
-    Array.from(
-      content.matchAll(SUPPORT_IDENTIFIER_PATTERN),
-      // Record IDs are uppercase; a model may echo a customer's lowercase form.
-      ([id]) => id.toUpperCase(),
-    ).every((id) => authorizedIdentifiers.has(id))
+    Array.from(content.matchAll(SUPPORT_IDENTIFIER_PATTERN), ([id]) =>
+      id.toUpperCase(),
+    ).every((id) => identifiers.has(id))
   );
 }
 
@@ -97,8 +225,20 @@ const UNAVAILABLE_RECORD_NEXT_STEP = {
 
 // A lookup with no authorized match is answered by the server with the fixed
 // scope sentence, so the reply cannot hint at other accounts or their records.
-export function unavailableRecordReply(authorizedContext: string) {
-  const match = UNAVAILABLE_RECORD.exec(authorizedContext);
+export function unavailableRecordReply(
+  context: string | SupportRecordsContext,
+): string | null {
+  if (typeof context !== 'string') {
+    if (context.parts.length !== 1) return null;
+    const part = context.parts[0];
+    if (part.kind === 'order')
+      return part.outcome === 'unavailable'
+        ? `I cannot locate ${part.reference.identifier} within ${part.scope.displayName}'s authorization scope. Please ${UNAVAILABLE_RECORD_NEXT_STEP.order}.`
+        : null;
+    // Legacy shipment/return missing replies migrate with their facts in 5D.
+    return unavailableRecordReply(part.records);
+  }
+  const match = UNAVAILABLE_RECORD.exec(context);
   if (!match) return null;
   const [, kind, identifier, distributor] = match;
   const nextStep =

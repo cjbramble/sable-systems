@@ -30,6 +30,14 @@ does not replace the customer's order. Multiple or missing conversational target
 also ask for clarification. Clarification replies are saved and replayed like other
 successful replies, without a model call or model quota consumption.
 
+Order lookups retain structured outcomes, facts, and verified references separately
+from model prompt text. A single unavailable order receives a fixed, saved reply
+before quota consumption; compound requests retain both found and unavailable
+parts. References mentioned only in an order's destination, product snapshots, or
+event descriptions do not become verified identities. An unavailable reference
+may be echoed in its requested namespace without establishing that a record exists.
+Other lookup kinds currently use a text adapter; their typed migration is planned.
+
 Quantity lookups accept whole numbers from 1 through 999,999, with optional comma
 grouping such as `1,000`. Attach each quantity to its product, or use shared wording
 such as “24 units each.” Fractional, invalid, or ambiguous quantities prompt a saved
