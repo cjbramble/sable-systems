@@ -4,6 +4,7 @@ import type {
   CheckoutFailure,
   CheckoutInput,
 } from '@/lib/contracts';
+import { isProductOrderable } from '@/lib/product-eligibility';
 import { parseCustomerPo } from '@/lib/support-references';
 import { parseSessionSubject, sameSessionSubject } from '@/lib/session-subject';
 
@@ -17,6 +18,7 @@ type ProductRow = {
   case_pack: number;
   lead_time_days: number;
   warranty_months: number;
+  active_to: string | null;
   available_quantity: number | null;
   inbound_quantity: number | null;
   restock_date: string | null;
@@ -32,7 +34,7 @@ export async function getCatalog(db: D1Database): Promise<CatalogProduct[]> {
     .prepare(`SELECT
     p.item_number, p.product_name, p.category, p.fulfillment_type,
     p.unit_price_cents, p.unit_label, p.case_pack, p.lead_time_days,
-    p.warranty_months,
+    p.warranty_months, p.active_to,
     CASE WHEN p.fulfillment_type = 'license' THEN NULL
       ELSE COALESCE(SUM(i.on_hand_quantity - i.reserved_quantity - i.quarantined_quantity), 0)
     END AS available_quantity,
@@ -40,28 +42,29 @@ export async function getCatalog(db: D1Database): Promise<CatalogProduct[]> {
     MIN(i.expected_restock_date) AS restock_date
     FROM products p
     LEFT JOIN inventory_balances i ON i.item_number = p.item_number
-    WHERE p.active_to IS NULL
     GROUP BY p.item_number
     ORDER BY p.category, p.product_name`)
     .all<ProductRow>();
 
-  return rows.results.map((row) => ({
-    itemNumber: row.item_number,
-    name: row.product_name,
-    category: row.category,
-    fulfillmentType: row.fulfillment_type,
-    unitPriceCents: row.unit_price_cents,
-    unitLabel: row.unit_label,
-    casePack: row.case_pack,
-    leadTimeDays: row.lead_time_days,
-    warrantyMonths: row.warranty_months,
-    availableQuantity:
-      row.fulfillment_type === 'license'
-        ? null
-        : Number(row.available_quantity ?? 0),
-    inboundQuantity: Number(row.inbound_quantity ?? 0),
-    restockDate: row.restock_date,
-  }));
+  return rows.results
+    .filter((row) => isProductOrderable(row.active_to))
+    .map((row) => ({
+      itemNumber: row.item_number,
+      name: row.product_name,
+      category: row.category,
+      fulfillmentType: row.fulfillment_type,
+      unitPriceCents: row.unit_price_cents,
+      unitLabel: row.unit_label,
+      casePack: row.case_pack,
+      leadTimeDays: row.lead_time_days,
+      warrantyMonths: row.warranty_months,
+      availableQuantity:
+        row.fulfillment_type === 'license'
+          ? null
+          : Number(row.available_quantity ?? 0),
+      inboundQuantity: Number(row.inbound_quantity ?? 0),
+      restockDate: row.restock_date,
+    }));
 }
 
 function isCalendarDate(value: string): boolean {
