@@ -1,3 +1,5 @@
+import { parseQuantityOccurrences } from './support-quantities.ts';
+
 // Checkout stores normalized customer references; support uses the same contract.
 export function parseCustomerPo(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -54,6 +56,7 @@ export function parseSupportReferences(
   message: string,
 ): ParsedSupportReferences {
   const occurrences: ReferenceOccurrence[] = [];
+  const quantities = parseQuantityOccurrences(message);
   const labeledSpans: { start: number; end: number }[] = [];
   const labels =
     /(?<![\w-])(?:(?:customer\s+)?(?:PO|purchase\s+order)(?:\s+(?:number|reference))?|tracking(?:\s+(?:reference|number|ID))?|(?:order|shipment|return)(?:\s+(?:ID|number|reference))?)(?![\w-])/gi;
@@ -67,6 +70,14 @@ export function parseSupportReferences(
     if (!token) continue;
     const name = label[0].toLowerCase();
     const explicitId = /\b(?:id|number)\b/.test(name);
+    const valueStart = label.index + label[0].length + prefix.length;
+    // Generic 'order 1000 units' introduces a quantity, including unsupported
+    // expressions that need clarification. Explicit ID/number labels still win.
+    if (
+      name === 'order' &&
+      quantities.some((quantity) => quantity.start === valueStart)
+    )
+      continue;
     // Preserve the existing minimum for generic order references. Short
     // quantities such as "order 8 units" must stay available to catalog parsing.
     if (name.startsWith('order') && !explicitId && token.length < 4) continue;

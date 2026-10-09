@@ -5,6 +5,11 @@ import type { ChatHistoryMessage } from '@/lib/chat-history';
 import type { AccountSummary } from '@/lib/contracts';
 import { formatCurrency } from '@/lib/format';
 import {
+  bindProductQuantities,
+  type ProductMention,
+  type QuantityOccurrence,
+} from '@/lib/support-quantities';
+import {
   itemReferences,
   type SupportRecordReference,
 } from '@/lib/support-references';
@@ -103,6 +108,22 @@ export type SupportContextResult =
 
 type Clarification = Extract<SupportContextResult, { kind: 'clarification' }>;
 
+const QUANTITY_CLARIFICATIONS = {
+  syntax:
+    'Please provide a whole-number quantity of units for each item, using digits with optional comma grouping.',
+  range: 'Please provide a quantity from 1 to 999,999 units for each item.',
+  ambiguous:
+    'Please specify one quantity for each item, or say that the same quantity applies to each item.',
+  missing_target:
+    'Please provide the item number or product name for the requested quantity.',
+};
+
+function quantityClarification(
+  reason: keyof typeof QUANTITY_CLARIFICATIONS,
+): Clarification {
+  return { kind: 'clarification', message: QUANTITY_CLARIFICATIONS[reason] };
+}
+
 // Each part of a compound question is retrieved with the same scoped lookups
 // and combined into one records block, so every part is evidence and a missing
 // record is stated alongside the authorized ones.
@@ -153,8 +174,19 @@ async function authorizedContextForIntent(
   intent: SupportQueryIntent,
   user: AuthenticatedUser,
 ): Promise<string | Clarification> {
-  const products =
-    'message' in intent ? await matchProducts(db, intent.message) : [];
+  if (intent.kind === 'catalog') {
+    for (const { quantity } of intent.quantities)
+      if (quantity.kind === 'invalid')
+        return quantityClarification(quantity.reason);
+  }
+  const { products, mentions } =
+    'message' in intent
+      ? await matchProducts(
+          db,
+          intent.message,
+          intent.kind === 'catalog' ? intent.quantities : [],
+        )
+      : { products: [], mentions: [] };
   if (
     intent.kind === 'catalog' ||
     intent.kind === 'orders' ||
@@ -199,14 +231,34 @@ No catalog item matching ${unknown.join(', ')} was found. Ask the customer to ve
     case 'account':
       return accountContext(db, user, intent.includeCharges);
     case 'catalog': {
+      let quantities = new Map<string, number>();
+      if (intent.quantities.length) {
+        if (products.length > 3)
+          return {
+            kind: 'clarification',
+            message:
+              'Please ask about quantities for up to three items at a time.',
+          };
+        const binding = bindProductQuantities(
+          intent.message,
+          intent.quantities,
+          mentions,
+        );
+        if (binding.kind === 'clarification')
+          return quantityClarification(binding.reason);
+        quantities = binding.quantities;
+      }
       if (products.length > 0 && (!intent.category || products.length <= 3)) {
-        const selected = intent.compare
-          ? products.slice(0, 3)
-          : products.slice(0, 1);
+        const selected =
+          intent.compare || intent.quantities.length > 0
+            ? products.slice(0, 3)
+            : products.slice(0, 1);
         return productComparisonContext(
           db,
-          selected,
-          intent.quantity,
+          selected.map((product) => ({
+            product,
+            quantity: quantities.get(product.item_number),
+          })),
           intent.includeLocations,
         );
       }
@@ -215,7 +267,7 @@ No catalog item matching ${unknown.join(', ')} was found. Ask the customer to ve
     }
     case 'summary': {
       if (products.length > 0)
-        return productComparisonContext(db, products.slice(0, 1));
+        return productComparisonContext(db, [{ product: products[0] }]);
       return summaryContext(db, user);
     }
   }
@@ -500,48 +552,110 @@ ${charges.results.map((charge) => `- ${charge.order_id}: ${charge.status}; ${for
 </authorized_records>`;
 }
 
-async function matchProducts(db: D1Database, message: string) {
+function productMentions(
+  message: string,
+  itemNumber: string,
+  term: string,
+  wholeToken = false,
+): ProductMention[] {
+  const mentions: ProductMention[] = [];
+  let start = message.indexOf(term);
+  while (start !== -1) {
+    const end = start + term.length;
+    if (
+      !wholeToken ||
+      (!/[\w-]/.test(message[start - 1] ?? '') &&
+        !/[\w-]/.test(message[end] ?? ''))
+    )
+      mentions.push({ itemNumber, start, end });
+    start = message.indexOf(term, end);
+  }
+  return mentions;
+}
+
+async function matchProducts(
+  db: D1Database,
+  message: string,
+  quantities: QuantityOccurrence[] = [],
+) {
   const rows = await db
     .prepare('SELECT * FROM products ORDER BY product_name')
     .all<ProductRow>();
   const explicitMatches: ProductRow[] = [];
   const references = new Set(itemReferences(message));
-  const keywordCandidates: ProductRow[] = [];
-  let keywordMessage = message;
+  const mentions: ProductMention[] = [];
   for (const product of rows.results) {
     const itemNumber = product.item_number.toLowerCase();
     const productName = product.product_name.toLowerCase();
     if (references.has(product.item_number) || message.includes(productName)) {
       explicitMatches.push(product);
-      // Words inside a full name identify that product, not another product's
-      // alias. Remove every explicit mention only from the keyword-search copy.
-      keywordMessage = keywordMessage
-        .replaceAll(itemNumber, ' ')
-        .replaceAll(productName, ' ');
-    } else {
-      keywordCandidates.push(product);
+      const exact = [
+        ...productMentions(message, product.item_number, itemNumber, true),
+        ...productMentions(message, product.item_number, productName),
+      ];
+      // "SBL-CSR-R2 controller" describes the explicit product; its trailing
+      // noun must not become another product through the generic alias tier.
+      const descriptors = [
+        product.unit_label,
+        `${product.unit_label}s`,
+        ...product.search_terms.split(','),
+      ]
+        .map((term) => term.trim())
+        .filter((term) => term.length >= 4)
+        .flatMap((term) =>
+          productMentions(message, product.item_number, term, true),
+        )
+        .filter((descriptor) =>
+          exact.some(
+            (mention) =>
+              (descriptor.start >= mention.end &&
+                /^\s+$/.test(message.slice(mention.end, descriptor.start))) ||
+              (descriptor.end <= mention.start &&
+                /^\s+$/.test(message.slice(descriptor.end, mention.start))),
+          ),
+        );
+      mentions.push(...exact, ...descriptors);
     }
   }
+  // Mask exact references without shifting the source positions. A word in a
+  // full product name must not also identify another product through an alias.
+  const keywordCharacters = message.split('');
+  for (const { start, end } of mentions)
+    keywordCharacters.fill(' ', start, end);
+  // The final word of a parsed quantity is its unit, not a product alias:
+  // "20 licenses of SBL-RLY-1Y" must not also select Palisade via "license".
+  for (const { start, end } of quantities) {
+    const unit = message.slice(start, end).match(/[a-z]+$/i)?.[0];
+    if (unit) keywordCharacters.fill(' ', end - unit.length, end);
+  }
+  const keywordMessage = keywordCharacters.join('');
   // Check aliases after collecting all explicit references, regardless of row
   // order. Separately mentioned aliases remain available for mixed comparisons.
-  const keywordMatches = keywordCandidates.filter((product) =>
-    product.search_terms
+  const keywordMatches: ProductRow[] = [];
+  for (const product of rows.results) {
+    const aliases = product.search_terms
       .split(',')
-      .some((term) => term.length >= 4 && keywordMessage.includes(term.trim())),
-  );
+      .map((term) => term.trim())
+      .filter((term) => term.length >= 4);
+    const aliasMentions = aliases.flatMap((term) =>
+      productMentions(keywordMessage, product.item_number, term),
+    );
+    if (!aliasMentions.length) continue;
+    mentions.push(...aliasMentions);
+    if (!explicitMatches.includes(product)) keywordMatches.push(product);
+  }
   // Full names and item numbers outrank generic terms such as "controller".
   // Preserve alphabetical order within each tier and include each product once.
-  return [...explicitMatches, ...keywordMatches];
+  return { products: [...explicitMatches, ...keywordMatches], mentions };
 }
 
 async function productComparisonContext(
   db: D1Database,
-  products: ProductRow[],
-  quantity?: number,
+  products: { product: ProductRow; quantity?: number }[],
   includeLocations = false,
 ) {
   const records = await Promise.all(
-    products.map((product) =>
+    products.map(({ product, quantity }) =>
       productContext(db, product, quantity, includeLocations),
     ),
   );
@@ -557,10 +671,11 @@ async function productContext(
   includeLocations = false,
 ) {
   if (product.fulfillment_type === 'license') {
-    const quantityNote = quantity
-      ? `Requested quantity ${quantity}: ${quantity % product.case_pack === 0 ? 'valid minimum-block multiple' : `must be adjusted to a multiple of ${product.case_pack}`}.
+    const quantityNote =
+      quantity !== undefined
+        ? `Requested quantity ${quantity}: ${quantity % product.case_pack === 0 ? 'valid minimum-block multiple' : `must be adjusted to a multiple of ${product.case_pack}`}.
 `
-      : '';
+        : '';
     return `Product: ${product.item_number} — ${product.product_name}; category ${product.category}.
 Wholesale price: ${formatCurrency(product.unit_price_cents)} per ${product.unit_label}; minimum block ${product.case_pack}.
 ${quantityNote}This is a digitally allocated license and does not have a physical stock balance.`;
@@ -586,13 +701,15 @@ ${quantityNote}This is a digitally allocated license and does not have a physica
   // quantity. Surplus stock is not a negative shortage or an adjustment gap.
   const requestedShortfall =
     quantity === undefined ? undefined : Math.max(0, quantity - available);
-  const quantityNote = quantity
-    ? `Requested quantity ${quantity}: ${invalidCasePack ? `not a multiple of case pack ${product.case_pack}` : 'valid case-pack multiple'}; ${available >= quantity ? 'currently within available-to-promise stock' : `exceeds current available-to-promise stock by ${requestedShortfall}`}.
+  const quantityNote =
+    quantity !== undefined
+      ? `Requested quantity ${quantity}: ${invalidCasePack ? `not a multiple of case pack ${product.case_pack}` : 'valid case-pack multiple'}; ${available >= quantity ? 'currently within available-to-promise stock' : `exceeds current available-to-promise stock by ${requestedShortfall}`}.
 `
-    : '';
-  const shortfallNote = quantity
-    ? `Stock shortfall for requested quantity ${quantity}: ${requestedShortfall} units (${quantity} requested; ${available} available). Case-pack adjustment distance is not a stock shortfall.\n`
-    : '';
+      : '';
+  const shortfallNote =
+    quantity !== undefined
+      ? `Stock shortfall for requested quantity ${quantity}: ${requestedShortfall} units (${quantity} requested; ${available} available). Case-pack adjustment distance is not a stock shortfall.\n`
+      : '';
   const orderingRestriction = invalidCasePack
     ? `Ordering restriction: quantity ${quantity} cannot be ordered or fulfilled as requested. It must be adjusted to a full case-pack multiple of ${product.case_pack}; sufficient stock does not waive this rule. Do not offer partial-unit or broken-case exceptions to this ordering restriction.\n`
     : '';
