@@ -6,6 +6,7 @@ export type SessionSubject = {
 };
 
 export type CheckoutInput = {
+  commandId: string;
   expectedSubject: SessionSubject;
   customerPoNumber: string;
   requestedShipDate: string;
@@ -19,7 +20,17 @@ export type CheckoutInput = {
 
 export type CheckoutFailure = {
   error: string;
-  code?: 'account_changed' | 'price_changed';
+  code?: 'account_changed' | 'price_changed' | 'command_conflict';
+};
+
+export type CheckoutReceipt = {
+  commandId: string;
+  orderId: string;
+  chargeId: string;
+  authorizationCode: string;
+  totalCents: number;
+  currency: string;
+  requestedShipDate: string;
 };
 
 export type AccountSummary = {

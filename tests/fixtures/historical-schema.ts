@@ -261,18 +261,27 @@ const replacements10 = [
 ) STRICT`,
 ];
 
-export type HistoricalSchemaVersion = '6' | '7' | '8' | '9' | '10';
+// Frozen addition from f6a3df1 (schema 11).
+const additions11 = [
+  `CREATE TABLE IF NOT EXISTS support_incident_deletions (
+  incident_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL
+) STRICT`,
+];
+
+export type HistoricalSchemaVersion = '6' | '7' | '8' | '9' | '10' | '11';
 
 export function historicalSchemaStatements(version: HistoricalSchemaVersion) {
   return [
     ...schema6.filter(
       (sql) =>
-        version !== '10' ||
+        Number(version) < 10 ||
         !/^CREATE TABLE IF NOT EXISTS (shipment_items|return_items) /.test(sql),
     ),
     ...(Number(version) >= 7 ? additions7 : []),
     ...(Number(version) >= 8 ? additions8 : []),
     ...(Number(version) >= 9 ? additions9 : []),
-    ...(version === '10' ? replacements10 : []),
+    ...(Number(version) >= 10 ? replacements10 : []),
+    ...(Number(version) >= 11 ? additions11 : []),
   ];
 }

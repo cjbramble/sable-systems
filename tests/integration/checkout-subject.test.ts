@@ -11,6 +11,7 @@ import { test } from '../fixtures/support-integration';
 import { loadActiveUserFixture } from '../fixtures/users';
 
 const order = {
+  commandId: crypto.randomUUID(),
   requestedShipDate: '2031-01-01',
   shippingRegion: 'Great Lakes District',
   items: [
@@ -47,6 +48,7 @@ describe('checkout account context', () => {
       const input = {
         ...order,
         customerPoNumber,
+        commandId: crypto.randomUUID(),
         expectedSubject: {
           // Exercise each comparison independently: a matching user ID must not
           // make an unreviewed distributor acceptable, or vice versa.
@@ -124,6 +126,7 @@ describe('checkout account context', () => {
         body: JSON.stringify({
           ...order,
           customerPoNumber,
+          commandId: crypto.randomUUID(),
           expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
           // Extra client ownership fields must never choose the account to charge.
           customerId: 'WHS-0427',

@@ -3,10 +3,15 @@ import type {
   CatalogProduct,
   CheckoutFailure,
   CheckoutInput,
+  CheckoutReceipt,
 } from '@/lib/contracts';
 import { isProductOrderable } from '@/lib/product-eligibility';
-import { parseCustomerPo } from '@/lib/support-references';
-import { parseSessionSubject, sameSessionSubject } from '@/lib/session-subject';
+import {
+  parseCheckoutFailure,
+  parseCheckoutInput,
+  parseCheckoutReceipt,
+} from '@/lib/checkout';
+import { sameSessionSubject } from '@/lib/session-subject';
 
 type ProductRow = {
   item_number: string;
@@ -67,76 +72,18 @@ export async function getCatalog(db: D1Database): Promise<CatalogProduct[]> {
     }));
 }
 
-function isCalendarDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00.000Z`);
-  // Date parsing can normalize impossible days into the following month.
-  return (
-    Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
-  );
-}
-
-export function parseCheckoutInput(value: unknown): CheckoutInput | null {
-  if (!value || typeof value !== 'object') return null;
-  const candidate = value as Record<string, unknown>;
-  const expectedSubject = parseSessionSubject(candidate.expectedSubject);
-  const customerPoNumber = parseCustomerPo(candidate.customerPoNumber);
-  const requestedShipDate =
-    typeof candidate.requestedShipDate === 'string'
-      ? candidate.requestedShipDate.trim()
-      : '';
-  const shippingRegion =
-    typeof candidate.shippingRegion === 'string'
-      ? candidate.shippingRegion.trim()
-      : '';
-  if (
-    !expectedSubject ||
-    !customerPoNumber ||
-    !isCalendarDate(requestedShipDate) ||
-    shippingRegion.length < 3 ||
-    shippingRegion.length > 80 ||
-    !Array.isArray(candidate.items) ||
-    candidate.items.length === 0 ||
-    candidate.items.length > 20
-  )
-    return null;
-
-  const items: CheckoutInput['items'] = [];
-  const seen = new Set<string>();
-  for (const rawLine of candidate.items) {
-    if (!rawLine || typeof rawLine !== 'object') return null;
-    const line = rawLine as Record<string, unknown>;
-    if (
-      typeof line.itemNumber !== 'string' ||
-      !Number.isInteger(line.quantity) ||
-      Number(line.quantity) <= 0 ||
-      Number(line.quantity) > 100_000 ||
-      !Number.isSafeInteger(line.expectedUnitPriceCents) ||
-      Number(line.expectedUnitPriceCents) < 0 ||
-      seen.has(line.itemNumber)
-    )
-      return null;
-    seen.add(line.itemNumber);
-    items.push({
-      itemNumber: line.itemNumber,
-      quantity: Number(line.quantity),
-      expectedUnitPriceCents: Number(line.expectedUnitPriceCents),
-    });
-  }
-  return {
-    expectedSubject,
-    customerPoNumber,
-    requestedShipDate,
-    shippingRegion,
-    items,
-  };
-}
-
 export async function placeChargeAccountOrder(
   db: D1Database,
-  input: CheckoutInput,
+  value: unknown,
   user: AuthenticatedUser,
-) {
+): Promise<CheckoutReceipt> {
+  const input = parseCheckoutInput(value);
+  if (!input) {
+    throw new CheckoutError(
+      'Reload and review the account, PO, ship date, destination, and order lines before trying again.',
+      400,
+    );
+  }
   if (
     !sameSessionSubject(input.expectedSubject, {
       userId: user.userId,
@@ -150,10 +97,83 @@ export async function placeChargeAccountOrder(
     );
   }
   const createdAt = new Date().toISOString();
-  const today = createdAt.slice(0, 10);
-  if (!isCalendarDate(input.requestedShipDate)) {
-    throw new CheckoutError('Enter a valid requested ship date.', 422);
+  const intent = JSON.stringify({
+    ...input,
+    items: input.items.toSorted((left, right) =>
+      left.itemNumber < right.itemNumber ? -1 : 1,
+    ),
+  });
+  const existing = await recoverCheckout(db, input.commandId, intent);
+  if (existing) return existing;
+  try {
+    return await createOrder(db, input, user, intent, createdAt);
+  } catch (error) {
+    if (error instanceof CheckoutError) {
+      // A terminal rejection must also win the command's unique identity. This
+      // prevents an earlier, still-running attempt from committing afterward.
+      await db
+        .prepare(`INSERT INTO checkout_commands (command_id, intent_json, status, response_json)
+        VALUES (?, ?, ?, ?) ON CONFLICT(command_id) DO NOTHING`)
+        .bind(
+          input.commandId,
+          intent,
+          error.status,
+          JSON.stringify({
+            error: error.message,
+            code: error.code,
+          } satisfies CheckoutFailure),
+        )
+        .run();
+    }
+    // A concurrent winner can commit during validation, or the database can
+    // commit our batch before losing its acknowledgment. Resolve identity first.
+    const recovered = await recoverCheckout(db, input.commandId, intent);
+    if (recovered) return recovered;
+    throw error;
   }
+}
+
+async function recoverCheckout(
+  db: D1Database,
+  commandId: string,
+  intent: string,
+): Promise<CheckoutReceipt | null> {
+  const saved = await db
+    .prepare(
+      'SELECT intent_json, status, response_json FROM checkout_commands WHERE command_id = ?',
+    )
+    .bind(commandId)
+    .first<{ intent_json: string; status: number; response_json: string }>();
+  if (!saved) return null;
+  // Normalized intent includes the authenticated user and distributor. A
+  // different owner receives the same conflict as any other intent mismatch.
+  if (saved.intent_json !== intent) {
+    throw new CheckoutError(
+      'These checkout details conflict with an earlier submission. Check order history before starting another order.',
+      409,
+      'command_conflict',
+    );
+  }
+  const response: unknown = JSON.parse(saved.response_json);
+  if (saved.status !== 201) {
+    const failure = parseCheckoutFailure(response);
+    if (!failure || ![409, 422].includes(saved.status))
+      throw new Error('Stored checkout rejection is invalid.');
+    throw new CheckoutError(failure.error, saved.status, failure.code);
+  }
+  const receipt = parseCheckoutReceipt(response, commandId);
+  if (!receipt) throw new Error('Stored checkout receipt is invalid.');
+  return receipt;
+}
+
+async function createOrder(
+  db: D1Database,
+  input: CheckoutInput,
+  user: AuthenticatedUser,
+  intent: string,
+  createdAt: string,
+): Promise<CheckoutReceipt> {
+  const today = createdAt.slice(0, 10);
   if (input.requestedShipDate < today) {
     throw new CheckoutError('Requested ship date cannot be in the past.', 422);
   }
@@ -184,6 +204,9 @@ export async function placeChargeAccountOrder(
       );
     }
     totalCents += product.unitPriceCents * line.quantity;
+    if (!Number.isSafeInteger(totalCents)) {
+      throw new CheckoutError('The order total is too large.', 422);
+    }
 
     if (product.fulfillmentType === 'license') continue;
     const balances = await db
@@ -223,6 +246,15 @@ export async function placeChargeAccountOrder(
   const orderId = `SBL-${year}-${800000 + (randomValue % 200000)}`;
   const chargeId = `CHG-${crypto.randomUUID().slice(0, 12).toUpperCase()}`;
   const authorizationCode = `ACC-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+  const receipt: CheckoutReceipt = {
+    commandId: input.commandId,
+    currency: user.currency,
+    orderId,
+    chargeId,
+    authorizationCode,
+    totalCents,
+    requestedShipDate: input.requestedShipDate,
+  };
   const statements: D1PreparedStatement[] = [
     ...inventoryUpdates,
     db
@@ -287,23 +319,47 @@ export async function placeChargeAccountOrder(
       ),
   );
 
+  statements.push(
+    db
+      .prepare(`INSERT INTO checkout_commands (command_id, order_id, intent_json, status, response_json)
+      VALUES (?, ?, ?, 201, ?)`)
+      .bind(input.commandId, orderId, intent, JSON.stringify(receipt)),
+  );
+
   try {
     await db.batch(statements);
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
-    if (message.includes('UNIQUE') && message.includes('customer_po_number')) {
+    if (
+      message.includes(
+        'UNIQUE constraint failed: orders.customer_id, orders.customer_po_number',
+      )
+    ) {
       throw new CheckoutError(
         'That purchase-order reference is already in use.',
         409,
       );
     }
-    if (message.includes('UNIQUE')) {
+    if (
+      [
+        'orders.order_id',
+        'account_charges.charge_id',
+        'account_charges.authorization_code',
+        'order_events.event_id',
+      ].some((column) =>
+        message.includes(`UNIQUE constraint failed: ${column}`),
+      )
+    ) {
       throw new CheckoutError(
         'An order reference conflict occurred. Submit the order again.',
         409,
       );
     }
-    if (message.includes('CHECK constraint')) {
+    if (
+      message.includes(
+        'CHECK constraint failed: reserved_quantity + quarantined_quantity <= on_hand_quantity',
+      )
+    ) {
       throw new CheckoutError(
         'Inventory changed during checkout. Refresh and try again.',
         409,
@@ -312,13 +368,7 @@ export async function placeChargeAccountOrder(
     throw error;
   }
 
-  return {
-    orderId,
-    chargeId,
-    authorizationCode,
-    totalCents,
-    requestedShipDate: input.requestedShipDate,
-  };
+  return receipt;
 }
 
 export class CheckoutError extends Error {

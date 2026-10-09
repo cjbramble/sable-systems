@@ -83,6 +83,7 @@ test('removes a cart item, places a charge-account order, and finds it in persis
   expect(response.status()).toBe(201);
   expect(response.request().postDataJSON()).toEqual({
     ...details,
+    commandId: expect.any(String),
     expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
     items: [
       { itemNumber: retainedItem, quantity: 8, expectedUnitPriceCents: 68000 },
@@ -90,6 +91,8 @@ test('removes a cart item, places a charge-account order, and finds it in persis
   });
   const receipt = await response.json();
   expect(receipt).toEqual({
+    commandId: response.request().postDataJSON().commandId,
+    currency: 'USD',
     orderId: expect.stringMatching(/^SBL-\d{4}-\d{6}$/),
     chargeId: expect.stringMatching(/^CHG-/),
     authorizationCode: expect.stringMatching(/^ACC-/),
@@ -217,6 +220,7 @@ test('reduces a stale oversized cart one case at a time without rewriting the re
         headers: { Origin: app.url },
         data: {
           ...orderDetails('CPD-COMPETING-CART'),
+          commandId: crypto.randomUUID(),
           expectedSubject: { userId: 'USR-CPD-001', customerId: 'WHS-0427' },
           items: [{ itemNumber, quantity: 304, expectedUnitPriceCents: 68000 }],
         },
@@ -267,6 +271,7 @@ test('reduces a stale oversized cart one case at a time without rewriting the re
   expect(response.status()).toBe(201);
   expect(response.request().postDataJSON()).toEqual({
     ...details,
+    commandId: expect.any(String),
     expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
     items: [{ itemNumber, quantity: 8, expectedUnitPriceCents: 68000 }],
   });
@@ -385,6 +390,7 @@ test('locks cart and form edits across closing and reopening pending checkout, t
         );
       expect(submitted).toEqual({
         ...details,
+        commandId: expect.any(String),
         expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
         items: expect.arrayContaining(
           pendingProducts.map(

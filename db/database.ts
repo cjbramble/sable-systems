@@ -28,6 +28,7 @@ const SUPPORTED_SCHEMA_VERSIONS = new Set([
   '8',
   '9',
   '10',
+  '11',
   SCHEMA_VERSION,
 ]);
 let initialization: Promise<D1Database> | null = null;

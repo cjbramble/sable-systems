@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = '11';
+export const SCHEMA_VERSION = '12';
 export const SEED_VERSION = 'sable-distribution-2026-09-02-v7';
 
 export const METADATA_TABLE_SQL = `CREATE TABLE IF NOT EXISTS metadata (
@@ -118,6 +118,16 @@ export const ACCOUNT_CHARGES_TABLE_SQL = `CREATE TABLE IF NOT EXISTS account_cha
 
 export const ACCOUNT_CHARGES_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_account_charges_order
   ON account_charges(order_id)`;
+
+export const CHECKOUT_COMMANDS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS checkout_commands (
+  command_id TEXT PRIMARY KEY,
+  order_id TEXT UNIQUE REFERENCES orders(order_id) ON DELETE CASCADE,
+  intent_json TEXT NOT NULL CHECK (json_valid(intent_json)),
+  status INTEGER NOT NULL CHECK (status IN (201, 409, 422)),
+  response_json TEXT NOT NULL CHECK (json_valid(response_json)),
+  CHECK ((status = 201 AND order_id IS NOT NULL)
+    OR (status IN (409, 422) AND order_id IS NULL))
+) STRICT`;
 
 export const SHIPMENT_ITEMS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS shipment_items (
   shipment_id TEXT NOT NULL,
@@ -253,6 +263,7 @@ export const schemaStatements = [
     ON returns(return_id, order_id)`,
   RETURN_ITEMS_TABLE_SQL,
   ACCOUNT_CHARGES_TABLE_SQL,
+  CHECKOUT_COMMANDS_TABLE_SQL,
   ORDER_USER_INSERT_TRIGGER_SQL,
   ORDER_USER_UPDATE_TRIGGER_SQL,
   `CREATE INDEX IF NOT EXISTS idx_orders_customer_ship_date

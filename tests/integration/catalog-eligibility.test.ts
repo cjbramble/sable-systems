@@ -76,6 +76,7 @@ test('checkout rejects a retired product even with available physical stock', as
       method: 'POST',
       headers: session.request({}).headers,
       body: JSON.stringify({
+        commandId: crypto.randomUUID(),
         expectedSubject: {
           userId: calderPikeUser.userId,
           customerId: calderPikeUser.distributorId,

@@ -150,6 +150,7 @@ describe('orders API', () => {
         headers,
         // The expected subject is a stale-context guard; server identity owns the order.
         body: JSON.stringify({
+          commandId: crypto.randomUUID(),
           expectedSubject: {
             userId: user.userId,
             customerId: user.distributorId,
@@ -182,6 +183,8 @@ describe('orders API', () => {
     expect(response.status, JSON.stringify(receipt)).toBe(201);
     // Independently authored oracle: 16 x 68,000 + 36 x 29,000 cents.
     expect(receipt).toEqual({
+      commandId: expect.any(String),
+      currency: 'USD',
       orderId: expect.stringMatching(/^SBL-2026-\d{6}$/),
       chargeId: expect.stringMatching(/^CHG-/),
       authorizationCode: expect.stringMatching(/^ACC-/),
@@ -305,6 +308,7 @@ describe('orders API', () => {
       '2026-09-09',
     ]) {
       const input = {
+        commandId: crypto.randomUUID(),
         expectedSubject: {
           userId: user.userId,
           customerId: user.distributorId,
@@ -337,10 +341,7 @@ describe('orders API', () => {
       await expect(
         placeChargeAccountOrder(database, input, user),
       ).rejects.toMatchObject({
-        status: 422,
-        message: pastDate
-          ? 'Requested ship date cannot be in the past.'
-          : 'Enter a valid requested ship date.',
+        status: pastDate ? 422 : 400,
       });
       expect(await snapshotCheckoutState(database), requestedShipDate).toEqual(
         before,
@@ -376,6 +377,7 @@ describe('orders API', () => {
       receipt = await placeChargeAccountOrder(
         database,
         {
+          commandId: crypto.randomUUID(),
           expectedSubject: {
             userId: user.userId,
             customerId: user.distributorId,
@@ -464,6 +466,7 @@ describe('orders API', () => {
         method: 'POST',
         headers,
         body: JSON.stringify({
+          commandId: crypto.randomUUID(),
           expectedSubject: {
             userId: user.userId,
             customerId: user.distributorId,
@@ -599,6 +602,7 @@ describe('orders API', () => {
               method: 'POST',
               headers,
               body: JSON.stringify({
+                commandId: crypto.randomUUID(),
                 expectedSubject: {
                   userId: user.userId,
                   customerId: user.distributorId,
