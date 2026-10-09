@@ -70,6 +70,13 @@ Drafts stay in memory while switching incidents. Deleting an incident clears its
 local draft; remote deletion preserves unsent text for recovery into a new incident.
 Reloading the page or changing accounts clears local drafts and pending recovery.
 
+The support page requires valid account details and saved history before showing
+either. A loading failure appears as soon as it is known, cancels the other read,
+and offers “Retry support”; an expired session redirects to login. Both responses,
+including their bodies, share a ten-second deadline. Retrying starts a fresh pair
+of reads, and canceled or older results cannot replace the current view. Failed or
+malformed history is never presented as an empty conversation list.
+
 | Limit                                             | Maximum                 | Failure  |
 | ------------------------------------------------- | ----------------------- | -------- |
 | Trimmed customer text                             | 4,000 UTF-16 code units | HTTP 400 |

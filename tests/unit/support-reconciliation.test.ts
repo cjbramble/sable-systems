@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { SupportCommand } from '@/lib/chat-request';
 import type { SupportIncident } from '@/lib/support-incidents';
-import {
-  parseIncidentSnapshot,
-  reconcileSupportSnapshot,
-} from '@/lib/support-reconciliation';
+import { reconcileSupportSnapshot } from '@/lib/support-reconciliation';
+import { parseIncidentSnapshot } from '@/lib/support-snapshot';
 
 const request: SupportCommand = {
   incidentId: 'INC-RECONCILIATION',
