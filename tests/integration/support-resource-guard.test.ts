@@ -40,7 +40,7 @@ describe('SABLE resource guard', () => {
         session.request({
           incidentId,
           messageId: `MSG-RESOURCE-RETURN-${kind}`,
-          messages: [{ role: 'user', content: question }],
+          message: question,
         }),
       );
       expect(response.status).toBe(200);
@@ -67,7 +67,7 @@ describe('SABLE resource guard', () => {
       session.request({
         incidentId,
         messageId: 'MSG-RESOURCE-GUARD-RETRY',
-        messages: [{ role: 'user', content: question }],
+        message: question,
       }),
     );
 
@@ -108,7 +108,7 @@ describe('SABLE resource guard', () => {
       session.request({
         incidentId,
         messageId: 'MSG-RESOURCE-GUARD-TWICE',
-        messages: [{ role: 'user', content: question }],
+        message: question,
       }),
     );
 
@@ -136,7 +136,7 @@ describe('SABLE resource guard', () => {
       session.request({
         incidentId,
         messageId: 'MSG-RESOURCE-GUARD-IDENTIFIER',
-        messages: [{ role: 'user', content: 'Show order SBL-2022-000118.' }],
+        message: 'Show order SBL-2022-000118.',
       }),
     );
 

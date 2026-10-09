@@ -329,13 +329,10 @@ test.describe('model failure recovery', () => {
       supportPage.messages.filter({ hasText: errorMessage }),
     ).toHaveCount(0);
 
-    const expectedHistory = [
-      { role: 'user', content: firstMessage },
-      { role: 'user', content: followUpMessage },
-    ];
     const recoveryRequest = recoveredResponse.request().postDataJSON();
     expect(recoveryRequest.incidentId).toBe(incidentId);
-    expect(recoveryRequest.messages).toEqual(expectedHistory);
+    expect(recoveryRequest.message).toBe(followUpMessage);
+    expect(recoveryRequest).not.toHaveProperty('messages');
     expect(app.modelRequests).toHaveLength(2);
     // The failed first message was never saved, so the model sees only saved
     // incident history (none yet) and the current customer message.

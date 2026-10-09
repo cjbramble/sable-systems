@@ -36,7 +36,7 @@ describe('unavailable record replies', () => {
       session.request({
         incidentId,
         messageId: 'MSG-UNAVAILABLE-FOREIGN-ORDER-2',
-        messages: [{ role: 'user', content: 'Show that order and its total.' }],
+        message: 'Show that order and its total.',
       }),
     );
 
@@ -61,9 +61,7 @@ describe('unavailable record replies', () => {
       session.request({
         incidentId,
         messageId: 'MSG-UNAVAILABLE-SHIPMENT',
-        messages: [
-          { role: 'user', content: 'Track shipment SHP-2099-000001.' },
-        ],
+        message: 'Track shipment SHP-2099-000001.',
       }),
     );
 
@@ -86,7 +84,7 @@ describe('unavailable record replies', () => {
       session.request({
         incidentId,
         messageId: 'MSG-UNAVAILABLE-CONTROL',
-        messages: [{ role: 'user', content: 'Show order SBL-2022-000118.' }],
+        message: 'Show order SBL-2022-000118.',
       }),
     );
 

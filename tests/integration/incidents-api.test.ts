@@ -26,7 +26,7 @@ describe('support incident API', () => {
         session.request({
           incidentId,
           messageId,
-          messages: [{ role: 'user', content: 'Trace my shipment.' }],
+          message: 'Trace my shipment.',
         });
       const expected = {
         message: 'Which shipment should I trace?',

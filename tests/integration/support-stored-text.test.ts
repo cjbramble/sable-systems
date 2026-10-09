@@ -49,7 +49,7 @@ describe('stored customer text in support records', () => {
         session.request({
           incidentId,
           messageId: 'MSG-STORED-TEXT-DESTINATION',
-          messages: [{ role: 'user', content: `Show order ${orderId}.` }],
+          message: `Show order ${orderId}.`,
         }),
       );
 
@@ -111,7 +111,7 @@ describe('stored customer text in support records', () => {
       session.request({
         incidentId,
         messageId,
-        messages: [{ role: 'user', content: 'List my support incidents.' }],
+        message: 'List my support incidents.',
       });
 
     const response = await chat(request());

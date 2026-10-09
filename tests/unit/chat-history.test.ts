@@ -47,7 +47,7 @@ describe('chat request history', () => {
     expect(history.length).toBeLessThanOrEqual(12);
     expect(messages).toEqual(original);
 
-    // Editing a request payload must not alter messages displayed in the UI.
+    // Editing model context must not alter the saved conversation.
     history[0].content = 'Edited request content';
     history.pop();
     expect(messages).toEqual(original);

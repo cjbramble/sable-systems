@@ -68,7 +68,7 @@ describe('compound support questions', () => {
       session.request({
         incidentId,
         messageId: 'MSG-COMPOUND-QUESTION',
-        messages: ask('Show order SBL-2022-000118 and order SBL-2099-000001.'),
+        message: 'Show order SBL-2022-000118 and order SBL-2099-000001.',
       }),
     );
 

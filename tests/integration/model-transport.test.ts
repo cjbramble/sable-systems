@@ -40,9 +40,7 @@ for (const endpoint of ['completion', 'readiness'] as const) {
                   session.request({
                     incidentId,
                     messageId: `MSG-${id}`,
-                    messages: [
-                      { role: 'user', content: 'Help with a shipment.' },
-                    ],
+                    message: 'Help with a shipment.',
                   }),
                 )
               : await GET();

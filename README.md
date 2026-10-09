@@ -103,6 +103,10 @@ purchase-order references, and requested ship dates. COV-E provides read-only
 assistance with authorized orders, shipments, returns, account charges, support
 incidents, and inventory.
 
+Support sends only the current message; conversation history comes from saved
+records. See [Support API](docs/support-api.md) for request formats, retry behavior,
+and size limits.
+
 ## Local data
 
 The database initializes automatically with four distributors, catalog inventory,

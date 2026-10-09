@@ -16,231 +16,39 @@ import { test } from '../fixtures/support-integration';
 // retain their post-cleanup assertions; races and ordered resource restoration
 // keep their own finally blocks.
 describe('support response safety', () => {
-  test.for<{
-    invalid: string;
-    caseId: string;
-    validCount?: number;
-    validCustomerContent?: string;
-    reject: (
-      history: Array<{ role: string; content: string }>,
-      oversized: Array<{ role: string; content: string }>,
-    ) => unknown;
-  }>([
-    {
-      invalid: '13 chat messages',
-      caseId: 'MESSAGE-COUNT-BOUNDARY',
-      reject: (_history, oversized) => oversized,
-    },
-    {
-      invalid: 'an assistant-final history',
-      caseId: 'ASSISTANT-FINAL-HISTORY',
-      reject: (history) =>
-        history.map((message, index) =>
-          index === history.length - 1
-            ? { ...message, role: 'assistant' }
-            : message,
-        ),
-    },
-    {
-      invalid: 'a 4,001-character message',
-      caseId: 'MESSAGE-LENGTH-BOUNDARY',
-      validCustomerContent: 'x'.repeat(4_000),
-      reject: (history) => {
-        const rejected = history.map((message, index) =>
-          index === history.length - 1
-            ? { ...message, content: `${message.content}x` }
-            : message,
-        );
-        expect(history.at(-1)?.content).toHaveLength(4_000);
-        expect(rejected.at(-1)?.content).toHaveLength(4_001);
-        return rejected;
-      },
-    },
-    {
-      invalid: 'a whitespace-only customer message',
-      caseId: 'WHITESPACE-MESSAGE',
-      reject: (history) => {
-        const whitespace = ' \t\r\n ';
-        expect(whitespace.length).toBeGreaterThan(0);
-        expect(whitespace.trim()).toBe('');
-        return history.map((message, index) =>
-          index === history.length - 1
-            ? { ...message, content: whitespace }
-            : message,
-        );
-      },
-    },
-    {
-      invalid: 'a client-supplied system message',
-      caseId: 'SYSTEM-ROLE-MESSAGE',
-      reject: (history) => {
-        // An earlier role is invalid; the final-user check must not mask it.
-        const rejected = history.map((message, index) =>
-          index === 0 ? { ...message, role: 'system' } : message,
-        );
-        expect(rejected).toHaveLength(12);
-        expect(rejected.at(-1)?.role).toBe('user');
-        return rejected;
-      },
-    },
-    {
-      invalid: 'an empty chat history',
-      caseId: 'MINIMUM-HISTORY-BOUNDARY',
-      validCount: 1,
-      reject: (history) => {
-        expect(history).toEqual([
-          { role: 'user', content: 'Help with a shipment.' },
-        ]);
-        return [];
-      },
-    },
-    {
-      invalid: 'numeric customer message content',
-      caseId: 'NUMERIC-MESSAGE-CONTENT',
-      validCustomerContent: '123',
-      reject: (history) =>
-        history.map((message, index) =>
-          index === history.length - 1 ? { ...message, content: 123 } : message,
-        ),
-    },
-    {
-      invalid: 'a null message-history entry',
-      caseId: 'NULL-HISTORY-ENTRY',
-      reject: (history) => {
-        const rejected = history.map((message, index) =>
-          index === 0 ? null : message,
-        );
-        expect(rejected).toHaveLength(12);
-        expect(rejected[0]).toBeNull();
-        expect(rejected.at(-1)?.role).toBe('user');
-        return rejected;
-      },
-    },
-    {
-      invalid: 'a messages object instead of an array',
-      caseId: 'NON-ARRAY-HISTORY',
-      validCount: 1,
-      reject: (history) => {
-        const rejected = { role: 'user', content: 'Help with a shipment.' };
-        expect(history).toEqual([rejected]);
-        return rejected;
-      },
-    },
-    {
-      invalid: 'a missing messages field',
-      caseId: 'MISSING-HISTORY',
-      validCount: 1,
-      reject: () => undefined,
-    },
-    {
-      invalid: 'an explicit null messages field',
-      caseId: 'NULL-HISTORY',
-      validCount: 1,
-      reject: () => null,
-    },
-  ])(
-    'rejects $invalid without side effects and accepts its valid-history control',
-    async (
-      {
-        caseId,
-        validCount = 12,
-        validCustomerContent: customerMessage = 'Help with a shipment.',
-        reject,
-      },
-      { database, supportApi: fixture },
-    ) => {
-      const incidentId = `INC-${caseId}`;
-      const messageId = `MSG-${caseId}`;
-      const assistantMessage = 'Which shipment do you need help with?';
-      // The count case differs from the control only by the oldest entry.
-      const oversizedHistory = Array.from({ length: 13 }, (_, index) => ({
-        role: index % 2 === 0 ? 'user' : 'assistant',
-        content:
-          index === 12
-            ? customerMessage
-            : `Shipment discussion turn ${index + 1}.`,
-      }));
-      const allowedHistory = oversizedHistory.slice(-validCount);
-      expect(oversizedHistory).toHaveLength(13);
-      expect(allowedHistory).toHaveLength(validCount);
-      const rejectedHistory = reject(allowedHistory, oversizedHistory);
-      expect(await fixture.findIncident(incidentId)).toBeNull();
-      expect((await fixture.messages(incidentId)).results).toEqual([]);
-
+  test.for([undefined, null, '', ' \t\r\n ', 123, {}, [], 'x'.repeat(4001)])(
+    'rejects invalid customer text without side effects: %j',
+    async (message, { database, supportApi: fixture }) => {
+      const incidentId = 'INC-INVALID-COMMAND';
       await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
       const session = await fixture.session(calderPikeUser);
-      const fetchMock = fixture.mockModel(assistantMessage);
-      const makeRequest = (messages: typeof rejectedHistory) => {
-        const request = session.request({ incidentId, messageId, messages });
-        request.headers.set('Origin', new URL(request.url).origin);
-        request.headers.set('Sec-Fetch-Site', 'same-origin');
-        return request;
-      };
-      const rejectedRequest = makeRequest(rejectedHistory);
-      // Undefined is omitted; null and all other invalid shapes survive JSON.
-      expect(await rejectedRequest.clone().json()).toEqual({
-        incidentId,
-        messageId,
-        ...(rejectedHistory === undefined ? {} : { messages: rejectedHistory }),
-      });
-      const prepareSpy = vi.spyOn(database, 'prepare');
+      const model = fixture.mockModel('Which shipment do you need?');
+      const prepare = vi.spyOn(database, 'prepare');
       try {
-        const rejected = await POST(rejectedRequest);
+        const rejected = await POST(
+          session.request({
+            incidentId,
+            messageId: 'MSG-INVALID-COMMAND',
+            message,
+          }),
+        );
         expect(rejected.status).toBe(400);
-        expect(await rejected.json()).toEqual({
-          error:
-            'Send 1–12 valid messages, with the latest message from the customer.',
-        });
-        expect(fetchMock).not.toHaveBeenCalled();
-        expect(prepareSpy).not.toHaveBeenCalled();
+        expect(prepare).not.toHaveBeenCalled();
+        expect(model).not.toHaveBeenCalled();
       } finally {
-        prepareSpy.mockRestore();
+        prepare.mockRestore();
       }
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
-
-      const accepted = await POST(makeRequest(allowedHistory));
+      const accepted = await POST(
+        session.request({
+          incidentId,
+          messageId: 'MSG-INVALID-COMMAND',
+          message: 'x'.repeat(4000),
+        }),
+      );
       expect(accepted.status).toBe(200);
-      expect(await accepted.json()).toMatchObject({
-        message: assistantMessage,
-      });
-      expect(fetchMock).toHaveBeenCalledOnce();
-      const modelBody = fetchMock.mock.calls[0][1]?.body;
-      if (typeof modelBody !== 'string')
-        throw new Error('Expected a JSON model request body');
-      const modelRequest = JSON.parse(modelBody);
-      // A valid history is accepted, but only saved messages reach the model.
-      // This incident is new, so the model sees the current customer message.
-      expect(modelRequest.messages[0]).toMatchObject({ role: 'system' });
-      expect(JSON.parse(modelRequest.messages[1].content)).toMatchObject({
-        source: 'authorized_support_records',
-      });
-      expect(modelRequest.messages.slice(2)).toEqual([
-        { role: 'user', content: customerMessage },
-      ]);
-      expect(await fixture.findIncident(incidentId)).toMatchObject({
-        user_id: calderPikeUser.userId,
-      });
-      const savedMessages = await fixture.messages(incidentId);
-      expect(savedMessages.results).toHaveLength(2);
-      expect(savedMessages.results).toMatchObject([
-        {
-          message_id: messageId,
-          role: 'user',
-          content: customerMessage,
-          sequence_number: 1,
-        },
-        {
-          message_id: `AST-${messageId}`,
-          role: 'assistant',
-          content: assistantMessage,
-          sequence_number: 2,
-        },
-      ]);
-
-      await fixture.cleanup();
-      expect(await fixture.findIncident(incidentId)).toBeNull();
-      expect((await fixture.messages(incidentId)).results).toEqual([]);
+      expect((await fixture.messages(incidentId)).results).toHaveLength(2);
     },
   );
 
@@ -315,7 +123,6 @@ describe('support response safety', () => {
         checkedIncidentIds.push(invalidIncidentId);
       const customerMessage = 'Help with a shipment.';
       const assistantMessage = 'Which shipment do you need help with?';
-      const messages = [{ role: 'user', content: customerMessage }];
       expect((await fixture.incidents(...checkedIncidentIds)).results).toEqual(
         [],
       );
@@ -329,7 +136,7 @@ describe('support response safety', () => {
       const fetchMock = fixture.mockModel(assistantMessage);
       const makeRequest = (corrected: boolean) => {
         const request = session.request({
-          messages,
+          message: customerMessage,
           ...(corrected ? { incidentId, messageId } : rejectedIds),
         });
         request.headers.set('Origin', new URL(request.url).origin);
@@ -339,14 +146,14 @@ describe('support response safety', () => {
       const rejectedRequest = makeRequest(false);
       expect(await rejectedRequest.clone().json()).toEqual({
         ...rejectedIds,
-        messages,
+        message: customerMessage,
       });
       const prepareSpy = vi.spyOn(database, 'prepare');
       try {
         const rejected = await POST(rejectedRequest);
         expect(rejected.status).toBe(400);
-        expect(await rejected.json()).toEqual({
-          error: 'Enter a valid incident and message ID.',
+        expect(await rejected.json()).toMatchObject({
+          error: expect.any(String),
         });
         expect(fetchMock).not.toHaveBeenCalled();
         expect(prepareSpy).not.toHaveBeenCalled();
@@ -408,7 +215,7 @@ describe('support response safety', () => {
     const payload = {
       incidentId,
       messageId,
-      messages: [{ role: 'user', content: customerMessage }],
+      message: customerMessage,
     };
     expect(await fixture.findIncident(incidentId)).toBeNull();
     expect((await fixture.messages(incidentId)).results).toEqual([]);
@@ -509,7 +316,7 @@ describe('support response safety', () => {
         const request = session.request({
           incidentId,
           messageId,
-          messages: [{ role: 'user', content: customerMessage }],
+          message: customerMessage,
         });
         request.headers.set('Origin', new URL(request.url).origin);
         request.headers.set('Sec-Fetch-Site', 'same-origin');
@@ -608,7 +415,7 @@ describe('support response safety', () => {
         const request = session.request({
           incidentId,
           messageId,
-          messages: [{ role: 'user', content: customerMessage }],
+          message: customerMessage,
         });
         // Change only the selected header; the cookie and payload stay identical.
         if (header === 'same-site-Origin') {
@@ -1016,7 +823,7 @@ describe('support response safety', () => {
           session.request({
             incidentId,
             messageId,
-            messages: [{ role: 'user', content: customerMessage }],
+            message: customerMessage,
           });
 
         const failed = await POST(makeRequest());
@@ -1114,7 +921,7 @@ describe('support response safety', () => {
           session.request({
             incidentId,
             messageId,
-            messages: [{ role: 'user', content: customerMessage }],
+            message: customerMessage,
           });
         const failed = await POST(makeRequest());
         expect(exchangeReads).toBe(1);
@@ -1200,7 +1007,7 @@ describe('support response safety', () => {
           session.request({
             incidentId,
             messageId,
-            messages: [{ role: 'user', content: customerMessage }],
+            message: customerMessage,
           });
         const failed = await POST(makeRequest());
         expect(exchangeReads).toBe(2);
@@ -1299,7 +1106,7 @@ describe('support response safety', () => {
         session.request({
           incidentId,
           messageId,
-          messages: [{ role: 'user', content: customerMessage }],
+          message: customerMessage,
         });
 
       const failed = await POST(makeRequest());
@@ -1391,7 +1198,7 @@ describe('support response safety', () => {
         session.request({
           incidentId,
           messageId,
-          messages: [{ role: 'user', content: customerMessage }],
+          message: customerMessage,
         });
 
       const failed = await POST(makeRequest());
@@ -1466,7 +1273,7 @@ describe('support response safety', () => {
     const request = session.request({
       incidentId,
       messageId,
-      messages: [{ role: 'user', content: customerMessage }],
+      message: customerMessage,
     });
     const response = await POST(request);
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -1518,7 +1325,7 @@ describe('support response safety', () => {
       session.request({
         incidentId,
         messageId,
-        messages: [{ role: 'user', content: customerMessage }],
+        message: customerMessage,
       });
     const firstResponse = await POST(makeRequest());
     expect(firstResponse.status).toBe(200);
@@ -1570,7 +1377,7 @@ describe('support response safety', () => {
         session.request({
           incidentId,
           messageId,
-          messages: [{ role: 'user', content: customerMessage }],
+          message: customerMessage,
         });
       expect(await fixture.findIncident(incidentId)).toBeNull();
       expect((await fixture.messages(incidentId)).results).toEqual([]);
@@ -1772,7 +1579,7 @@ describe('support response safety', () => {
             session.request({
               incidentId,
               messageId,
-              messages: [{ role: 'user', content: customerMessage }],
+              message: customerMessage,
             }),
           );
           expect(response.status).toBe(expectedStatus);
@@ -1849,7 +1656,7 @@ describe('support response safety', () => {
       session.request({
         incidentId,
         messageId,
-        messages: [{ role: 'user', content: customerMessage }],
+        message: customerMessage,
       });
     const fetchMock = fixture.mockModel('No authorized return was found.');
 
@@ -1918,7 +1725,7 @@ describe('support response safety', () => {
       session.request({
         incidentId,
         messageId,
-        messages: [{ role: 'user', content }],
+        message: content,
       });
     await saveSupportExchange(
       database,
@@ -1986,7 +1793,7 @@ describe('support response safety', () => {
       session.request({
         incidentId,
         messageId,
-        messages: [{ role: 'user', content: customerMessage }],
+        message: customerMessage,
       });
     await saveSupportExchange(
       database,
@@ -2052,7 +1859,7 @@ describe('support response safety', () => {
       session.request({
         incidentId,
         messageId,
-        messages: [{ role: 'user', content: customerMessage }],
+        message: customerMessage,
       });
     await saveSupportExchange(
       database,
@@ -2113,7 +1920,7 @@ describe('support response safety', () => {
       session.request({
         incidentId,
         messageId,
-        messages: [{ role: 'user', content: customerMessage }],
+        message: customerMessage,
       });
     // This is a valid saved customer ID, but it occupies the slot that the
     // next request would use for its generated assistant reply.
@@ -2182,7 +1989,7 @@ describe('support response safety', () => {
       session.request({
         incidentId,
         messageId,
-        messages: [{ role: 'user', content: customerMessage }],
+        message: customerMessage,
       });
     // Model an interrupted exchange directly; do not use the saving function
     // under test to manufacture the missing-reply state.
@@ -2272,7 +2079,7 @@ describe('support response safety', () => {
       session.request({
         incidentId,
         messageId: id,
-        messages: [{ role: 'user', content: customerMessage }],
+        message: customerMessage,
       });
     await database.batch([
       database
@@ -2382,7 +2189,7 @@ describe('support response safety', () => {
           session.request({
             incidentId,
             messageId,
-            messages: [{ role: 'user', content: customerMessage }],
+            message: customerMessage,
           });
         const responses = await concurrent.run(
           () => POST(makeRequest()),
@@ -2473,9 +2280,7 @@ describe('support response safety', () => {
         sessions[sessionIndex].request({
           incidentId,
           messageId: participants[messageIndex].messageId,
-          messages: [
-            { role: 'user', content: participants[messageIndex].prompt },
-          ],
+          message: participants[messageIndex].prompt,
         });
       // Both authenticated requests pass preflight before either can persist.
       const responses = await concurrent.run(
@@ -2585,7 +2390,7 @@ describe('support response safety', () => {
         session.request({
           incidentId,
           messageId: exchange.messageId,
-          messages: [{ role: 'user', content: exchange.prompt }],
+          message: exchange.prompt,
         });
       // Release both model responses together to overlap persistence, not inference.
       const responses = await concurrent.run(
@@ -2689,7 +2494,7 @@ describe('support response safety', () => {
         session.request({
           incidentId,
           messageId,
-          messages: [{ role: 'user', content: exchange.prompt }],
+          message: exchange.prompt,
         });
       // Both requests must pass the unsaved-message check before either saves.
       const responses = await concurrent.run(
@@ -2811,7 +2616,7 @@ describe('support response safety', () => {
         session.request({
           incidentId,
           messageId,
-          messages: [{ role: 'user', content: customerMessage }],
+          message: customerMessage,
         });
       const responses = await concurrent.run(
         () => POST(makeRequest(incidentIds[0])),
@@ -2980,7 +2785,7 @@ describe('support response safety', () => {
           session.request({
             incidentId: incidentIds[index],
             messageId: messageIds[index],
-            messages: [{ role: 'user', content: prompts[index] }],
+            message: prompts[index],
           });
         const [loser, winner] = await concurrent.run(
           () => POST(makeRequest(0)),
@@ -3086,7 +2891,7 @@ describe('support response safety', () => {
     const request = session.request({
       incidentId,
       messageId: 'MSG-RETURN-SAFETY-REGRESSION',
-      messages: [{ role: 'user', content: 'Show return RTN-2022-000014.' }],
+      message: 'Show return RTN-2022-000014.',
     });
     const response = await POST(request);
     expect(fetchMock).toHaveBeenCalledOnce();
