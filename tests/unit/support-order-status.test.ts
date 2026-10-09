@@ -38,6 +38,8 @@ describe('order status filters', () => {
   it.each([
     'Show orders that are delivered.',
     'Show orders with status delivered.',
+    'Show orders with a delivered status.',
+    'Show orders with the delivered status.',
   ])('recognizes an explicit status clause: %s', (message) => {
     expect(classify(message)).toMatchObject({
       statusFilter: filter(['delivered']),
@@ -97,6 +99,8 @@ describe('order status filters', () => {
     'Show orders that are not not cancelled.',
     'Show orders that are not yet shipped.',
     'Show orders with status pending.',
+    'Show orders with a pending status.',
+    'Show orders with a shipped-late status.',
     'Show orders with status shipped-late.',
     'Show orders excluding pending.',
     'Show not only cancelled orders.',
@@ -139,6 +143,9 @@ describe('order status filters', () => {
     'Show delivered orders; explain cancelled orders.',
     'Show delivered orders; please explain cancelled orders.',
     'Show delivered orders and explain orders excluding cancelled.',
+    'Show delivered orders; no need to show prices.',
+    'Show delivered orders; do not show prices.',
+    'Show delivered orders; never show prices.',
   ])('ignores status words in a separate explanatory clause: %s', (message) => {
     expect(classify(message)).toMatchObject({
       statusFilter: filter(['delivered']),
@@ -147,6 +154,7 @@ describe('order status filters', () => {
 
   it.each([
     ['Show scheduled orders in 2030.', 'requested'],
+    ['Show orders with a scheduled status in 2030.', 'requested'],
     ['Show orders that are not scheduled in 2026.', 'created'],
     ['Show scheduled or confirmed orders in 2026.', 'created'],
     [
@@ -246,4 +254,41 @@ describe('order status filters', () => {
       },
     ]);
   });
+
+  it.each([
+    'Show order SBL-2022-000118. Orders that are cancelled cannot be changed.',
+    'Show order SBL-2022-000118; orders that are cancelled cannot be changed.',
+    'Show order SBL-2022-000118. Orders that are cancelled cannot be changed, and orders with status delivered are final.',
+  ])('does not turn a statement into another search: %s', (message) => {
+    expect(classifySupportQueries(ask(message))).toMatchObject([
+      { kind: 'order', identifier: 'SBL-2022-000118' },
+    ]);
+  });
+
+  it.each([
+    [
+      'Show order SBL-2022-000118. Please list orders excluding cancelled.',
+      filter([], ['cancelled']),
+    ],
+    [
+      'Could you please show order SBL-2022-000118 and orders excluding cancelled?',
+      filter([], ['cancelled']),
+    ],
+    [
+      'Show order SBL-2022-000118. Can you list orders excluding cancelled?',
+      filter([], ['cancelled']),
+    ],
+    [
+      'How many delivered orders do I have? Show order SBL-2022-000118.',
+      filter(['delivered']),
+    ],
+  ])(
+    'retains a separately requested search with its own action cue: %s',
+    (message, statusFilter) => {
+      expect(classifySupportQueries(ask(message))).toMatchObject([
+        { kind: 'order', identifier: 'SBL-2022-000118' },
+        { kind: 'orders', statusFilter },
+      ]);
+    },
+  );
 });

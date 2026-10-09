@@ -66,6 +66,18 @@ function modelRecords(model: { mock: { calls: unknown[][] } }) {
 describe('support order status filters', () => {
   const scenarios: SearchScenario[] = [
     {
+      content: 'Show orders with a cancelled status.',
+      predicate: "o.status = 'cancelled'",
+      criteria: 'status cancelled',
+      moreThanSix: true,
+    },
+    {
+      content: 'Show delivered orders; no need to show prices.',
+      predicate: "o.status = 'delivered'",
+      criteria: 'status delivered',
+      moreThanSix: true,
+    },
+    {
       content: 'Show orders that are not cancelled.',
       predicate: "o.status <> 'cancelled'",
       criteria: 'excluding status cancelled',
@@ -149,6 +161,7 @@ describe('support order status filters', () => {
     'Show cancelled orders that are not cancelled.',
     'Show active orders excluding active.',
     'Show orders with status pending.',
+    'Show orders with a pending status.',
     'Show orders that are not not cancelled.',
     'Show orders that are not cancelled or delivered.',
   ]) {
@@ -199,73 +212,100 @@ describe('support order status filters', () => {
     expect(list).not.toMatch(/: cancelled;/);
     expect(list.match(/^- SBL-/gm)).toHaveLength(6);
   });
+
+  test('does not turn a descriptive sentence into a second order lookup', async ({
+    database,
+  }) => {
+    const context = await buildSupportContext(
+      database,
+      ask(
+        'Show order SBL-2022-000118. Orders that are cancelled cannot be changed.',
+      ),
+      calderPikeUser,
+    );
+    expect(context.kind).toBe('records');
+    if (context.kind !== 'records') throw new Error(context.message);
+    expect(context.records).toContain('Order: SBL-2022-000118;');
+    expect(context.records).not.toContain('Order search');
+    expect(context.records).not.toContain('Part 1 of');
+    expect(context.records).not.toMatch(/^- SBL-[A-Z0-9-]+ \/ /m);
+  });
 });
 
 describe('saved order status clarification', () => {
-  test('saves and replays clarification before quota or inference, then uses the corrected exclusion', async ({
-    database,
-    supportApi: fixture,
-  }) => {
-    const incidentId = 'INC-ORDER-STATUS-CLARIFICATION';
-    await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
-    const session = await fixture.session(calderPikeUser);
-    const model = fixture.mockModel('These are your matching orders.');
-    const quotaKey = `chat:${calderPikeUser.userId}`;
-    const quota = { attempts: 30, expires_at: Date.now() + 60_000 };
-    await database
-      .prepare(`INSERT INTO request_limits (quota_key, attempts, expires_at)
+  for (const message of [
+    'Show cancelled orders that are not cancelled.',
+    'Show orders with a pending status.',
+  ]) {
+    test(`saves and replays clarification before quota or inference, then uses the corrected exclusion: ${message}`, async ({
+      database,
+      supportApi: fixture,
+    }) => {
+      const incidentId = 'INC-ORDER-STATUS-CLARIFICATION';
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const model = fixture.mockModel('These are your matching orders.');
+      const quotaKey = `chat:${calderPikeUser.userId}`;
+      const quota = { attempts: 30, expires_at: Date.now() + 60_000 };
+      await database
+        .prepare(`INSERT INTO request_limits (quota_key, attempts, expires_at)
         VALUES (?, ?, ?) ON CONFLICT(quota_key) DO UPDATE SET attempts = excluded.attempts,
         expires_at = excluded.expires_at`)
-      .bind(quotaKey, quota.attempts, quota.expires_at)
-      .run();
-    const command = {
-      incidentId,
-      messageId: 'MSG-ORDER-STATUS-CLARIFICATION',
-      expectedRevision: 0,
-      message: 'Show cancelled orders that are not cancelled.',
-    };
-    const first = await chat(session.request(command));
-    expect(first.status).toBe(200);
-    const payload = (await first.json()) as {
-      message: string;
-      revision: number;
-    };
-    expect(payload.message).toMatch(/status|statuses/i);
-    expect(model).not.toHaveBeenCalled();
-    const replay = await chat(session.request(command));
-    expect(replay.status).toBe(200);
-    expect(await replay.json()).toEqual(payload);
-    expect(model).not.toHaveBeenCalled();
-    expect((await fixture.messageContents(incidentId)).results).toHaveLength(2);
-    expect(
-      await database
-        .prepare(
-          'SELECT attempts, expires_at FROM request_limits WHERE quota_key = ?',
-        )
-        .bind(quotaKey)
-        .first(),
-    ).toEqual(quota);
-
-    await database
-      .prepare('DELETE FROM request_limits WHERE quota_key = ?')
-      .bind(quotaKey)
-      .run();
-    const corrected = await chat(
-      session.request({
+        .bind(quotaKey, quota.attempts, quota.expires_at)
+        .run();
+      const command = {
         incidentId,
-        messageId: 'MSG-ORDER-STATUS-CORRECTED',
-        expectedRevision: payload.revision,
-        message: 'Show orders excluding cancelled.',
-      }),
-    );
-    expect(corrected.status).toBe(200);
-    expect(model).toHaveBeenCalledOnce();
-    const records = modelRecords(model);
-    expect(records).toContain('Order search for excluding status cancelled:');
-    expect(records).not.toMatch(/: cancelled;/);
-    expect(records.match(/^- SBL-/gm)).toHaveLength(6);
-    expect((await fixture.messageContents(incidentId)).results).toHaveLength(4);
-  });
+        messageId: 'MSG-ORDER-STATUS-CLARIFICATION',
+        expectedRevision: 0,
+        message,
+      };
+      const first = await chat(session.request(command));
+      expect(first.status).toBe(200);
+      const payload = (await first.json()) as {
+        message: string;
+        revision: number;
+      };
+      expect(payload.message).toMatch(/status|statuses/i);
+      expect(model).not.toHaveBeenCalled();
+      const replay = await chat(session.request(command));
+      expect(replay.status).toBe(200);
+      expect(await replay.json()).toEqual(payload);
+      expect(model).not.toHaveBeenCalled();
+      expect((await fixture.messageContents(incidentId)).results).toHaveLength(
+        2,
+      );
+      expect(
+        await database
+          .prepare(
+            'SELECT attempts, expires_at FROM request_limits WHERE quota_key = ?',
+          )
+          .bind(quotaKey)
+          .first(),
+      ).toEqual(quota);
+
+      await database
+        .prepare('DELETE FROM request_limits WHERE quota_key = ?')
+        .bind(quotaKey)
+        .run();
+      const corrected = await chat(
+        session.request({
+          incidentId,
+          messageId: 'MSG-ORDER-STATUS-CORRECTED',
+          expectedRevision: payload.revision,
+          message: 'Show orders excluding cancelled.',
+        }),
+      );
+      expect(corrected.status).toBe(200);
+      expect(model).toHaveBeenCalledOnce();
+      const records = modelRecords(model);
+      expect(records).toContain('Order search for excluding status cancelled:');
+      expect(records).not.toMatch(/: cancelled;/);
+      expect(records.match(/^- SBL-/gm)).toHaveLength(6);
+      expect((await fixture.messageContents(incidentId)).results).toHaveLength(
+        4,
+      );
+    });
+  }
 
   test('clarifies an unsupported filter before sending any part of a compound request to the model', async ({
     supportApi: fixture,

@@ -120,6 +120,13 @@ function classifyCurrentTopic(latest: string): SupportQueryIntent {
 }
 
 const MAX_COMPOUND_REQUESTS = 3;
+const ORDER_SEARCH_REQUEST_SOURCE =
+  '(?:(?:(?:can|could|would|will)\\s+you\\s+)?(?:please\\s+)?(?:show|list|find|count)\\b|how many\\b)';
+const ORDER_SEARCH_REQUEST = new RegExp(`^${ORDER_SEARCH_REQUEST_SOURCE}`, 'i');
+const COMPOUND_REQUEST_BOUNDARY = new RegExp(
+  `(?:[;.!?]\\s*|\\b(?:and|also)\\s+)(?=(?:${ORDER_SEARCH_REQUEST_SOURCE}|(?:please\\s+)?(?:orders?|purchases?|releases?|shipments?|returns?|customer\\s+po)\\b))`,
+  'gi',
+);
 
 type RecordKind = SupportRecordReference['kind'];
 type ClarificationIntent = Extract<
@@ -347,22 +354,32 @@ export function classifySupportQueries(
   // description of named records cannot become a broad search after masking.
   // Other continuations stay attached, including unsupported negative clauses.
   const boundaries = Array.from(
-    latest.matchAll(
-      /(?:[;.!?]\s*|\b(?:and|also)\s+)(?=(?:please\s+)?(?:show|list|find|count|orders?|purchases?|releases?|shipments?|returns?|customer\s+po)\b)/gi,
-    ),
-    (match) => ({ start: match.index, end: match.index + match[0].length }),
+    latest.matchAll(COMPOUND_REQUEST_BOUNDARY),
+    (match) => ({
+      start: match.index,
+      end: match.index + match[0].length,
+      coordinated: /^(?:and|also)\b/i.test(match[0]),
+    }),
   );
   const starts = [0, ...boundaries.map((boundary) => boundary.end)];
   const ends = [...boundaries.map((boundary) => boundary.start), latest.length];
+  let searchRequested = false;
   for (const [index, start] of starts.entries()) {
     const end = ends[index];
+    const clause = remainder.slice(start, end).trim();
+    // "Show X and orders ..." shares its request cue. A new sentence must
+    // supply its own; a statement about orders does not request another list.
+    if (index > 0 && !boundaries[index - 1].coordinated)
+      searchRequested = false;
+    if (ORDER_SEARCH_REQUEST.test(clause)) searchRequested = true;
     if (
+      !searchRequested ||
       occurrences.some(
         (reference) => reference.start < end && reference.end > start,
       )
     )
       continue;
-    const request = classifyCurrentTopic(remainder.slice(start, end));
+    const request = classifyCurrentTopic(clause);
     if (request.kind === 'orders' && request.statusFilter)
       intents.push(request);
   }

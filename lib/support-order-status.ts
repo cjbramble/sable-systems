@@ -138,13 +138,20 @@ function afterOrderNoun(suffix: string): string | undefined {
   )
     return value;
   const anchor = value.match(
-    /\b(?:(?:that|which)\s+(?:(?:are|were|have been)\s+)?|with\s+status(?:es)?(?:\s+(?:of|is|are))?\s+)|^(?:are|were)\s+/i,
+    /\b(?:(?:that|which)\s+(?:(?:are|were|have been)\s+)?|with\s+status(?:es)?(?:\s+(?:of|is|are))?\s+|(excluding|except|without)\b)|^(?:are|were)\s+/i,
   );
+  const adjective = value.match(
+    /\bwith\s+(?:(?:a|an|the)\s+)?(.+?)\s+status(?:es)?\b/i,
+  );
+  // Normalize the explicit "with a cancelled status" form through the same
+  // expression reader. Unknown labels must not become an unrestricted search.
+  if (
+    adjective?.index !== undefined &&
+    (anchor?.index === undefined || adjective.index < anchor.index)
+  )
+    return `${adjective[1]} ${value.slice(adjective.index + adjective[0].length)}`.trim();
   if (anchor && anchor.index !== undefined)
-    return value.slice(anchor.index + anchor[0].length);
-  // A year or product constraint may precede an explicitly named exclusion.
-  const exclusion = value.match(/\b(?:excluding|except|without)\b/i);
-  if (exclusion) return value.slice(exclusion.index);
+    return value.slice(anchor.index + (anchor[1] ? 0 : anchor[0].length));
   return UNSUPPORTED_NEGATION.test(value) ? value : undefined;
 }
 
@@ -158,7 +165,11 @@ export function parseOrderStatusFilter(
     if (EXPLANATION.test(clause)) continue;
     const noun = clause.match(ORDER_NOUN);
     if (!noun || noun.index === undefined) {
-      if (ORDER_NOUN.test(message) && UNSUPPORTED_NEGATION.test(clause))
+      if (
+        ORDER_NOUN.test(message) &&
+        UNSUPPORTED_NEGATION.test(clause) &&
+        (STATUS_WORD.test(clause) || /\bstatus(?:es)?\b/i.test(clause))
+      )
         return unsupported();
       continue;
     }
