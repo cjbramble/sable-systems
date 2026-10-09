@@ -97,7 +97,7 @@ for (const retireAll of [false, true]) {
       const response = await shopPage.placeOrder();
       expect(response.status()).toBe(201);
       expect(response.request().postDataJSON().items).toEqual([
-        { itemNumber: cable, quantity: 12 },
+        { itemNumber: cable, quantity: 12, expectedUnitPriceCents: 29000 },
       ]);
       expect(
         (
@@ -144,8 +144,8 @@ test('a changed case pack preserves the selection and requires an explicit corre
   expect(response.status()).toBe(201);
   expect(response.request().postDataJSON().items).toEqual(
     expect.arrayContaining([
-      { itemNumber: cell, quantity: 12 },
-      { itemNumber: cable, quantity: 12 },
+      { itemNumber: cell, quantity: 12, expectedUnitPriceCents: 68000 },
+      { itemNumber: cable, quantity: 12, expectedUnitPriceCents: 29000 },
     ]),
   );
 });

@@ -111,6 +111,8 @@ export function parseCheckoutInput(value: unknown): CheckoutInput | null {
       !Number.isInteger(line.quantity) ||
       Number(line.quantity) <= 0 ||
       Number(line.quantity) > 100_000 ||
+      !Number.isSafeInteger(line.expectedUnitPriceCents) ||
+      Number(line.expectedUnitPriceCents) < 0 ||
       seen.has(line.itemNumber)
     )
       return null;
@@ -118,6 +120,7 @@ export function parseCheckoutInput(value: unknown): CheckoutInput | null {
     items.push({
       itemNumber: line.itemNumber,
       quantity: Number(line.quantity),
+      expectedUnitPriceCents: Number(line.expectedUnitPriceCents),
     });
   }
   return {
@@ -166,6 +169,14 @@ export async function placeChargeAccountOrder(
     const product = productById.get(line.itemNumber);
     if (!product)
       throw new CheckoutError(`Item ${line.itemNumber} is not orderable.`, 422);
+    // Expectations guard consent; the server's catalog snapshot owns the charge.
+    if (line.expectedUnitPriceCents !== product.unitPriceCents) {
+      throw new CheckoutError(
+        'Prices changed. Review the updated order and authorize it again.',
+        409,
+        'price_changed',
+      );
+    }
     if (line.quantity % product.casePack !== 0) {
       throw new CheckoutError(
         `${product.name} must be ordered in case packs of ${product.casePack}.`,

@@ -13,7 +13,9 @@ import { loadActiveUserFixture } from '../fixtures/users';
 const order = {
   requestedShipDate: '2031-01-01',
   shippingRegion: 'Great Lakes District',
-  items: [{ itemNumber: 'SBL-RPC-12', quantity: 8 }],
+  items: [
+    { itemNumber: 'SBL-RPC-12', quantity: 8, expectedUnitPriceCents: 68000 },
+  ],
 };
 
 describe('checkout account context', () => {

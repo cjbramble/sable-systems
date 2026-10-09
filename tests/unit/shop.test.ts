@@ -7,8 +7,44 @@ const checkout = {
   customerPoNumber: 'TEST-CALENDAR',
   requestedShipDate: '2031-01-01',
   shippingRegion: 'Great Lakes District',
-  items: [{ itemNumber: 'SBL-RPC-12', quantity: 8 }],
+  items: [
+    { itemNumber: 'SBL-RPC-12', quantity: 8, expectedUnitPriceCents: 68000 },
+  ],
 };
+
+describe('checkout reviewed prices', () => {
+  it.each([
+    undefined,
+    null,
+    '68000',
+    -1,
+    0.5,
+    NaN,
+    Infinity,
+    Number.MAX_SAFE_INTEGER + 1,
+  ])(
+    'rejects a missing or invalid expected price: %s',
+    (expectedUnitPriceCents) => {
+      expect(
+        parseCheckoutInput({
+          ...checkout,
+          items: [{ ...checkout.items[0], expectedUnitPriceCents }],
+        }),
+      ).toBeNull();
+    },
+  );
+
+  it.each([0, 68001])(
+    'retains a valid reviewed unit price: %i',
+    (expectedUnitPriceCents) => {
+      const input = {
+        ...checkout,
+        items: [{ ...checkout.items[0], expectedUnitPriceCents }],
+      };
+      expect(parseCheckoutInput(input)).toEqual(input);
+    },
+  );
+});
 
 describe('checkout account context', () => {
   it.each([
