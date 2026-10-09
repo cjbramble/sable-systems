@@ -13,6 +13,60 @@ Item: SBL-DMK-A9; shipment: SHP-2022-000012; tracking: AST-1234567890.
 </authorized_records>`;
 
 describe('support response identifier validation', () => {
+  const customOrderContext =
+    'Order: REVIEW-CUSTOM-PO; customer PO: SOME-PO; status: delivered.';
+
+  it.each([
+    'Order: REVIEW-CUSTOM-PO is delivered.',
+    'Order ID: **review-custom-po** is delivered.',
+    'Order number REVIEW-CUSTOM-PO; customer PO: SOME-PO.',
+  ])('accepts the verified custom order ID in %s', (answer) => {
+    expect(hasGroundedSupportIdentifiers(answer, customOrderContext)).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    'Order: REVIEW-CUSTOM-PO-X is delivered.',
+    'Order ID: SOME-PO is delivered.',
+    'Customer PO: REVIEW-CUSTOM-PO is delivered.',
+    'Order ID: REVIEW-CUSTOM-PO; order ID: OTHER-CUSTOM-ID.',
+  ])('rejects altered or misidentified custom references in %s', (answer) => {
+    expect(hasGroundedSupportIdentifiers(answer, customOrderContext)).toBe(
+      false,
+    );
+  });
+
+  it('does not authorize a custom ID merely mentioned in event prose', () => {
+    expect(
+      hasGroundedSupportIdentifiers(
+        'Order ID: OTHER-CUSTOM-ID.',
+        `${customOrderContext}\nRecent customer-safe events:\n- 2026-01-01: Discussed order OTHER-CUSTOM-ID.`,
+      ),
+    ).toBe(false);
+  });
+
+  it('keeps patterned order IDs and POs in their recorded namespaces', () => {
+    for (const answer of [
+      'Customer PO: SBL-2022-000118.',
+      'Order ID: CPD-PO-220118.',
+    ])
+      expect(hasGroundedSupportIdentifiers(answer, context)).toBe(false);
+  });
+
+  it.each([
+    'Order: `REVIEW-CUSTOM-PO`; customer PO: `SOME-PO`.',
+    'Order search: 1 matching order; listing all 1.\n- REVIEW-CUSTOM-PO / SOME-PO: delivered; created 2026-01-01; requested 2026-01-01; $1.00.',
+    'Recent charge-account authorizations:\n- REVIEW-CUSTOM-PO: authorized; $1.00; authorization AUTH-CUSTOM; 2026-01-01.',
+  ])(
+    'accepts custom IDs from the supported record context formats',
+    (records) => {
+      expect(
+        hasGroundedSupportIdentifiers('Order ID: REVIEW-CUSTOM-PO.', records),
+      ).toBe(true);
+    },
+  );
+
   it('checks custom PO references against complete authorized tokens', () => {
     const customContext =
       'Order: SBL-2026-000417; customer PO: REVIEW-CUSTOM-PO; status: confirmed.';

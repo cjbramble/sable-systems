@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  explicitCustomerPos,
-  explicitOrderPo,
-  parseSupportReferences,
-} from '@/lib/support-references';
+import { parseSupportReferences } from '@/lib/support-references';
 
 describe('support reference parsing', () => {
   it('retains normalized references and exact value spans in appearance order', () => {
@@ -97,13 +93,19 @@ describe('support reference parsing', () => {
     }
   });
 
-  it('retains the grounding helper behavior for ordinary-word and custom POs', () => {
+  it('retains ordinary-word POs and unresolved generic order references', () => {
     expect(
-      explicitCustomerPos('PO: STATUS; purchase order number "NUMBER".'),
-    ).toEqual(['STATUS', 'NUMBER']);
-    expect(explicitOrderPo('Find order REVIEW-CUSTOM-PO.')).toBe(
-      'REVIEW-CUSTOM-PO',
-    );
-    expect(explicitOrderPo('What is the order status?')).toBeUndefined();
+      parseSupportReferences(
+        'PO: STATUS; purchase order number "NUMBER"; find order REVIEW-CUSTOM-PO.',
+      ).occurrences.map(({ reference }) => reference),
+    ).toEqual([
+      { kind: 'order', namespace: 'customer_po', identifier: 'STATUS' },
+      { kind: 'order', namespace: 'customer_po', identifier: 'NUMBER' },
+      {
+        kind: 'order',
+        namespace: 'unresolved',
+        identifier: 'REVIEW-CUSTOM-PO',
+      },
+    ]);
   });
 });

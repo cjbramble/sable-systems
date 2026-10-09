@@ -134,6 +134,9 @@ type ClarificationIntent = Extract<
   { kind: 'clarification' }
 >;
 type Target = { references: SupportRecordReference[]; items: string[] };
+type NamespaceAnswer =
+  | { kind: 'order'; namespace: 'order_id' | 'customer_po' }
+  | { kind: 'shipment'; namespace: 'shipment_id' | 'tracking_reference' };
 type ConversationFrame = {
   active?: Target | ClarificationIntent;
   customer: Partial<Record<RecordKind, SupportRecordReference[]>>;
@@ -185,6 +188,48 @@ function clarify(
   const clarification = { kind: 'clarification' as const, entity, reason };
   frame.active = clarification;
   return clarification;
+}
+
+// Only a complete affirmative answer chooses a namespace. Questions, negation,
+// and alternatives such as "order ID or customer PO" keep their usual meaning.
+function namespaceAnswer(message: string): NamespaceAnswer | undefined {
+  const label = message
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .match(
+      /^(?:(?:it['’]s|it is) )?(?:(?:the|a|an) )?(order (?:id|number)|customer po(?: number)?|shipment (?:id|number)|tracking (?:reference|number))\s*[.!]?$/,
+    )?.[1];
+  if (label === 'order id' || label === 'order number')
+    return { kind: 'order', namespace: 'order_id' };
+  if (label === 'customer po' || label === 'customer po number')
+    return { kind: 'order', namespace: 'customer_po' };
+  if (label === 'shipment id' || label === 'shipment number')
+    return { kind: 'shipment', namespace: 'shipment_id' };
+  if (label === 'tracking reference' || label === 'tracking number')
+    return { kind: 'shipment', namespace: 'tracking_reference' };
+  return undefined;
+}
+
+function refineNamespace(
+  frame: ConversationFrame,
+  answer: NamespaceAnswer,
+): SupportQueryIntent {
+  // A field choice cannot supply a missing identifier or choose between records.
+  if (frame.active && 'kind' in frame.active) return frame.active;
+  const candidates = frame.customer[answer.kind] ?? [];
+  if (candidates.length !== 1)
+    return clarify(
+      frame,
+      answer.kind,
+      candidates.length ? 'multiple_targets' : 'missing_target',
+    );
+  const previous = candidates[0];
+  const reference: SupportRecordReference =
+    previous.namespace === 'unresolved'
+      ? { ...answer, identifier: previous.identifier }
+      : previous;
+  rememberCustomer(frame, { references: [reference], items: [] });
+  return reference;
 }
 
 function resolveFollowUp(
@@ -268,6 +313,7 @@ export function classifySupportQuery(
         normalized,
       );
     const current = classifyCurrentTopic(remainder);
+    const answer = namespaceAnswer(latest);
     if (
       references.length ||
       currentTopic ||
@@ -276,6 +322,8 @@ export function classifySupportQuery(
       frame = emptyFrame();
       rememberCustomer(frame, { references, items });
       intent = references[0] ?? current;
+    } else if (answer) {
+      intent = refineNamespace(frame, answer);
     } else if (followUp) {
       intent =
         entityCues.length > 1

@@ -73,6 +73,107 @@ async function identityRecords(database: D1Database) {
 }
 
 describe('support reference identity', () => {
+  for (const [namespace, identifier, answer, expected, excluded] of [
+    [
+      'order-id',
+      orderId,
+      'It’s the order ID.',
+      `Order: ${orderId};`,
+      `Order: ${poOrderId};`,
+    ],
+    [
+      'customer-po',
+      orderId,
+      'the customer PO',
+      `Order: ${poOrderId};`,
+      `Order: ${orderId};`,
+    ],
+    [
+      'shipment-id',
+      shipmentId,
+      "It's the shipment ID.",
+      `Shipment: ${shipmentId};`,
+      `Shipment: ${trackingShipmentId};`,
+    ],
+    [
+      'tracking',
+      shipmentId,
+      'tracking reference',
+      `Shipment: ${trackingShipmentId};`,
+      `Shipment: ${shipmentId};`,
+    ],
+  ]) {
+    test(`resolves a saved collision from a ${namespace} answer and keeps it through follow-up and replay`, async ({
+      database,
+      supportApi: fixture,
+    }) => {
+      await identityRecords(database);
+      const incidentId = `INC-REFERENCE-NAMESPACE-${namespace.toUpperCase()}`;
+      await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await fixture.session(calderPikeUser);
+      const model = fixture.mockModel('The requested record is available.');
+      const first = await chat(
+        session.request({
+          incidentId,
+          messageId: `${incidentId}-FIRST`,
+          expectedRevision: 0,
+          message: `Show ${identifier}.`,
+        }),
+      );
+      expect(first.status).toBe(200);
+      expect(await first.json()).toMatchObject({
+        message: expect.stringMatching(/Please specify whether/),
+      });
+      expect(model).not.toHaveBeenCalled();
+
+      const clarificationAnswer = {
+        incidentId,
+        messageId: `${incidentId}-ANSWER`,
+        expectedRevision: 1,
+        message: answer,
+      };
+      const resolved = await chat(session.request(clarificationAnswer));
+      expect(resolved.status).toBe(200);
+      const resolvedPayload = (await resolved.json()) as {
+        message: string;
+        revision: number;
+      };
+      expect(model).toHaveBeenCalledOnce();
+      const followUp = await chat(
+        session.request({
+          incidentId,
+          messageId: `${incidentId}-FOLLOW-UP`,
+          expectedRevision: 2,
+          message: 'What is its status?',
+        }),
+      );
+      expect(followUp.status).toBe(200);
+      expect(model).toHaveBeenCalledTimes(2);
+      for (const call of model.mock.calls) {
+        const request = JSON.parse(call[1]?.body as string) as {
+          messages: { content: string }[];
+        };
+        const { records } = JSON.parse(request.messages[1].content) as {
+          records: string;
+        };
+        expect(records).toContain(expected);
+        expect(records).not.toContain(excluded);
+      }
+      const replay = await chat(session.request(clarificationAnswer));
+      expect(replay.status).toBe(200);
+      // A later exchange updates incidentUpdatedAt, but replay keeps the saved
+      // answer and its own exchange revision without invoking the model again.
+      expect(await replay.json()).toMatchObject({
+        message: resolvedPayload.message,
+        revision: resolvedPayload.revision,
+      });
+      expect(model).toHaveBeenCalledTimes(2);
+      expect((await fixture.messageContents(incidentId)).results).toHaveLength(
+        6,
+      );
+    });
+  }
+
   test('selects explicitly named order and customer PO namespaces when they collide', async ({
     database,
   }) => {

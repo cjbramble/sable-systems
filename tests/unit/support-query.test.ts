@@ -577,3 +577,165 @@ describe('entity-aware follow-ups', () => {
     });
   });
 });
+
+describe('namespace-only clarification answers', () => {
+  const order = 'SBL-2099-910001';
+  const shipment = 'SHP-2099-910001';
+  const history = (identifier: string): ChatHistoryMessage[] => [
+    { role: 'user', content: `Show ${identifier}.` },
+    {
+      role: 'assistant',
+      content: `Please specify whether ${identifier} is an order ID or a customer PO number.`,
+    },
+  ];
+
+  it.each([
+    [order, "It's the order ID.", 'order', 'order_id'],
+    [order, 'It’s the order ID.', 'order', 'order_id'],
+    [order, 'It is the order number.', 'order', 'order_id'],
+    [order, 'It’s an order ID.', 'order', 'order_id'],
+    [order, 'the customer PO', 'order', 'customer_po'],
+    [order, 'customer PO number', 'order', 'customer_po'],
+    [order, 'It’s a customer PO number.', 'order', 'customer_po'],
+    [order, "It's the customer PO.", 'order', 'customer_po'],
+    [shipment, 'It’s the shipment ID.', 'shipment', 'shipment_id'],
+    [shipment, 'the shipment number', 'shipment', 'shipment_id'],
+    [shipment, 'tracking reference', 'shipment', 'tracking_reference'],
+    [shipment, 'It is the tracking number.', 'shipment', 'tracking_reference'],
+  ])(
+    'uses %s with the namespace supplied by %s',
+    (identifier, content, kind, namespace) => {
+      const messages = [
+        ...history(identifier),
+        { role: 'user' as const, content },
+      ];
+      const expected = { kind, namespace, identifier };
+      expect(classifySupportQuery(messages)).toEqual(expected);
+      expect(
+        classifySupportQuery([
+          ...messages,
+          { role: 'assistant', content: 'The requested record is available.' },
+          { role: 'user', content: 'What is its status?' },
+        ]),
+      ).toEqual(expected);
+    },
+  );
+
+  it.each([
+    'What is its order ID?',
+    'Is it the order ID?',
+    "It's not the order ID.",
+    "It's the order ID or customer PO.",
+    "It's the order ID and customer PO.",
+  ])('does not select a namespace from %s', (content) => {
+    expect(
+      classifySupportQuery([...history(order), { role: 'user', content }]),
+    ).toMatchObject({
+      kind: 'order',
+      namespace: 'unresolved',
+      identifier: order,
+    });
+  });
+
+  it('does not choose between multiple customer targets or substitute an assistant target', () => {
+    expect(
+      classifySupportQuery([
+        { role: 'user', content: `Compare ${order} with SBL-2099-910002.` },
+        {
+          role: 'assistant',
+          content: `Please specify whether ${order} is an order ID or a customer PO number.`,
+        },
+        { role: 'user', content: "It's the order ID." },
+      ]),
+    ).toEqual({
+      kind: 'clarification',
+      entity: 'order',
+      reason: 'multiple_targets',
+    });
+    expect(
+      classifySupportQuery([
+        {
+          role: 'assistant',
+          content: `Please specify whether ${order} is an order ID or a customer PO number.`,
+        },
+        { role: 'user', content: 'the customer PO' },
+      ]),
+    ).toEqual({
+      kind: 'clarification',
+      entity: 'order',
+      reason: 'missing_target',
+    });
+  });
+
+  it('preserves missing-target clarification and rejects a different entity namespace', () => {
+    expect(
+      classifySupportQuery([
+        ...history(order),
+        { role: 'user', content: 'Where is that shipment?' },
+        {
+          role: 'assistant',
+          content:
+            'Please specify the shipment you mean by its shipment ID or tracking reference.',
+        },
+        { role: 'user', content: 'the shipment ID' },
+      ]),
+    ).toEqual({
+      kind: 'clarification',
+      entity: 'shipment',
+      reason: 'missing_target',
+    });
+    expect(
+      classifySupportQuery([
+        ...history(order),
+        { role: 'user', content: 'tracking reference' },
+      ]),
+    ).toEqual({
+      kind: 'clarification',
+      entity: 'shipment',
+      reason: 'missing_target',
+    });
+  });
+
+  it('uses the current frame after an explicit topic switch', () => {
+    expect(
+      classifySupportQuery([
+        ...history(order),
+        { role: 'user', content: 'Show SBL-2099-910002.' },
+        { role: 'user', content: 'the customer PO' },
+      ]),
+    ).toEqual({
+      kind: 'order',
+      namespace: 'customer_po',
+      identifier: 'SBL-2099-910002',
+    });
+    expect(
+      classifySupportQuery([
+        ...history(order),
+        { role: 'user', content: 'Tell me about SBL-RPC-12.' },
+        { role: 'user', content: 'the customer PO' },
+      ]),
+    ).toEqual({
+      kind: 'clarification',
+      entity: 'order',
+      reason: 'missing_target',
+    });
+  });
+
+  it('does not reinterpret a target that already has an explicit namespace', () => {
+    expect(
+      classifySupportQuery([
+        { role: 'user', content: `Show order ID ${order}.` },
+        { role: 'user', content: "It's the customer PO." },
+      ]),
+    ).toEqual({ kind: 'order', namespace: 'order_id', identifier: order });
+  });
+
+  it('does not turn a rejected explicit value into a namespace-only answer', () => {
+    expect(
+      classifySupportQuery([
+        ...history(order),
+        { role: 'user', content: 'the customer PO: SBL-RPC-12/invalid' },
+      ]),
+    ).toMatchObject({ kind: 'summary' });
+  });
+});

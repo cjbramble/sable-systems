@@ -74,7 +74,7 @@ test.describe('order reference namespaces', () => {
   const reply = 'The requested order is available.';
   test.use({ modelReply: reply });
 
-  test('saves clarification for a collision and resolves explicit PO and order ID choices', async ({
+  test('saves clarification and resolves a namespace-only PO answer and an explicit order ID', async ({
     supportPage,
     app,
   }) => {
@@ -103,7 +103,7 @@ test.describe('order reference namespaces', () => {
     ]);
     expect(app.modelRequests).toHaveLength(0);
 
-    const poMessage = 'Show customer PO SBL-2026-000417.';
+    const poMessage = 'It’s the customer PO.';
     const poResponse = await supportPage.sendMessage(poMessage);
     expect(poResponse.status()).toBe(200);
     expect(app.modelRequests).toHaveLength(1);

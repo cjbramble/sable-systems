@@ -34,7 +34,7 @@ test('stale commands consume no model quota, while completed retries retain thei
   );
   expect(second.status).toBe(200);
   expect(await second.json()).toMatchObject({ revision: 2 });
-  const before = await supportApi.messages(incidentId);
+  const before = (await supportApi.messages(incidentId)).results;
   const quota = await database
     .prepare('SELECT * FROM request_limits WHERE quota_key = ?')
     .bind(`chat:${calderPikeUser.userId}`)
@@ -53,7 +53,7 @@ test('stale commands consume no model quota, while completed retries retain thei
     revision: 1,
   });
   expect(model).toHaveBeenCalledTimes(2);
-  expect(await supportApi.messages(incidentId)).toEqual(before);
+  expect((await supportApi.messages(incidentId)).results).toEqual(before);
   expect(
     await database
       .prepare('SELECT * FROM request_limits WHERE quota_key = ?')

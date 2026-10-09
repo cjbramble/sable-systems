@@ -152,26 +152,3 @@ export function parseSupportReferences(
     remainder,
   };
 }
-
-export function explicitCustomerPos(message: string): string[] {
-  return parseSupportReferences(message)
-    .occurrences.filter(
-      ({ reference }) => reference.namespace === 'customer_po',
-    )
-    .map(({ reference }) => reference.identifier);
-}
-
-export function explicitOrderPo(message: string): string | undefined {
-  const { occurrences } = parseSupportReferences(message);
-  const labeled = occurrences.find(
-    ({ reference }) => reference.namespace === 'customer_po',
-  );
-  if (labeled) return labeled.reference.identifier;
-  return occurrences.find(
-    ({ reference, start }) =>
-      reference.kind === 'order' &&
-      /\border(?:\s+(?:ID|number|reference))?[\s*_:]*(?:is\b)?[\s#*_:"'`=([]*$/i.test(
-        message.slice(0, start),
-      ),
-  )?.reference.identifier;
-}
