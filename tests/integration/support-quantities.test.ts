@@ -96,6 +96,60 @@ describe('support catalog quantities', () => {
     });
   }
 
+  for (const content of [
+    'Compare SBL-RPC-12 and SBL-SWC-12 for 8 units each, and show SBL-CSR-R2 pricing.',
+    'Compare 8 units each of SBL-RPC-12 and SBL-SWC-12, and show SBL-CSR-R2 pricing.',
+  ]) {
+    test(`keeps a shared quantity within its product group: ${content}`, async ({
+      database,
+    }) => {
+      const records = await catalogRecords(database, content);
+      expect(records.match(/^Product:/gm)).toHaveLength(3);
+      for (const item of ['SBL-RPC-12', 'SBL-SWC-12'])
+        expect(productRecords(records, item)).toContain(
+          'Requested quantity 8:',
+        );
+      const controller = productRecords(records, 'SBL-CSR-R2');
+      expect(controller).toContain('Wholesale price: $2,250.00');
+      expect(controller).not.toContain('Requested quantity');
+      expect(controller).not.toContain('Stock shortfall');
+    });
+  }
+
+  for (const [content, item, price] of [
+    ['Is SBL-RPC-12 priced at 680.00 per unit?', 'SBL-RPC-12', '$680.00'],
+    ['Does Nightvault cost 1,940.00 per array?', 'SBL-NV-16T', '$1,940.00'],
+  ]) {
+    test(`retrieves a unit price without treating it as a quantity: ${content}`, async ({
+      database,
+    }) => {
+      const records = await catalogRecords(database, content);
+      expect(records.match(/^Product:/gm)).toHaveLength(1);
+      expect(productRecords(records, item)).toContain(
+        `Wholesale price: ${price}`,
+      );
+      expect(records).not.toContain('Requested quantity');
+      expect(records).not.toContain('Stock shortfall');
+    });
+  }
+
+  test('retains a real quantity after a separate unit-price expression', async ({
+    database,
+  }) => {
+    const records = await catalogRecords(
+      database,
+      'Is SBL-RPC-12 priced at 680.00 per unit, and are 8 units available?',
+    );
+    expect(records.match(/^Product:/gm)).toHaveLength(1);
+    expect(records).toContain('Wholesale price: $680.00');
+    expect(records).toContain(
+      'Requested quantity 8: valid case-pack multiple;',
+    );
+    expect(records).toContain(
+      'Stock shortfall for requested quantity 8: 0 units (8 requested; 312 available).',
+    );
+  });
+
   test('keeps product model numbers and capacities separate from requested quantities', async ({
     database,
   }) => {
@@ -166,6 +220,8 @@ describe('support catalog quantities', () => {
 
   for (const content of [
     'Compare SBL-RPC-12 and SBL-SWC-12 for 24 units total.',
+    'Compare 8 units of SBL-RPC-12 / SBL-SWC-12.',
+    'Compare 8 units of SBL-RPC-12, and SBL-SWC-12.',
     'Compare 8 units and 12 units of SBL-RPC-12.',
     'Are 24 units available?',
     'Compare 24 units each of SBL-RPC-12, SBL-SWC-12, SBL-CSR-R2, and SBL-RLY-1Y.',
@@ -208,6 +264,46 @@ describe('support catalog quantities', () => {
 });
 
 describe('saved quantity clarification', () => {
+  test('clarifies a slash-separated quantity before consuming quota or calling the model', async ({
+    database,
+    supportApi: fixture,
+  }) => {
+    const incidentId = 'INC-QUANTITY-SLASH-CLARIFICATION';
+    await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+    const session = await fixture.session(calderPikeUser);
+    const model = fixture.mockModel('The requested quantity is available.');
+    const quotaKey = `chat:${calderPikeUser.userId}`;
+    const quota = { attempts: 30, expires_at: Date.now() + 60_000 };
+    await database
+      .prepare(`INSERT INTO request_limits (quota_key, attempts, expires_at)
+        VALUES (?, ?, ?) ON CONFLICT(quota_key) DO UPDATE SET attempts = excluded.attempts,
+        expires_at = excluded.expires_at`)
+      .bind(quotaKey, quota.attempts, quota.expires_at)
+      .run();
+    const response = await chat(
+      session.request({
+        incidentId,
+        messageId: 'MSG-QUANTITY-SLASH-CLARIFICATION',
+        expectedRevision: 0,
+        message: 'Compare 8 units of SBL-RPC-12 / SBL-SWC-12.',
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      message: expect.stringMatching(/quantity|units/i),
+    });
+    expect(model).not.toHaveBeenCalled();
+    expect((await fixture.messageContents(incidentId)).results).toHaveLength(2);
+    expect(
+      await database
+        .prepare(
+          'SELECT attempts, expires_at FROM request_limits WHERE quota_key = ?',
+        )
+        .bind(quotaKey)
+        .first(),
+    ).toEqual(quota);
+  });
+
   test('saves and replays clarification without quota or inference, then accepts a corrected quantity', async ({
     database,
     supportApi: fixture,

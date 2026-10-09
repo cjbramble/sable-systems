@@ -107,6 +107,28 @@ describe('complete numeric quantity expressions', () => {
       ).toMatchObject([{ raw: '24', quantity: { kind: 'valid', value: 24 } }]);
     },
   );
+
+  it.each([
+    'Is SBL-RPC-12 priced at 680.00 per unit?',
+    'Does Nightvault cost 1,940.00 per array?',
+    'Is SBL-RPC-12 priced at 680 per unit?',
+  ])(
+    'does not treat a per-unit price as a requested quantity: %s',
+    (message) => {
+      expect(parseQuantityOccurrences(message)).toEqual([]);
+      expect(
+        parseQuantityOccurrences(`${message} Can I get 8 units?`),
+      ).toMatchObject([{ raw: '8', quantity: { kind: 'valid', value: 8 } }]);
+    },
+  );
+
+  it('still rejects fractional quantities followed by a per-item modifier', () => {
+    expect(
+      parseQuantityOccurrences('Can I get 1.5 units per item?'),
+    ).toMatchObject([
+      { raw: '1.5', quantity: { kind: 'invalid', reason: 'syntax' } },
+    ]);
+  });
 });
 
 describe('quantity assignment to product mentions', () => {
@@ -174,6 +196,10 @@ describe('quantity assignment to product mentions', () => {
   it.each([
     'Compare SBL-RPC-12 and SBL-SWC-12 for 24 units.',
     'Compare 8 units of SBL-RPC-12 versus SBL-SWC-12.',
+    'Compare 8 units of SBL-RPC-12 / SBL-SWC-12.',
+    'Compare 8 units of SBL-RPC-12, and SBL-SWC-12.',
+    'Compare SBL-RPC-12 / SBL-SWC-12 for 8 units.',
+    'Compare SBL-RPC-12, and SBL-SWC-12 for 8 units.',
     'Are 8 units total of both SBL-RPC-12 and SBL-SWC-12 available?',
     'Compare 8 units and 12 units of SBL-RPC-12.',
     'Compare 8 units of SBL-RPC-12 versus 12 units of SBL-RPC-12.',
@@ -223,12 +249,32 @@ it.each([
   },
 );
 
-it('limits an explicit shared quantity to the products in its clause', () => {
+it.each([
+  'Are 8 units of both SBL-RPC-12 and SBL-SWC-12 available, and what is SBL-CSR-R2 pricing?',
+  'Compare SBL-RPC-12 and SBL-SWC-12 for 8 units each, and show SBL-CSR-R2 pricing.',
+  'Compare SBL-RPC-12 and SBL-SWC-12 for 8 units per item, and show SBL-CSR-R2 pricing.',
+  'Compare both SBL-RPC-12 and SBL-SWC-12 for 8 units, and show SBL-CSR-R2 pricing.',
+  'Compare 8 units of both SBL-RPC-12 and SBL-SWC-12, and show SBL-CSR-R2 pricing.',
+  'Show SBL-CSR-R2 pricing, and compare SBL-RPC-12 and SBL-SWC-12 for 8 units each.',
+])('limits an explicit shared quantity to its product group: %s', (message) => {
+  expect(bind(message, [...products, ['C', 'SBL-CSR-R2']])).toEqual(
+    assigned([
+      ['A', 8],
+      ['B', 8],
+    ]),
+  );
+});
+
+it('keeps punctuation and repeated identifiers within a shared product group', () => {
+  const message =
+    'Compare Redline Power Cell R12 (SBL-RPC-12) and Signal-Weave Active Cable, 12 m (SBL-SWC-12) for 8 units each, and show SBL-CSR-R2 pricing.';
   expect(
-    bind(
-      'Are 8 units of both SBL-RPC-12 and SBL-SWC-12 available, and what is SBL-CSR-R2 pricing?',
-      [...products, ['C', 'SBL-CSR-R2']],
-    ),
+    bind(message, [
+      ...products,
+      ['A', 'Redline Power Cell R12'],
+      ['B', 'Signal-Weave Active Cable, 12 m'],
+      ['C', 'SBL-CSR-R2'],
+    ]),
   ).toEqual(
     assigned([
       ['A', 8],
