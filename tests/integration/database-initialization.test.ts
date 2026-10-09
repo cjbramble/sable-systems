@@ -1,4 +1,4 @@
-import { describe, expect } from 'vitest';
+import { describe, expect, vi } from 'vitest';
 
 import { schemaStatements, SCHEMA_VERSION, SEED_VERSION } from '@/db/schema';
 import {
@@ -28,6 +28,135 @@ async function expectStartupFailure(
 }
 
 describe('database initialization', () => {
+  test.for(['recover', 'unrelated failure', 'retry failure'] as const)(
+    'handles concurrent revision migrations without hiding errors: %s',
+    async (scenario, { initialization }) => {
+      const { database, getDatabase, restart } = initialization;
+      await seedHistoricalDatabase(database, '12');
+      await addUserRecords(database);
+      await database
+        .prepare(
+          "INSERT INTO metadata VALUES ('support_incidents_seed_version', '1')",
+        )
+        .run();
+      const before = await databaseSnapshot(database);
+      // Separate module caches model two cold Workers sharing the same D1 DB.
+      const secondWorker = await restart();
+      expect(secondWorker).not.toBe(getDatabase);
+      const revisionStatements = new WeakSet<D1PreparedStatement>();
+      const schemaStatements = new WeakSet<D1PreparedStatement>();
+      const prepare = database.prepare.bind(database);
+      const prepareSpy = vi
+        .spyOn(database, 'prepare')
+        .mockImplementation((sql) => {
+          const statement = prepare(sql);
+          if (
+            /^ALTER TABLE support_(incidents|messages)\s+ADD COLUMN revision/.test(
+              sql,
+            )
+          )
+            revisionStatements.add(statement);
+          if (sql.startsWith('CREATE TABLE IF NOT EXISTS support_incidents'))
+            schemaStatements.add(statement);
+          return statement;
+        });
+      const bothPlanned = Promise.withResolvers<void>();
+      const winnerCommitted = Promise.withResolvers<void>();
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        bothPlanned.resolve();
+        winnerCommitted.resolve();
+      }, 2_000);
+      let schemaAttempts = 0;
+      let revisionAttempts = 0;
+      const injected = new Error(`Injected ${scenario}`);
+      const duplicateErrors: unknown[] = [];
+      const batch = database.batch.bind(database);
+      const batchSpy = vi
+        .spyOn(database, 'batch')
+        .mockImplementation(async (statements) => {
+          if (!statements.some((statement) => schemaStatements.has(statement)))
+            return batch(statements);
+          schemaAttempts += 1;
+          if (
+            !statements.some((statement) => revisionStatements.has(statement))
+          ) {
+            if (scenario === 'retry failure') throw injected;
+            return batch(statements);
+          }
+          if (++revisionAttempts === 1) {
+            await bothPlanned.promise;
+            try {
+              return await batch(statements);
+            } finally {
+              winnerCommitted.resolve();
+            }
+          }
+          bothPlanned.resolve();
+          await winnerCommitted.promise;
+          if (scenario === 'unrelated failure') throw injected;
+          try {
+            return await batch(statements);
+          } catch (error) {
+            duplicateErrors.push(error);
+            throw error;
+          }
+        });
+      const first = getDatabase();
+      const second = secondWorker();
+      const settled = Promise.allSettled(
+        [first, second].map((attempt) => attempt.then(() => undefined)),
+      );
+      try {
+        expect(first).not.toBe(second);
+        const outcomes = await settled;
+        expect(timedOut).toBe(false);
+        expect(revisionAttempts).toBe(2);
+        expect(
+          outcomes.filter(({ status }) => status === 'fulfilled'),
+        ).toHaveLength(scenario === 'recover' ? 2 : 1);
+        expect(outcomes.filter(({ status }) => status === 'rejected')).toEqual(
+          scenario === 'recover'
+            ? []
+            : [{ status: 'rejected', reason: injected }],
+        );
+        expect(schemaAttempts).toBe(scenario === 'unrelated failure' ? 2 : 3);
+        if (scenario !== 'unrelated failure') {
+          expect(duplicateErrors).toHaveLength(1);
+          expect(duplicateErrors[0]).toBeInstanceOf(Error);
+          expect((duplicateErrors[0] as Error).message).toContain(
+            'duplicate column name: revision',
+          );
+        }
+        const after = await databaseSnapshot(database);
+        for (const [table, rows] of Object.entries(before.tables))
+          if (table !== 'metadata')
+            expect(after.tables[table], table).toEqual(
+              ['support_incidents', 'support_messages'].includes(table)
+                ? rows.map((row) => ({ ...(row as object), revision: 0 }))
+                : rows,
+            );
+        expect(after.tables.metadata).toContainEqual({
+          key: 'schema_version',
+          value: SCHEMA_VERSION,
+        });
+      } finally {
+        bothPlanned.resolve();
+        winnerCommitted.resolve();
+        await settled;
+        clearTimeout(timer);
+        batchSpy.mockRestore();
+        prepareSpy.mockRestore();
+      }
+      const upgraded = await databaseSnapshot(database);
+      await (
+        await restart()
+      )();
+      expect(await databaseSnapshot(database)).toEqual(upgraded);
+    },
+  );
+
   test('adds conversation revisions atomically to schema 12 and preserves historical replies across restart', async ({
     initialization,
   }) => {

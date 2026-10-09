@@ -19,6 +19,7 @@ import {
 } from './order-line-migration';
 
 const BATCH_SIZE = 75;
+const SUPPORT_REVISION_TABLES = ['support_incidents', 'support_messages'];
 const INITIALIZATION_KEY = 'initialization_progress';
 // Change this protocol if batch boundaries or the seed statement order change.
 const INITIALIZATION_VERSION = `${SCHEMA_VERSION}/${SEED_VERSION}/${BATCH_SIZE}/1`;
@@ -42,12 +43,16 @@ export function getDatabase(): Promise<D1Database> {
   return initialization;
 }
 
-async function initializeDatabase() {
+async function initializeDatabase(
+  retryRevisionMigration = true,
+): Promise<D1Database> {
   const db = (env as unknown as { DB?: D1Database }).DB;
   if (!db) throw new Error('The DB binding is not configured.');
 
   const seedStatements = buildSeedStatements();
   const state = await inspectDatabase(db, seedStatements.length);
+  const upgradingSchema =
+    state.kind === 'ready' && state.schemaVersion !== SCHEMA_VERSION;
   const needsOrderLineMigration =
     state.kind === 'ready'
       ? ['6', '7', '8', '9'].includes(state.schemaVersion)
@@ -76,7 +81,8 @@ async function initializeDatabase() {
     schemaBatch.push(
       ...orderLineMigrationStatements.map((sql) => db.prepare(sql)),
     );
-  for (const table of ['support_incidents', 'support_messages']) {
+  let needsRevisionMigration = false;
+  for (const table of SUPPORT_REVISION_TABLES) {
     const columns = await db
       .prepare(`PRAGMA table_info(${table})`)
       .all<{ name: string }>();
@@ -84,13 +90,15 @@ async function initializeDatabase() {
     if (
       columns.results.length &&
       !columns.results.some(({ name }) => name === 'revision')
-    )
+    ) {
+      needsRevisionMigration = true;
       schemaBatch.push(
         db.prepare(`ALTER TABLE ${table}
         ADD COLUMN revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0)`),
       );
+    }
   }
-  if (state.kind === 'ready' && state.schemaVersion !== SCHEMA_VERSION)
+  if (upgradingSchema)
     schemaBatch.push(
       db
         .prepare(`INSERT INTO metadata (key, value) VALUES (?, ?)
@@ -98,11 +106,25 @@ async function initializeDatabase() {
         .bind('schema_version', SCHEMA_VERSION),
     );
   // Constraints, copied rows, and the upgrade marker commit together.
-  await db.batch(schemaBatch);
+  try {
+    await db.batch(schemaBatch);
+  } catch (error) {
+    // Another Worker may commit after our column inspection. Rebuild once from
+    // fresh state only when it completed this migration; retain other failures.
+    if (
+      retryRevisionMigration &&
+      upgradingSchema &&
+      needsRevisionMigration &&
+      error instanceof Error &&
+      error.message.includes('duplicate column name: revision') &&
+      (await revisionMigrationCompleted(db, seedStatements.length))
+    )
+      return initializeDatabase(false);
+    throw error;
+  }
   if (state.kind === 'ready') {
     await seedSupportIncidents(db);
-    if (state.schemaVersion !== SCHEMA_VERSION)
-      await db.prepare('PRAGMA optimize').run();
+    if (upgradingSchema) await db.prepare('PRAGMA optimize').run();
     return db;
   }
 
@@ -136,6 +158,25 @@ async function initializeDatabase() {
   ]);
   await db.prepare('PRAGMA optimize').run();
   return db;
+}
+
+async function revisionMigrationCompleted(db: D1Database, seedLength: number) {
+  try {
+    const state = await inspectDatabase(db, seedLength);
+    if (state.kind !== 'ready' || state.schemaVersion !== SCHEMA_VERSION)
+      return false;
+    for (const table of SUPPORT_REVISION_TABLES) {
+      const columns = await db
+        .prepare(`PRAGMA table_info(${table})`)
+        .all<{ name: string }>();
+      if (!columns.results.some(({ name }) => name === 'revision'))
+        return false;
+    }
+    return true;
+  } catch {
+    // A failed recovery inspection must not replace the original batch error.
+    return false;
+  }
 }
 
 type DatabaseState =
