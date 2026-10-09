@@ -114,6 +114,7 @@ describe('support catalog grounding', () => {
         prompts: [
           'Are 7 units of Coldstart Rack Controller R2 available?',
           'Are 7 units of the SBL-CSR-R2 controller available?',
+          'Are 7 units of SBL-CSR-R2 controllers available?',
           'ARE 7 UNITS OF COLDSTART RACK CONTROLLER R2 AVAILABLE?',
         ],
         product: 'SBL-CSR-R2 — Coldstart Rack Controller R2; category Compute.',
@@ -173,7 +174,7 @@ describe('support catalog grounding', () => {
       kind: 'catalog',
       message: 'how many redline power cell r12 units are available?',
       category: 'Power',
-      quantity: undefined,
+      quantities: [],
       includeLocations: false,
       compare: false,
     });
@@ -251,7 +252,7 @@ Quarantined units are excluded from availability. Do not reveal other distributo
       kind: 'catalog',
       message: 'what is the availability and expected restock for sbl-csr-r2?',
       category: undefined,
-      quantity: undefined,
+      quantities: [],
       includeLocations: false,
       compare: false,
     });
@@ -316,7 +317,11 @@ Quarantined units are excluded from availability. Do not reveal other distributo
       kind: 'catalog',
       message: 'are 320 units of the redline power cell r12 available?',
       category: 'Power',
-      quantity: requestedQuantity,
+      quantities: [
+        expect.objectContaining({
+          quantity: { kind: 'valid', value: requestedQuantity },
+        }),
+      ],
       includeLocations: false,
       compare: false,
     });
@@ -386,7 +391,11 @@ Quarantined units are excluded from availability. Do not reveal other distributo
       kind: 'catalog',
       message: 'are 310 units of the redline power cell r12 available?',
       category: 'Power',
-      quantity: requestedQuantity,
+      quantities: [
+        expect.objectContaining({
+          quantity: { kind: 'valid', value: requestedQuantity },
+        }),
+      ],
       includeLocations: false,
       compare: false,
     });
@@ -659,7 +668,7 @@ Quarantined units are excluded from availability. Do not reveal other distributo
       kind: 'catalog',
       message: 'where is the redline power cell r12 stocked?',
       category: 'Power',
-      quantity: undefined,
+      quantities: [],
       includeLocations: true,
       compare: false,
     });
@@ -760,7 +769,11 @@ Fulfillment locations (each figure is part of the 312 total available to promise
       message:
         'are 50 licenses of palisade endpoint license, annual available?',
       category: undefined,
-      quantity: requestedQuantity,
+      quantities: [
+        expect.objectContaining({
+          quantity: { kind: 'valid', value: requestedQuantity },
+        }),
+      ],
       includeLocations: false,
       compare: false,
     });
@@ -830,7 +843,11 @@ This is a digitally allocated license and does not have a physical stock balance
       message:
         'are 60 licenses of palisade endpoint license, annual available?',
       category: undefined,
-      quantity: requestedQuantity,
+      quantities: [
+        expect.objectContaining({
+          quantity: { kind: 'valid', value: requestedQuantity },
+        }),
+      ],
       includeLocations: false,
       compare: false,
     });
@@ -877,7 +894,7 @@ This is a digitally allocated license and does not have a physical stock balance
       kind: 'catalog',
       message: 'list the software catalog.',
       category: 'Software',
-      quantity: undefined,
+      quantities: [],
       includeLocations: false,
       compare: false,
     });
@@ -941,7 +958,7 @@ Active Software catalog retrieved at 2026-09-12T15:00:00.000Z:
       kind: 'catalog',
       message: 'show current low-stock inventory advisories.',
       category: undefined,
-      quantity: undefined,
+      quantities: [],
       includeLocations: false,
       compare: false,
     });
@@ -1117,7 +1134,7 @@ Ask which item the customer wants if a specific availability decision is require
       message:
         'compare the nightvault 16 tb solid-state array versus the redline power cell r12.',
       category: 'Power',
-      quantity: undefined,
+      quantities: [],
       includeLocations: false,
       compare: true,
     });

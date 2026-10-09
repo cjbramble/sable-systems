@@ -1,6 +1,10 @@
 import type { ChatHistoryMessage } from './chat-history.ts';
 import type { OrderStatus } from './contracts.ts';
 import {
+  parseQuantityOccurrences,
+  type QuantityOccurrence,
+} from './support-quantities.ts';
+import {
   itemReferences,
   parseSupportReferences,
   type ReferenceOccurrence,
@@ -33,7 +37,7 @@ export type SupportQueryIntent =
       kind: 'catalog';
       message: string;
       category?: CatalogCategory;
-      quantity?: number;
+      quantities: QuantityOccurrence[];
       includeLocations: boolean;
       compare: boolean;
     }
@@ -99,13 +103,10 @@ function classifyCurrentTopic(latest: string): SupportQueryIntent {
   )
     return { kind: 'incidents' };
 
-  // A quantity must start outside a word or hyphenated item number. A word
-  // boundary alone also matches the "12" in "SBL-RPC-12 units".
-  const quantityMatch = normalized.match(
-    /(?<![\w-])(\d{1,6})(?!\s*(?:tb|gb|mb|kb|m)\b)(?:\s+[a-z-]+){0,2}\s+(?:units?|licenses?|controllers?|arrays?|modules?|hubs?|nodes?|packs?)\b/,
-  );
+  const quantities = parseQuantityOccurrences(normalized);
   if (
     items.length > 0 ||
+    quantities.length > 0 ||
     category ||
     /\b(product|item|catalog|inventory|availability|available|stock|backorder|compare|versus|vs\.?|where stocked|warehouse|fulfillment location)\b/.test(
       normalized,
@@ -115,7 +116,7 @@ function classifyCurrentTopic(latest: string): SupportQueryIntent {
       kind: 'catalog',
       message: normalized,
       category,
-      quantity: quantityMatch ? Number(quantityMatch[1]) : undefined,
+      quantities,
       includeLocations: /\b(where|location|warehouse|stocked|region)\b/.test(
         normalized,
       ),
@@ -301,9 +302,13 @@ export function classifySupportQuery(
         ),
       ),
     ];
+    const current = classifyCurrentTopic(remainder);
     const followUp =
       entityCues.length > 0 ||
-      /\b(?:it|its|those|them)\b|\b(?:about|for) that\s*[?.!]*$/.test(
+      (current.kind === 'catalog' &&
+        current.quantities.length > 0 &&
+        /\beach\b/.test(normalized)) ||
+      /\b(?:it|its|those|them|both)\b|\b(?:about|for) that\s*[?.!]*$/.test(
         normalized,
       );
     const currentTopic =
@@ -312,7 +317,6 @@ export function classifySupportQuery(
       /\b(?:orders|purchases?|releases?|incidents?|my account|account tier)\b/.test(
         normalized,
       );
-    const current = classifyCurrentTopic(remainder);
     const answer = namespaceAnswer(latest);
     if (
       references.length ||

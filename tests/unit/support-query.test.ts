@@ -130,6 +130,8 @@ it('ignores numeric item-number suffixes while retaining explicit catalog quanti
   const scenarios: [content: string, quantity: number | undefined][] = [
     ['Can I order 8 units of SBL-RPC-12?', 8],
     ['Can I order 24 units of SBL-RPC-12?', 24],
+    ['Can I order 1000 units of SBL-RPC-12?', 1000],
+    ['Can I order 1,000 units of SBL-RPC-12?', 1000],
     ['Can I return 8 units of SBL-RPC-12?', 8],
     ['Can I return SBL-RPC-12 units?', undefined],
     ['How many SBL-RPC-12 units are available?', undefined],
@@ -158,7 +160,14 @@ it('ignores numeric item-number suffixes while retaining explicit catalog quanti
         kind: 'catalog',
         // Product matching still needs the intact normalized message.
         message: content.toLowerCase(),
-        quantity,
+        quantities:
+          quantity === undefined
+            ? []
+            : [
+                expect.objectContaining({
+                  quantity: { kind: 'valid', value: quantity },
+                }),
+              ],
       });
   }
 });
@@ -738,4 +747,91 @@ describe('namespace-only clarification answers', () => {
       ]),
     ).toMatchObject({ kind: 'summary' });
   });
+});
+
+describe('catalog quantity interpretation', () => {
+  it.each(['1.5', '-8', '+8', '0', '1000000', '1e3', '1/2', '8-12', '1,00'])(
+    'keeps the complete unsupported quantity %s visible for clarification',
+    (raw) => {
+      const content = `Can I order ${raw} units of SBL-RPC-12?`;
+      expect(classifySupportQuery([{ role: 'user', content }])).toMatchObject({
+        kind: 'catalog',
+        message: content.toLowerCase(),
+        quantities: [
+          expect.objectContaining({
+            raw,
+            quantity: expect.objectContaining({ kind: 'invalid' }),
+          }),
+        ],
+      });
+    },
+  );
+
+  it('preserves explicit numeric order IDs', () => {
+    expect(
+      classifySupportQuery([{ role: 'user', content: 'Find order ID: 1000.' }]),
+    ).toEqual({
+      kind: 'order',
+      namespace: 'order_id',
+      identifier: '1000',
+    });
+  });
+
+  it('retains both saved product targets for a shared quantity follow-up', () => {
+    const content = 'Compare both for 24 units';
+    expect(
+      classifySupportQuery([
+        { role: 'user', content: 'Compare SBL-RPC-12 and SBL-SWC-12.' },
+        {
+          role: 'assistant',
+          content:
+            'There are 312 units of SBL-RPC-12 and 720 units of SBL-SWC-12 available.',
+        },
+        { role: 'user', content },
+      ]),
+    ).toMatchObject({
+      kind: 'catalog',
+      message: `${content.toLowerCase()} sbl-rpc-12 sbl-swc-12`,
+      quantities: [
+        expect.objectContaining({ quantity: { kind: 'valid', value: 24 } }),
+      ],
+    });
+  });
+
+  it('uses the latest customer quantity in a single-product follow-up', () => {
+    expect(
+      classifySupportQuery([
+        { role: 'user', content: 'Tell me about SBL-RPC-12.' },
+        { role: 'assistant', content: 'There are 312 units available.' },
+        { role: 'user', content: 'Are 1,000 units of it available?' },
+      ]),
+    ).toMatchObject({
+      kind: 'catalog',
+      message: 'are 1,000 units of it available? sbl-rpc-12',
+      quantities: [
+        expect.objectContaining({ quantity: { kind: 'valid', value: 1000 } }),
+      ],
+    });
+  });
+});
+
+it('uses a quantity with each as a saved product follow-up', () => {
+  expect(
+    classifySupportQuery([
+      { role: 'user', content: 'Compare SBL-RPC-12 and SBL-SWC-12.' },
+      { role: 'user', content: '24 units each' },
+    ]),
+  ).toMatchObject({
+    kind: 'catalog',
+    message: '24 units each sbl-rpc-12 sbl-swc-12',
+    quantities: [
+      expect.objectContaining({ quantity: { kind: 'valid', value: 24 } }),
+    ],
+  });
+  expect(
+    classifySupportQuery([
+      { role: 'user', content: 'Compare SBL-RPC-12 and SBL-SWC-12.' },
+      { role: 'user', content: 'each' },
+    ]),
+  ).toEqual({ kind: 'summary', message: 'each' });
 });

@@ -30,6 +30,12 @@ does not replace the customer's order. Multiple or missing conversational target
 also ask for clarification. Clarification replies are saved and replayed like other
 successful replies, without a model call or model quota consumption.
 
+Quantity lookups accept whole numbers from 1 through 999,999, with optional comma
+grouping such as `1,000`. Attach each quantity to its product, or use shared wording
+such as “24 units each.” Fractional, invalid, or ambiguous quantities prompt a saved
+clarification before the model is called. Quantity requests can assess up to three
+matched products; an unclear target or a larger set also prompts clarification.
+
 The former `messages` array is no longer accepted (HTTP 400). Migrate callers to
 `message` and `expectedRevision`, preserving the entire command for retries.
 
