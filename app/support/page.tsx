@@ -57,6 +57,7 @@ import {
   filterSupportIncidents,
   removeSupportIncident,
   type SupportChatMessage,
+  type SupportFailure,
   type SupportIncident,
   type SupportReply,
 } from '@/lib/support-incidents';
@@ -145,11 +146,13 @@ export default function SupportPage() {
   const deletingIncidents = useRef(new Set<string>());
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
   const [failures, setFailures] = useState<Record<string, IncidentFailure>>({});
+  const [deletedMessage, setDeletedMessage] = useState<string | null>(null);
   const failure = activeIncidentId ? failures[activeIncidentId] : undefined;
   const retryRequest = failure?.request;
   const isSending = sendingIncidentId !== null;
   const composerDisabled =
     isSending || deletingIds.includes(activeIncidentId ?? '');
+  const sendDisabled = composerDisabled || deletedMessage !== null;
   const [runtime, setRuntime] = useState<RuntimeState>('checking');
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const { sessionChanged } = useSessionGuard(account, '/support');
@@ -263,7 +266,7 @@ export default function SupportPage() {
         ? 'instant'
         : 'smooth',
     });
-  }, [messages, isSending]);
+  }, [messages, isSending, deletedMessage]);
 
   useEffect(() => {
     const desktop = window.matchMedia('(min-width: 768px)');
@@ -274,8 +277,9 @@ export default function SupportPage() {
     return () => desktop.removeEventListener('change', closeOnDesktop);
   }, []);
 
-  function newConversation() {
+  function newConversation(initialDraft = '') {
     if (
+      !initialDraft &&
       activeIncident?.title === 'New service incident' &&
       activeIncident.messages.length === 1
     ) {
@@ -293,11 +297,17 @@ export default function SupportPage() {
     setConversation((current) => ({
       incidents: [incident, ...current.incidents],
       activeIncidentId: incident.id,
-      draft: '',
+      draft: initialDraft,
     }));
     setIncidentSearch('');
     setMobileMenuOpen(false);
     if (!mobileMenuOpen) window.setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function recoverDeletedMessage() {
+    if (deletedMessage === null || draft.length > 0) return;
+    newConversation(deletedMessage);
+    setDeletedMessage(null);
   }
 
   function selectIncident(incidentId: string) {
@@ -336,18 +346,7 @@ export default function SupportPage() {
         const payload = (await response.json()) as { error?: string };
         throw new Error(payload.error || 'The incident could not be deleted.');
       }
-      setConversation((current) => {
-        const remaining = removeSupportIncident(current.incidents, incident.id);
-        return {
-          incidents: remaining,
-          activeIncidentId:
-            current.activeIncidentId === incident.id
-              ? (remaining[0]?.id ?? null)
-              : current.activeIncidentId,
-          draft: current.activeIncidentId === incident.id ? '' : current.draft,
-        };
-      });
-      clearFailure(incident.id);
+      removeIncident(incident.id);
     } catch (error) {
       if (signal.aborted) return;
       setFailures((current) => ({
@@ -366,6 +365,21 @@ export default function SupportPage() {
     }
   }
 
+  function removeIncident(incidentId: string) {
+    setConversation((current) => {
+      const remaining = removeSupportIncident(current.incidents, incidentId);
+      return {
+        incidents: remaining,
+        activeIncidentId:
+          current.activeIncidentId === incidentId
+            ? (remaining[0]?.id ?? null)
+            : current.activeIncidentId,
+        draft: current.activeIncidentId === incidentId ? '' : current.draft,
+      };
+    });
+    clearFailure(incidentId);
+  }
+
   function clearFailure(incidentId: string) {
     setFailures((current) => {
       const next = { ...current };
@@ -381,6 +395,7 @@ export default function SupportPage() {
     if (
       !content ||
       pendingRequest.current ||
+      deletedMessage !== null ||
       deletingIncidents.current.has(activeIncidentId ?? '')
     )
       return;
@@ -440,6 +455,7 @@ export default function SupportPage() {
       !signal ||
       signal.aborted ||
       pendingRequest.current ||
+      deletedMessage !== null ||
       deletingIncidents.current.has(request.incidentId)
     )
       return;
@@ -457,12 +473,17 @@ export default function SupportPage() {
         body: JSON.stringify(request),
       });
 
-      const payload = (await response.json()) as Partial<SupportReply> & {
-        error?: string;
-      };
+      const payload = (await response.json()) as Partial<
+        SupportReply & SupportFailure
+      >;
       if (signal.aborted) return;
       if (response.status === 401) {
         redirectToLogin('/support');
+        return;
+      }
+      if (response.status === 410 && payload.code === 'incident_deleted') {
+        removeIncident(request.incidentId);
+        setDeletedMessage(request.messages.at(-1)!.content);
         return;
       }
       if (!response.ok) {
@@ -589,7 +610,7 @@ export default function SupportPage() {
         </SheetClose>
       </div>
 
-      <Button className="new-chat" onClick={newConversation}>
+      <Button className="new-chat" onClick={() => newConversation()}>
         <Plus />
         New service incident
       </Button>
@@ -757,7 +778,7 @@ export default function SupportPage() {
               <Button
                 className="header-action"
                 variant="outline"
-                onClick={newConversation}
+                onClick={() => newConversation()}
               >
                 <RotateCcw />
                 <span className="hidden sm:inline">Start over</span>
@@ -851,6 +872,38 @@ export default function SupportPage() {
                 </article>
               ) : null}
 
+              {deletedMessage !== null ? (
+                <div className="chat-notice" role="alert">
+                  <TriangleAlert aria-hidden="true" />
+                  <div>
+                    <strong>Incident deleted</strong>
+                    <p>
+                      Your message wasn’t saved. Use it in a new incident or
+                      discard it to continue.
+                    </p>
+                    {draft.length > 0 ? (
+                      <p>
+                        Clear your current draft before recovering this message,
+                        or discard the recovered message to continue with your
+                        draft.
+                      </p>
+                    ) : null}
+                    <Button
+                      disabled={draft.length > 0}
+                      onClick={recoverDeletedMessage}
+                    >
+                      Use message in a new incident
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setDeletedMessage(null)}
+                    >
+                      Discard unsent message
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
               {failure ? (
                 <div className="chat-notice" role="alert">
                   <TriangleAlert aria-hidden="true" />
@@ -859,7 +912,7 @@ export default function SupportPage() {
                     <p>{failure.error}</p>
                     {retryRequest ? (
                       <Button
-                        disabled={composerDisabled}
+                        disabled={sendDisabled}
                         onClick={() => void submitRequest(retryRequest)}
                       >
                         Retry message
@@ -875,6 +928,7 @@ export default function SupportPage() {
                     <button
                       type="button"
                       key={prompt}
+                      disabled={sendDisabled}
                       onClick={() => void sendMessage(prompt)}
                     >
                       <span>{prompt}</span>
@@ -909,7 +963,7 @@ export default function SupportPage() {
                 type="submit"
                 size="icon-lg"
                 aria-label="Send message"
-                disabled={!draft.trim() || composerDisabled}
+                disabled={!draft.trim() || sendDisabled}
               >
                 <ArrowUp />
               </Button>

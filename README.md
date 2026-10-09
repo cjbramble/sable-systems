@@ -119,12 +119,18 @@ interrupted initialization resumes from the last committed batch.
 
 Database setup and supported upgrades run automatically; no manual SQL step is required.
 
-Schema versions 6–9 upgrade to 10 with the current `SEED_VERSION`. Shipment and
+Schema versions 6–10 upgrade to 11 with the current `SEED_VERSION`. Shipment and
 return lines must reference their parent's order. Startup audits legacy relationships
 before upgrading; mismatches stop startup without changes and require explicit repair.
-The line-table migration and version marker commit together, preserving valid records.
+Schema changes and the version marker commit together, preserving valid records.
 Unsupported versions or populated databases without version metadata stop startup without
 modifying records. Preserve the database and inspect its metadata before migration.
+
+Deleting a support incident removes its title and messages. Schema 11 retains only
+its incident ID and owner ID permanently, so late replies and retries cannot recreate
+it. The support page lets the user move an unsaved message into a new incident.
+Activity timestamps advance only for newly saved replies and never move backward;
+replayed exchanges preserve their saved metadata.
 
 Seed changes must update `SEED_VERSION` to prevent resuming initialization with a
 different dataset. A version change does not reset existing data; rebuilding the
@@ -155,7 +161,10 @@ Login permits 10 attempts per normalized email and 60 attempts across the app pe
 part of the same customer request. Limits are stored atomically in D1, survive
 worker restarts, return HTTP 429 with `Retry-After`, and fail closed if storage is
 unavailable. Saved reply replay and server-built record replies do not consume
-model quota. Expired quota rows are removed when checking a quota.
+model quota. Incident deletion has a separate limit of 30 requests per user per
+60-second window, shared across sessions, including requests for missing IDs.
+Rejected deletions do not create markers or remove content. Expired quota rows are
+removed when checking a quota.
 
 Assistant Markdown cannot render images, including external tracking images;
 raw HTML remains disabled. Logout clears the browser cookie only after server

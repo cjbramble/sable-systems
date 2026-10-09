@@ -22,7 +22,14 @@ const BATCH_SIZE = 75;
 const INITIALIZATION_KEY = 'initialization_progress';
 // Change this protocol if batch boundaries or the seed statement order change.
 const INITIALIZATION_VERSION = `${SCHEMA_VERSION}/${SEED_VERSION}/${BATCH_SIZE}/1`;
-const SUPPORTED_SCHEMA_VERSIONS = new Set(['6', '7', '8', '9', SCHEMA_VERSION]);
+const SUPPORTED_SCHEMA_VERSIONS = new Set([
+  '6',
+  '7',
+  '8',
+  '9',
+  '10',
+  SCHEMA_VERSION,
+]);
 let initialization: Promise<D1Database> | null = null;
 
 export function getDatabase(): Promise<D1Database> {

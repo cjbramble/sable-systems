@@ -6,6 +6,11 @@ export type SupportChatMessage = {
   createdAt: string | null;
 };
 
+export type SupportFailure = {
+  error: string;
+  code?: 'incident_deleted';
+};
+
 export type SupportReply = {
   message: string;
   customerCreatedAt: string;

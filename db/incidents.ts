@@ -20,6 +20,15 @@ export class IncidentAccessDeniedError extends Error {
   }
 }
 
+export class IncidentDeletedError extends Error {
+  constructor() {
+    super(
+      'This incident was deleted. Start a new incident to send your message.',
+    );
+    this.name = 'IncidentDeletedError';
+  }
+}
+
 export class SupportMessageTextConflictError extends Error {
   constructor() {
     super(
@@ -69,7 +78,7 @@ export async function listSupportIncidents(
       FROM support_incidents i
       LEFT JOIN support_messages m ON m.incident_id = i.incident_id
       WHERE i.user_id = ?
-      ORDER BY i.updated_at DESC, i.incident_id, m.sequence_number`)
+      ORDER BY julianday(i.updated_at) DESC, i.incident_id, m.sequence_number`)
     .bind(user.userId)
     .all<IncidentMessageRow>();
   const incidents = new Map<string, SupportIncident>();
@@ -93,17 +102,30 @@ export async function listSupportIncidents(
   return [...incidents.values()];
 }
 
-export async function canAccessSupportIncident(
+export async function getSupportIncidentState(
   db: D1Database,
   user: AuthenticatedUser,
   incidentId: string,
-): Promise<boolean> {
+): Promise<'new' | 'owned' | 'deleted' | 'forbidden'> {
   const incident = await db
-    .prepare('SELECT user_id FROM support_incidents WHERE incident_id = ?')
-    .bind(incidentId)
-    .first<{ user_id: string }>();
-  // A new incident can be created; an existing one belongs only to its owner.
-  return incident === null || incident.user_id === user.userId;
+    .prepare(`SELECT user_id, 'deleted' AS state FROM support_incident_deletions WHERE incident_id = ?
+      UNION ALL
+      SELECT user_id, 'owned' AS state FROM support_incidents WHERE incident_id = ?
+      LIMIT 1`)
+    .bind(incidentId, incidentId)
+    .first<{ user_id: string; state: 'owned' | 'deleted' }>();
+  if (!incident) return 'new';
+  return incident.user_id === user.userId ? incident.state : 'forbidden';
+}
+
+async function assertIncidentWritable(
+  db: D1Database,
+  user: AuthenticatedUser,
+  incidentId: string,
+) {
+  const state = await getSupportIncidentState(db, user, incidentId);
+  if (state === 'forbidden') throw new IncidentAccessDeniedError();
+  if (state === 'deleted') throw new IncidentDeletedError();
 }
 
 export async function hasSupportMessageIdConflict(
@@ -238,14 +260,7 @@ export async function saveSupportExchange(
   customerMessage: string,
   assistantMessage: string,
 ): Promise<SupportReply> {
-  const existing = await db
-    .prepare(
-      'SELECT user_id, title FROM support_incidents WHERE incident_id = ?',
-    )
-    .bind(incidentId)
-    .first<{ user_id: string; title: string }>();
-  if (existing && existing.user_id !== user.userId)
-    throw new IncidentAccessDeniedError();
+  await assertIncidentWritable(db, user, incidentId);
 
   const now = new Date().toISOString();
   // Create the incident and allocate message positions in one transaction.
@@ -255,7 +270,8 @@ export async function saveSupportExchange(
       .prepare(`INSERT INTO support_incidents (
         incident_id, user_id, title, created_at, updated_at
       ) SELECT ?, ?, ?, ?, ?
-      WHERE NOT EXISTS (SELECT 1 FROM support_messages WHERE message_id IN (?, ?))
+      WHERE NOT EXISTS (SELECT 1 FROM support_incident_deletions WHERE incident_id = ?)
+        AND NOT EXISTS (SELECT 1 FROM support_messages WHERE message_id IN (?, ?))
       ON CONFLICT(incident_id) DO NOTHING`)
       .bind(
         incidentId,
@@ -263,6 +279,7 @@ export async function saveSupportExchange(
         createIncidentTitle(customerMessage),
         now,
         now,
+        incidentId,
         messageId,
         `AST-${messageId}`,
       ),
@@ -304,32 +321,35 @@ export async function saveSupportExchange(
         incidentId,
         user.userId,
       ),
+    // changes() refers to the preceding assistant insert in this transaction.
+    // Replays must not touch metadata. Compare parsed times: historical ISO
+    // timestamps do not all include fractional seconds.
     db
-      .prepare(`UPDATE support_incidents
+      .prepare(`WITH latest_activity AS (
+          SELECT created_at FROM support_messages WHERE incident_id = ?
+          ORDER BY julianday(created_at) DESC LIMIT 1
+        )
+        UPDATE support_incidents
         SET title = CASE WHEN title = 'New service incident' THEN ? ELSE title END,
-          updated_at = ?
-        WHERE incident_id = ? AND user_id = ?
-          AND EXISTS (SELECT 1 FROM support_messages
-            WHERE message_id = ? AND incident_id = support_incidents.incident_id
-              AND role = 'user' AND content = ?)`)
+          updated_at = CASE
+            WHEN julianday(updated_at) < (SELECT julianday(created_at) FROM latest_activity)
+            THEN (SELECT created_at FROM latest_activity) ELSE updated_at END
+        WHERE incident_id = ? AND user_id = ? AND changes() > 0`)
       .bind(
+        incidentId,
         createIncidentTitle(customerMessage),
-        now,
         incidentId,
         user.userId,
-        messageId,
-        customerMessage,
       ),
   ]);
-
-  // A concurrent request may have claimed this incident after the initial read.
-  // The transactional write guards above leave the other owner's data untouched.
-  if (!(await canAccessSupportIncident(db, user, incidentId)))
-    throw new IncidentAccessDeniedError();
 
   // A concurrent retry may have saved its reply first. Return the persisted
   // winner, never a generated response whose insert was ignored.
   const saved = await getSavedSupportExchange(db, user, incidentId, messageId);
+  // Read lifecycle state after the winner: deletion before that read must be a
+  // deleted outcome, not a generic missing-exchange failure.
+  await assertIncidentWritable(db, user, incidentId);
+
   if (saved && saved.customerMessage !== customerMessage)
     throw new SupportMessageTextConflictError();
   if (!saved || saved.assistantMessage === null) {
@@ -347,10 +367,19 @@ export async function deleteSupportIncident(
   user: AuthenticatedUser,
   incidentId: string,
 ) {
-  await db
-    .prepare(
-      'DELETE FROM support_incidents WHERE incident_id = ? AND user_id = ?',
-    )
-    .bind(incidentId, user.userId)
-    .run();
+  await db.batch([
+    // Reserve absent IDs too: a first exchange may still be generating a reply.
+    // Foreign live/deleted incidents remain an indistinguishable no-op.
+    db
+      .prepare(`INSERT INTO support_incident_deletions (incident_id, user_id)
+      SELECT ?, ? WHERE NOT EXISTS (
+        SELECT 1 FROM support_incidents WHERE incident_id = ? AND user_id != ?
+      ) ON CONFLICT(incident_id) DO NOTHING`)
+      .bind(incidentId, user.userId, incidentId, user.userId),
+    db
+      .prepare(
+        'DELETE FROM support_incidents WHERE incident_id = ? AND user_id = ?',
+      )
+      .bind(incidentId, user.userId),
+  ]);
 }

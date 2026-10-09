@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = '10';
+export const SCHEMA_VERSION = '11';
 export const SEED_VERSION = 'sable-distribution-2026-09-02-v7';
 
 export const METADATA_TABLE_SQL = `CREATE TABLE IF NOT EXISTS metadata (
@@ -57,6 +57,13 @@ export const SUPPORT_INCIDENTS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS support_i
   title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 120),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+) STRICT`;
+
+// Retain only identity, even after an account is removed, so stale requests
+// cannot reuse a deleted incident ID. Conversation content is still deleted.
+export const SUPPORT_INCIDENT_DELETIONS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS support_incident_deletions (
+  incident_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL
 ) STRICT`;
 
 export const SUPPORT_MESSAGES_TABLE_SQL = `CREATE TABLE IF NOT EXISTS support_messages (
@@ -150,6 +157,7 @@ export const schemaStatements = [
   SESSIONS_TABLE_SQL,
   REQUEST_LIMITS_TABLE_SQL,
   SUPPORT_INCIDENTS_TABLE_SQL,
+  SUPPORT_INCIDENT_DELETIONS_TABLE_SQL,
   SUPPORT_MESSAGES_TABLE_SQL,
   `CREATE TABLE IF NOT EXISTS products (
     item_number TEXT PRIMARY KEY,

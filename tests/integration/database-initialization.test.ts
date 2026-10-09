@@ -1,8 +1,10 @@
 import { describe, expect } from 'vitest';
 
 import { schemaStatements, SCHEMA_VERSION, SEED_VERSION } from '@/db/schema';
+import { deleteSupportIncident, getSupportIncidentState } from '@/db/incidents';
 import { buildSeedStatements } from '@/db/seed';
 import { historicalSchemaStatements } from '../fixtures/historical-schema';
+import { calderPikeUser } from '../fixtures/users';
 import {
   addUserRecords,
   databaseSnapshot,
@@ -92,7 +94,7 @@ describe('database initialization', () => {
     },
   );
 
-  test.for(['6', '7', '8', '9'] as const)(
+  test.for(['6', '7', '8', '9', '10'] as const)(
     'upgrades historical schema %s without reseeding or losing records',
     async (version, { initialization }) => {
       const { database, getDatabase, restart } = initialization;
@@ -154,6 +156,49 @@ describe('database initialization', () => {
       expect(await databaseSnapshot(database)).toEqual(after);
     },
   );
+
+  test('schema 10 upgrades atomically and keeps deleted seed history deleted after restart', async ({
+    initialization,
+  }) => {
+    const { database, getDatabase, restart } = initialization;
+    await seedHistoricalDatabase(database, '10');
+    const before = await databaseSnapshot(database);
+    await database
+      .prepare(`CREATE TRIGGER fail_schema11 BEFORE UPDATE ON metadata
+      WHEN NEW.key = 'schema_version' AND NEW.value = '11'
+      BEGIN SELECT RAISE(ABORT, 'upgrade interrupted'); END`)
+      .run();
+    try {
+      await expectStartupFailure(getDatabase(), /upgrade interrupted/);
+      expect(
+        await database
+          .prepare(
+            "SELECT name FROM sqlite_schema WHERE name = 'support_incident_deletions'",
+          )
+          .first(),
+      ).toBeNull();
+      expect((await databaseSnapshot(database)).tables).toEqual(before.tables);
+    } finally {
+      await database.prepare('DROP TRIGGER fail_schema11').run();
+    }
+    await getDatabase();
+    const incidentId = 'INC-USR-CPD-001-01';
+    await deleteSupportIncident(database, calderPikeUser, incidentId);
+    const deleted = await databaseSnapshot(database);
+    await (
+      await restart()
+    )();
+    expect(await databaseSnapshot(database)).toEqual(deleted);
+    expect(
+      await getSupportIncidentState(database, calderPikeUser, incidentId),
+    ).toBe('deleted');
+    expect(
+      await database
+        .prepare('SELECT 1 FROM support_messages WHERE incident_id = ?')
+        .bind(incidentId)
+        .first(),
+    ).toBeNull();
+  });
 
   test('adds request quotas when upgrading schema 8 and preserves all existing records', async ({
     initialization,

@@ -1,5 +1,5 @@
 // Frozen DDL from df2328e (v6), cfa25c2 (v7), 955ea06 (v8), and afed10a (v9).
-// These versions only added objects; keep them independent of the current schema.
+// Version 10 (74ff0d6) replaces child tables; keep every version independent of current DDL.
 const schema6 = [
   `CREATE TABLE IF NOT EXISTS metadata (
     key TEXT PRIMARY KEY,
@@ -235,13 +235,44 @@ const additions9 = [
 ) STRICT`,
 ];
 
-export type HistoricalSchemaVersion = '6' | '7' | '8' | '9';
+const replacements10 = [
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_shipments_parent_order
+    ON shipments(shipment_id, order_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_returns_parent_order
+    ON returns(return_id, order_id)`,
+  `CREATE TABLE IF NOT EXISTS shipment_items (
+  shipment_id TEXT NOT NULL,
+  order_id TEXT NOT NULL,
+  line_number INTEGER NOT NULL,
+  shipped_quantity INTEGER NOT NULL CHECK (shipped_quantity > 0),
+  PRIMARY KEY (shipment_id, order_id, line_number),
+  FOREIGN KEY (shipment_id, order_id) REFERENCES shipments(shipment_id, order_id) ON DELETE CASCADE,
+  FOREIGN KEY (order_id, line_number) REFERENCES order_items(order_id, line_number)
+) STRICT`,
+  `CREATE TABLE IF NOT EXISTS return_items (
+  return_id TEXT NOT NULL,
+  order_id TEXT NOT NULL,
+  line_number INTEGER NOT NULL,
+  return_quantity INTEGER NOT NULL CHECK (return_quantity > 0),
+  disposition TEXT NOT NULL CHECK (disposition IN ('restock', 'repair', 'quarantine', 'scrap')),
+  PRIMARY KEY (return_id, order_id, line_number),
+  FOREIGN KEY (return_id, order_id) REFERENCES returns(return_id, order_id) ON DELETE CASCADE,
+  FOREIGN KEY (order_id, line_number) REFERENCES order_items(order_id, line_number)
+) STRICT`,
+];
+
+export type HistoricalSchemaVersion = '6' | '7' | '8' | '9' | '10';
 
 export function historicalSchemaStatements(version: HistoricalSchemaVersion) {
   return [
-    ...schema6,
+    ...schema6.filter(
+      (sql) =>
+        version !== '10' ||
+        !/^CREATE TABLE IF NOT EXISTS (shipment_items|return_items) /.test(sql),
+    ),
     ...(Number(version) >= 7 ? additions7 : []),
     ...(Number(version) >= 8 ? additions8 : []),
     ...(Number(version) >= 9 ? additions9 : []),
+    ...(version === '10' ? replacements10 : []),
   ];
 }
