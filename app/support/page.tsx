@@ -79,15 +79,16 @@ import {
   supportConversationReducer,
   supportDraft,
 } from '@/lib/support-conversation';
-
-type RuntimeState = 'checking' | 'ready' | 'offline';
+import {
+  startSupportStatusPolling,
+  type SupportRuntimeState,
+} from '@/lib/support-status';
 
 type IncidentFailure = { error: string };
 
 class ChatRequestError extends Error {
   constructor(
     message: string,
-    readonly modelUnavailable = false,
     readonly requestNotSaved = false,
   ) {
     super(message);
@@ -176,7 +177,7 @@ export default function SupportPage() {
     Boolean(
       recovery && (recovery.status !== 'ready' || recovery.message !== null),
     );
-  const [runtime, setRuntime] = useState<RuntimeState>('checking');
+  const [runtime, setRuntime] = useState<SupportRuntimeState>('checking');
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const clearConversationState = useCallback(() => {
     pageRequest.current?.abort();
@@ -230,25 +231,7 @@ export default function SupportPage() {
     [incidentSearch, incidents],
   );
 
-  useEffect(() => {
-    let active = true;
-
-    async function checkRuntime() {
-      try {
-        const response = await fetch('/api/status', { cache: 'no-store' });
-        if (active) setRuntime(response.ok ? 'ready' : 'offline');
-      } catch {
-        if (active) setRuntime('offline');
-      }
-    }
-
-    void checkRuntime();
-    const interval = window.setInterval(checkRuntime, 10_000);
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-    };
-  }, []);
+  useEffect(() => startSupportStatusPolling(setRuntime), []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -593,7 +576,6 @@ export default function SupportPage() {
       if (!response.ok) {
         throw new ChatRequestError(
           failure?.error || 'The support request could not be completed.',
-          response.status >= 500,
           failure?.code === 'request_not_saved',
         );
       }
@@ -601,14 +583,10 @@ export default function SupportPage() {
       if (!payload)
         throw new ChatRequestError(
           'The support reply could not be verified. Please retry your message.',
-          true,
         );
       dispatch({ type: 'confirmed', request, reply: payload });
-      setRuntime('ready');
     } catch (error) {
       if (signal.aborted) return;
-      if (!(error instanceof ChatRequestError) || error.modelUnavailable)
-        setRuntime('offline');
       dispatch({
         type: 'failed',
         request,

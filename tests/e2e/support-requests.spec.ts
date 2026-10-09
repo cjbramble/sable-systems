@@ -15,9 +15,13 @@ test.beforeEach(async ({ loginPage, supportPage }) => {
 });
 
 test('sends only the current message after loading a long saved reply', async ({
+  page,
   supportPage,
   app,
 }) => {
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  app.setModelMetadata({ error: { message: 'Unavailable' } });
   const incidentId = 'INC-USR-CPD-001-01';
   await app.database
     .prepare(
@@ -26,6 +30,7 @@ test('sends only the current message after loading a long saved reply', async ({
     .bind('Historical answer. '.repeat(300), incidentId)
     .run();
   await supportPage.reload();
+  await expect(supportPage.runtimeStatus).toHaveText('NODE // OFFLINE');
   await supportPage.openIncident(firstTitle);
   const response = await supportPage.sendMessage(question);
   expect(response.status()).toBe(200);
@@ -37,6 +42,7 @@ test('sends only the current message after loading a long saved reply', async ({
   });
   await expect(supportPage.requestError).toHaveCount(0);
   await expect(supportPage.messages.filter({ hasText: reply })).toHaveCount(1);
+  await expect(supportPage.runtimeStatus).toHaveText('NODE // OFFLINE');
 });
 
 test('rejects malformed saved reply metadata and recovers with the same command', async ({
@@ -44,6 +50,9 @@ test('rejects malformed saved reply metadata and recovers with the same command'
   supportPage,
   app,
 }) => {
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  await expect(supportPage.runtimeStatus).toHaveText('COV-E NODE // ONLINE');
   let submitted: unknown;
   await page.route(
     '**/api/chat',
@@ -62,6 +71,7 @@ test('rejects malformed saved reply metadata and recovers with the same command'
   await supportPage.submitMessage(question);
   await expect(supportPage.requestError).toBeVisible();
   await expect(supportPage.messages.filter({ hasText: reply })).toHaveCount(0);
+  await expect(supportPage.runtimeStatus).toHaveText('COV-E NODE // ONLINE');
   const retried = page.waitForResponse('**/api/chat');
   await supportPage.retryMessageButton.click();
   const response = await retried;
@@ -77,6 +87,11 @@ test('keeps a pending exchange owned by its incident and replays a saved but los
   supportPage,
   app,
 }) => {
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  app.setModelMetadata({ error: { message: 'Unavailable' } });
+  await supportPage.reload();
+  await expect(supportPage.runtimeStatus).toHaveText('NODE // OFFLINE');
   const received = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const submitted: unknown[] = [];
@@ -175,6 +190,7 @@ test('keeps a pending exchange owned by its incident and replays a saved but los
     await expect(supportPage.messages.filter({ hasText: reply })).toHaveCount(
       1,
     );
+    await expect(supportPage.runtimeStatus).toHaveText('NODE // OFFLINE');
     expect(await readMessages()).toEqual(saved);
     expect(app.modelRequests).toHaveLength(1);
     await supportPage.openIncident(firstTitle);

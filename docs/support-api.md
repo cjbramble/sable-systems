@@ -82,3 +82,15 @@ without truncating the answer. The same command can be retried after rejection.
 Saved history and replayed replies are not revalidated against new-generation
 text limits. The existing provider deadline covers response-body reads as well
 as the initial request.
+
+`GET /api/status` returns `{ "ready": true }` with HTTP 200 when the provider's
+credential and gateway check succeeds, or `{ "ready": false }` with HTTP 503.
+It does not run a billed generation or guarantee credits, model capacity, or reply
+quality. The support connection badge reflects only this check; chat replies and
+failures do not change it.
+
+The page checks immediately while visible, then waits ten seconds after each check
+finishes. Only one check runs at a time, with a five-second deadline including its
+response body. Invalid responses, network failures, and timeouts show offline.
+Hidden tabs pause checks and cancel pending work; returning to the tab checks again.
+The previous observation stays visible until a new check finishes.
