@@ -233,6 +233,8 @@ test('reduces a stale oversized cart one case at a time without rewriting the re
   });
   await refreshed;
   await expect(shopPage.cartQuantity(itemNumber)).toHaveText('24');
+  await expect(shopPage.placeOrderButton).toBeDisabled();
+  await expect(shopPage.chargeConsent).not.toBeChecked();
   await shopPage.closeCart();
   await expect(shopPage.productCard(itemNumber)).toContainText('8 available');
   await expect(catalogQuantity.increase).toBeDisabled();
@@ -256,6 +258,7 @@ test('reduces a stale oversized cart one case at a time without rewriting the re
   await shopPage.closeCart();
   await shopPage.addCase(itemNumber);
   await shopPage.openCart();
+  await shopPage.chargeConsent.check();
   const response = await shopPage.placeOrder();
   expect(response.status()).toBe(201);
   expect(response.request().postDataJSON()).toEqual({
@@ -314,6 +317,7 @@ test('locks cart and form edits across closing and reopening pending checkout, t
   await shopPage.chargeConsent.check();
 
   for (const outcome of ['rejected', 'accepted']) {
+    await shopPage.chargeConsent.check();
     const held = Promise.withResolvers<void>();
     const received = Promise.withResolvers<void>();
     let submitted: unknown;

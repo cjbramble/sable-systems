@@ -155,6 +155,12 @@ order history, and support views. Reloading clears the cart, charge authorizatio
 and unsent drafts; saved records remain with their original account. Renewing a
 session for the same user and distributor preserves the current view.
 
+Cart selections survive catalog refreshes, including products that are no longer
+orderable. Unavailable lines remain visible until explicitly removed; checkout is
+blocked while any line is unavailable, violates its current case pack, or exceeds
+stock. Requested quantities are never reduced by a refresh. A missing current price
+makes the total unavailable, and refreshed carts require charge authorization again.
+
 Login permits 10 attempts per normalized email and 60 attempts across the app per
 60-second window. Model generation permits 30 customer requests per user per
 60-second window, shared across sessions; an automatic corrective model retry is

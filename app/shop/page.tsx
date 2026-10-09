@@ -53,6 +53,7 @@ import {
   useSignOut,
 } from '@/lib/client-session';
 import { shopDestination } from '@/lib/auth-navigation';
+import { reconcileCart, type CartSelections } from '@/lib/cart';
 import { formatCurrency } from '@/lib/format';
 
 type ShopCategory = 'All' | CatalogCategory;
@@ -118,7 +119,7 @@ export default function ShopPage() {
   const [loadError, setLoadError] = useState('');
   const [category, setCategory] = useState<ShopCategory>('All');
   const [query, setQuery] = useState('');
-  const [cart, setCart] = useState<Record<string, number>>({});
+  const [cart, setCart] = useState<CartSelections>({});
   const [cartOpen, setCartOpen] = useState(false);
   const [poNumber, setPoNumber] = useState('');
   const [shipDate, setShipDate] = useState(dateOffset(14));
@@ -148,6 +149,7 @@ export default function ShopPage() {
           isCatalogCategory(requestedCategory) ? requestedCategory : 'All',
         );
         setProducts(nextProducts);
+        setChargeAccountAuthorized(false);
         setLoadError('');
       })
       .catch((error: unknown) => {
@@ -240,22 +242,20 @@ export default function ShopPage() {
             .includes(normalized)),
     );
   }, [category, products, query]);
-  const cartProducts = products.filter((product) => cart[product.itemNumber]);
-  const cartCount = Object.values(cart).reduce(
-    (sum, quantity) => sum + quantity,
-    0,
-  );
-  const subtotal = cartProducts.reduce(
-    (sum, product) => sum + product.unitPriceCents * cart[product.itemNumber],
-    0,
-  );
+  const {
+    lines: cartLines,
+    unitCount: cartCount,
+    totalCents: subtotal,
+    canOrder: cartReady,
+  } = useMemo(() => reconcileCart(cart, products), [cart, products]);
+  const cartTotalLabel = subtotal === null ? 'Unavailable' : money(subtotal);
 
   function changeQuantity(product: CatalogProduct, delta: number) {
     if (checkoutPending.current) return;
     setCart((current) => {
       const nextQuantity = Math.max(
         0,
-        (current[product.itemNumber] || 0) + delta,
+        (current[product.itemNumber]?.quantity ?? 0) + delta,
       );
       if (
         delta > 0 &&
@@ -265,7 +265,11 @@ export default function ShopPage() {
         return current;
       const next = { ...current };
       if (nextQuantity === 0) delete next[product.itemNumber];
-      else next[product.itemNumber] = nextQuantity;
+      else
+        next[product.itemNumber] = {
+          name: product.name,
+          quantity: nextQuantity,
+        };
       return next;
     });
     setConfirmation(null);
@@ -303,11 +307,7 @@ export default function ShopPage() {
       !account
     )
       return;
-    if (
-      !cartProducts.length ||
-      !chargeAccountAuthorized ||
-      checkoutPending.current
-    )
+    if (!cartReady || !chargeAccountAuthorized || checkoutPending.current)
       return;
     checkoutPending.current = true;
     setSubmitting(true);
@@ -325,9 +325,9 @@ export default function ShopPage() {
           customerPoNumber: poNumber,
           requestedShipDate: shipDate,
           shippingRegion: region,
-          items: cartProducts.map((product) => ({
-            itemNumber: product.itemNumber,
-            quantity: cart[product.itemNumber],
+          items: cartLines.map(({ itemNumber, quantity }) => ({
+            itemNumber,
+            quantity,
           })),
         } satisfies CheckoutInput),
       });
@@ -500,7 +500,7 @@ export default function ShopPage() {
           <div className="product-grid">
             {filteredProducts.map((product, index) => {
               const unavailable = product.availableQuantity === 0;
-              const inCart = cart[product.itemNumber] || 0;
+              const inCart = cart[product.itemNumber]?.quantity ?? 0;
               return (
                 <article
                   className={cn(
@@ -570,7 +570,7 @@ export default function ShopPage() {
                       <QuantityControl
                         product={product}
                         quantity={inCart}
-                        disabled={submitting}
+                        disabled={submitting || inCart % product.casePack !== 0}
                         onChange={(delta) => changeQuantity(product, delta)}
                       />
                     ) : (
@@ -605,7 +605,7 @@ export default function ShopPage() {
           <span>
             <ShoppingBag /> {cartCount} units queued
           </span>
-          <strong>{money(subtotal)}</strong>
+          <strong>{cartTotalLabel}</strong>
           <span>
             Review order <ArrowRight />
           </span>
@@ -664,35 +664,54 @@ export default function ShopPage() {
                 Build another order <ArrowRight />
               </Button>
             </div>
-          ) : cartProducts.length ? (
+          ) : cartLines.length ? (
             <form className="checkout-body" onSubmit={submitOrder}>
               <div className="checkout-lines">
-                {cartProducts.map((product) => (
-                  <div className="checkout-line" key={product.itemNumber}>
+                {cartLines.map((line) => (
+                  <div className="checkout-line" key={line.itemNumber}>
                     <div>
-                      <span>{product.itemNumber}</span>
-                      <strong>{product.name}</strong>
+                      <span>{line.itemNumber}</span>
+                      <strong>{line.name}</strong>
                       <small>
-                        {money(product.unitPriceCents)} / {product.unitLabel}
+                        {line.product
+                          ? `${money(line.product.unitPriceCents)} / ${line.product.unitLabel}`
+                          : 'Price unavailable'}
                       </small>
+                      {line.issue ? (
+                        <p className="checkout-error">
+                          {line.issue === 'unavailable'
+                            ? 'No longer available. Remove this item to continue.'
+                            : line.issue === 'case_pack'
+                              ? `Order in case packs of ${line.product!.casePack}. Remove and add this item again.`
+                              : `Only ${line.product!.availableQuantity} units available. Reduce the quantity or remove this item.`}
+                        </p>
+                      ) : null}
                     </div>
-                    <QuantityControl
-                      product={product}
-                      quantity={cart[product.itemNumber]}
-                      disabled={submitting}
-                      onChange={(delta) => changeQuantity(product, delta)}
-                    />
+                    {line.product ? (
+                      <QuantityControl
+                        product={line.product}
+                        quantity={line.quantity}
+                        disabled={submitting || line.issue === 'case_pack'}
+                        onChange={(delta) =>
+                          changeQuantity(line.product!, delta)
+                        }
+                      />
+                    ) : (
+                      <span>{line.quantity} units requested</span>
+                    )}
                     <strong>
-                      {money(product.unitPriceCents * cart[product.itemNumber])}
+                      {line.product
+                        ? money(line.product.unitPriceCents * line.quantity)
+                        : 'Unavailable'}
                     </strong>
                     <Button
                       className="remove-line"
                       variant="ghost"
                       size="icon-sm"
                       type="button"
-                      aria-label={`Remove ${product.name} from cart`}
+                      aria-label={`Remove ${line.name} from cart`}
                       disabled={submitting}
-                      onClick={() => removeFromCart(product.itemNumber)}
+                      onClick={() => removeFromCart(line.itemNumber)}
                     >
                       <Trash2 />
                     </Button>
@@ -701,7 +720,7 @@ export default function ShopPage() {
               </div>
               <div className="checkout-total">
                 <span>Order total</span>
-                <strong>{money(subtotal)}</strong>
+                <strong>{cartTotalLabel}</strong>
               </div>
               <div className="checkout-form-grid">
                 <label htmlFor="po-number">
@@ -756,7 +775,7 @@ export default function ShopPage() {
                 <input
                   type="checkbox"
                   checked={chargeAccountAuthorized}
-                  disabled={submitting}
+                  disabled={submitting || !cartReady}
                   onChange={(event) =>
                     !checkoutPending.current &&
                     setChargeAccountAuthorized(event.target.checked)
@@ -785,6 +804,7 @@ export default function ShopPage() {
                 disabled={
                   !account ||
                   accountStatus !== 'ready' ||
+                  !cartReady ||
                   !chargeAccountAuthorized ||
                   submitting
                 }
