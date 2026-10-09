@@ -7,11 +7,8 @@ import {
 import {
   createIncidentTitle,
   type SupportIncident,
-  type SupportReply,
 } from '../lib/support-incidents.ts';
-
-const INCIDENT_ID_PATTERN = /^INC-[A-Za-z0-9-]{6,100}$/;
-const MESSAGE_ID_PATTERN = /^[A-Za-z0-9-]{6,120}$/;
+import type { SupportReply } from '../lib/chat-request.ts';
 
 export class IncidentAccessDeniedError extends Error {
   constructor() {
@@ -54,18 +51,6 @@ type IncidentMessageRow = {
   content: string | null;
   message_created_at: string | null;
 };
-
-export function parseIncidentId(value: unknown) {
-  return typeof value === 'string' && INCIDENT_ID_PATTERN.test(value)
-    ? value
-    : null;
-}
-
-export function parseMessageId(value: unknown) {
-  return typeof value === 'string' && MESSAGE_ID_PATTERN.test(value)
-    ? value
-    : null;
-}
 
 export async function listSupportIncidents(
   db: D1Database,

@@ -67,7 +67,7 @@ describe('model response failures', () => {
         session.request({
           incidentId,
           messageId: `MSG-${id}`,
-          messages: [{ role: 'user', content: 'Help with a shipment.' }],
+          message: 'Help with a shipment.',
         }),
       );
 
@@ -164,7 +164,7 @@ describe('model response failures', () => {
         session.request({
           incidentId,
           messageId: `MSG-${id}`,
-          messages: [{ role: 'user', content: 'Help with a shipment.' }],
+          message: 'Help with a shipment.',
         }),
       );
 

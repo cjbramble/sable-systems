@@ -1,11 +1,8 @@
+import { parseIncidentId } from '@/lib/chat-request';
 import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { consumeRequestQuota, requestLimitResponse } from '@/db/request-limits';
-import {
-  deleteSupportIncident,
-  listSupportIncidents,
-  parseIncidentId,
-} from '@/db/incidents';
+import { deleteSupportIncident, listSupportIncidents } from '@/db/incidents';
 
 export const dynamic = 'force-dynamic';
 

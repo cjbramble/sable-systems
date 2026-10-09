@@ -146,7 +146,7 @@ test('keeps the corrective retry and persists only a grounded OpenRouter reply',
     session.request({
       incidentId,
       messageId: 'MSG-OPENROUTER-GUARD',
-      messages: [{ role: 'user', content: question }],
+      message: question,
     }),
   );
   expect(response.status).toBe(200);
@@ -182,7 +182,7 @@ test.for([401, 402, 429, 503])(
       session.request({
         incidentId,
         messageId: `MSG-OPENROUTER-FAIL-${status}`,
-        messages: [{ role: 'user', content: 'Show order SBL-2022-000118.' }],
+        message: 'Show order SBL-2022-000118.',
       }),
     );
     expect(response.status).toBe(502);

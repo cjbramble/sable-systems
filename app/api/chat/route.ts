@@ -9,15 +9,21 @@ import {
   hasSupportMessageIdConflict,
   IncidentAccessDeniedError,
   listSupportIncidents,
-  parseIncidentId,
-  parseMessageId,
   saveSupportExchange,
   supportReply,
   SupportMessageIdConflictError,
   SupportMessageTextConflictError,
 } from '@/db/incidents';
 import { buildAuthorizedContext } from '@/db/support';
-import { parseChatMessages } from '@/lib/chat-request';
+import {
+  parseSupportRequest,
+  MAX_CHAT_REQUEST_BYTES,
+  MAX_MODEL_RESPONSE_BYTES,
+  MAX_SUPPORT_REPLY_LENGTH,
+  type SupportResponse,
+  type SupportFailure,
+} from '@/lib/chat-request';
+import { BodyTooLargeError, readJsonBody } from '@/lib/json-body';
 import { formatIncidentListReply } from '@/lib/support-incidents';
 import { classifySupportQuery } from '@/lib/support-query';
 import {
@@ -58,38 +64,29 @@ export async function POST(request: Request) {
     );
   let body: unknown;
   try {
-    body = await request.json();
-  } catch {
+    body = await readJsonBody(request, MAX_CHAT_REQUEST_BYTES);
+  } catch (error) {
+    if (error instanceof BodyTooLargeError)
+      return Response.json(
+        { error: 'The support request was too large.' },
+        { status: 413 },
+      );
     return Response.json(
       { error: 'The request was not valid JSON.' },
       { status: 400 },
     );
   }
 
-  const candidate =
-    body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
-  const messages = parseChatMessages(candidate.messages);
-  if (!messages) {
+  const command = parseSupportRequest(body);
+  if (!command)
     return Response.json(
       {
         error:
-          'Send 1–12 valid messages, with the latest message from the customer.',
+          'Send a message of 1–4,000 characters and either both incident/message IDs or neither. The messages array is no longer supported.',
       },
       { status: 400 },
     );
-  }
-  const incidentId = parseIncidentId(candidate.incidentId);
-  const messageId = parseMessageId(candidate.messageId);
-  if (
-    (candidate.incidentId !== undefined && !incidentId) ||
-    (candidate.messageId !== undefined && !messageId) ||
-    Boolean(incidentId) !== Boolean(messageId)
-  ) {
-    return Response.json(
-      { error: 'Enter a valid incident and message ID.' },
-      { status: 400 },
-    );
-  }
+  const { incidentId, messageId, message: customerMessage } = command;
 
   // Classify unexpected failures by the operation, never by private error text.
   let phase: keyof typeof failureResponses = 'loading';
@@ -101,7 +98,6 @@ export async function POST(request: Request) {
         { error: 'Authentication required.' },
         { status: 401 },
       );
-    const customerMessage = messages.at(-1)?.content ?? '';
     if (incidentId && messageId) {
       const state = await getSupportIncidentState(db, user, incidentId);
       if (state === 'forbidden') throw new IncidentAccessDeniedError();
@@ -122,8 +118,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Client history is validated for the request contract but never trusted:
-    // the model sees saved incident messages plus the current customer message.
+    // The model sees only saved incident history and the current customer message.
     const history =
       incidentId && messageId
         ? await getSupportConversationHistory(
@@ -135,7 +130,13 @@ export async function POST(request: Request) {
           )
         : [{ role: 'user' as const, content: customerMessage }];
     const reply = async (content: string) => {
-      if (!incidentId || !messageId) return Response.json({ message: content });
+      if (content.length > MAX_SUPPORT_REPLY_LENGTH)
+        return Response.json(
+          { error: 'The support reply was too long. Please try again.' },
+          { status: 502 },
+        );
+      if (!incidentId || !messageId)
+        return Response.json({ message: content } satisfies SupportResponse);
       phase = 'saving';
       return Response.json(
         await saveSupportExchange(
@@ -188,8 +189,19 @@ export async function POST(request: Request) {
       // Read success and error bodies under the same request deadline.
       let modelPayload: unknown = null;
       try {
-        modelPayload = await modelResponse.json();
+        modelPayload = await readJsonBody(
+          modelResponse,
+          MAX_MODEL_RESPONSE_BYTES,
+        );
       } catch (error) {
+        if (error instanceof BodyTooLargeError)
+          return Response.json(
+            {
+              error:
+                'The support model response was too large. Please try again.',
+            },
+            { status: 502 },
+          );
         if (
           error instanceof DOMException &&
           (error.name === 'TimeoutError' || error.name === 'AbortError')
@@ -295,7 +307,10 @@ export async function POST(request: Request) {
       return Response.json({ error: error.message }, { status: 409 });
     if (error instanceof IncidentDeletedError)
       return Response.json(
-        { error: error.message, code: 'incident_deleted' },
+        {
+          error: error.message,
+          code: 'incident_deleted',
+        } satisfies SupportFailure,
         { status: 410 },
       );
     if (error instanceof IncidentAccessDeniedError)

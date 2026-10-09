@@ -132,7 +132,7 @@ describe('durable request quotas', () => {
     const body = {
       incidentId,
       messageId: 'QUOTA-FIRST',
-      messages: [{ role: 'user', content: 'Help me trace an order.' }],
+      message: 'Help me trace an order.',
     };
     expect((await chat(session.request(body))).status).toBe(200);
     expect((await chat(anotherSession.request(body))).status).toBe(200);

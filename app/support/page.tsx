@@ -44,7 +44,12 @@ import {
   SheetTitle,
   SheetClose,
 } from '@/components/ui/sheet';
-import { buildChatRequestHistory } from '@/lib/chat-history';
+import {
+  MAX_CHAT_MESSAGE_LENGTH,
+  parseSupportReply,
+  parseSupportFailure,
+  type SupportCommand,
+} from '@/lib/chat-request';
 import {
   redirectToLogin,
   useSessionGuard,
@@ -57,9 +62,7 @@ import {
   filterSupportIncidents,
   removeSupportIncident,
   type SupportChatMessage,
-  type SupportFailure,
   type SupportIncident,
-  type SupportReply,
 } from '@/lib/support-incidents';
 import {
   supportDateKey,
@@ -70,13 +73,7 @@ import { cn } from '@/lib/utils';
 
 type RuntimeState = 'checking' | 'ready' | 'offline';
 
-type SupportRequest = {
-  incidentId: string;
-  messageId: string;
-  messages: ReturnType<typeof buildChatRequestHistory>;
-};
-
-type IncidentFailure = { error: string; request?: SupportRequest };
+type IncidentFailure = { error: string; request?: SupportCommand };
 
 class ChatRequestError extends Error {
   constructor(
@@ -139,7 +136,7 @@ export default function SupportPage() {
   }>({ incidents: [], activeIncidentId: null, draft: '' });
   const { incidents, activeIncidentId, draft } = conversation;
   const [incidentSearch, setIncidentSearch] = useState('');
-  const pendingRequest = useRef<SupportRequest | null>(null);
+  const pendingRequest = useRef<SupportCommand | null>(null);
   const [sendingIncidentId, setSendingIncidentId] = useState<string | null>(
     null,
   );
@@ -445,11 +442,11 @@ export default function SupportPage() {
     await submitRequest({
       incidentId,
       messageId: userMessage.id,
-      messages: buildChatRequestHistory(nextMessages),
+      message: content,
     });
   }
 
-  async function submitRequest(request: SupportRequest) {
+  async function submitRequest(request: SupportCommand) {
     const signal = pageRequest.current?.signal;
     if (
       !signal ||
@@ -459,7 +456,7 @@ export default function SupportPage() {
       deletingIncidents.current.has(request.incidentId)
     )
       return;
-    // Retain the exact exchange identity/history so a lost response can replay
+    // Retain the exact exchange identity/text so a lost response can replay
     // the server's saved winner without creating another customer message.
     pendingRequest.current = request;
     setSendingIncidentId(request.incidentId);
@@ -473,33 +470,29 @@ export default function SupportPage() {
         body: JSON.stringify(request),
       });
 
-      const payload = (await response.json()) as Partial<
-        SupportReply & SupportFailure
-      >;
       if (signal.aborted) return;
       if (response.status === 401) {
         redirectToLogin('/support');
         return;
       }
-      if (response.status === 410 && payload.code === 'incident_deleted') {
+      const body: unknown = await response.json();
+      if (signal.aborted) return;
+      const failure = parseSupportFailure(body);
+      if (response.status === 410 && failure?.code === 'incident_deleted') {
         removeIncident(request.incidentId);
-        setDeletedMessage(request.messages.at(-1)!.content);
+        setDeletedMessage(request.message);
         return;
       }
       if (!response.ok) {
         throw new ChatRequestError(
-          payload.error || 'The support request could not be completed.',
+          failure?.error || 'The support request could not be completed.',
           response.status >= 500,
         );
       }
-      if (
-        !payload.message ||
-        !payload.customerCreatedAt ||
-        !payload.assistantCreatedAt ||
-        !payload.incidentUpdatedAt
-      )
+      const payload = parseSupportReply(body);
+      if (!payload)
         throw new ChatRequestError(
-          'The local assistant did not return a response.',
+          'The support reply could not be verified. Please retry your message.',
           true,
         );
       const reply = payload.message;
@@ -516,11 +509,11 @@ export default function SupportPage() {
           incident.id === request.incidentId
             ? {
                 ...incident,
-                updatedAt: payload.incidentUpdatedAt!,
+                updatedAt: payload.incidentUpdatedAt,
                 messages: [
                   ...incident.messages.map((message) =>
                     message.id === request.messageId
-                      ? { ...message, createdAt: payload.customerCreatedAt! }
+                      ? { ...message, createdAt: payload.customerCreatedAt }
                       : message,
                   ),
                   replyMessage,
@@ -953,7 +946,7 @@ export default function SupportPage() {
                   }))
                 }
                 onKeyDown={handleKeyDown}
-                maxLength={4000}
+                maxLength={MAX_CHAT_MESSAGE_LENGTH}
                 rows={1}
                 placeholder="Enter order, item, shipment, or allocation inquiry…"
                 aria-label="Message COV-E"

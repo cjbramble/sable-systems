@@ -311,7 +311,7 @@ async function runSample(testCase: BehaviorCase, sample: number) {
         session.request({
           incidentId,
           messageId,
-          messages: [{ role: 'user', content: testCase.question }],
+          message: testCase.question,
         }),
       );
     } finally {

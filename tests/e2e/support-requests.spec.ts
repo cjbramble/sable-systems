@@ -14,6 +14,63 @@ test.beforeEach(async ({ loginPage, supportPage }) => {
   await expect(supportPage.incident(firstTitle)).toBeVisible();
 });
 
+test('sends only the current message after loading a long saved reply', async ({
+  supportPage,
+  app,
+}) => {
+  const incidentId = 'INC-USR-CPD-001-01';
+  await app.database
+    .prepare(
+      "UPDATE support_messages SET content = ? WHERE incident_id = ? AND role = 'assistant'",
+    )
+    .bind('Historical answer. '.repeat(300), incidentId)
+    .run();
+  await supportPage.reload();
+  await supportPage.openIncident(firstTitle);
+  const response = await supportPage.sendMessage(question);
+  expect(response.status()).toBe(200);
+  expect(response.request().postDataJSON()).toEqual({
+    incidentId,
+    messageId: expect.any(String),
+    message: question,
+  });
+  await expect(supportPage.requestError).toHaveCount(0);
+  await expect(supportPage.messages.filter({ hasText: reply })).toHaveCount(1);
+});
+
+test('rejects malformed saved reply metadata and recovers with the same command', async ({
+  page,
+  supportPage,
+  app,
+}) => {
+  let submitted: unknown;
+  await page.route(
+    '**/api/chat',
+    async (route) => {
+      submitted = route.request().postDataJSON();
+      const response = await route.fetch();
+      expect(response.status()).toBe(200);
+      await route.fulfill({
+        response,
+        json: { ...(await response.json()), assistantCreatedAt: 123 },
+      });
+    },
+    { times: 1 },
+  );
+  await supportPage.startIncident();
+  await supportPage.submitMessage(question);
+  await expect(supportPage.requestError).toBeVisible();
+  await expect(supportPage.messages.filter({ hasText: reply })).toHaveCount(0);
+  const retried = page.waitForResponse('**/api/chat');
+  await supportPage.retryMessageButton.click();
+  const response = await retried;
+  expect(response.status()).toBe(200);
+  expect(response.request().postDataJSON()).toEqual(submitted);
+  await expect(supportPage.requestError).toHaveCount(0);
+  await expect(supportPage.messages.filter({ hasText: reply })).toHaveCount(1);
+  expect(app.modelRequests).toHaveLength(1);
+});
+
 test('keeps a pending exchange owned by its incident and replays a saved but lost reply', async ({
   page,
   supportPage,
@@ -21,7 +78,7 @@ test('keeps a pending exchange owned by its incident and replays a saved but los
 }) => {
   const received = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  let original!: { incidentId: string; messageId: string; messages: unknown[] };
+  let original!: { incidentId: string; messageId: string; message: string };
   await page.route(
     '**/api/chat',
     async (route) => {

@@ -65,7 +65,7 @@ test('deletion during inference prevents resurrection and rejects stale retries'
     session.request({
       incidentId,
       messageId,
-      messages: [{ role: 'user', content: prompt }],
+      message: prompt,
     }),
   );
   try {
@@ -92,7 +92,7 @@ test('deletion during inference prevents resurrection and rejects stale retries'
         session.request({
           incidentId,
           messageId: retryId,
-          messages: [{ role: 'user', content: prompt }],
+          message: prompt,
         }),
       );
       expect(retry.status).toBe(410);
@@ -385,7 +385,7 @@ test('foreign users cannot delete, claim, or inspect owned and deleted identitie
     session.request({
       incidentId,
       messageId: 'MSG-LIFECYCLE-FOREIGN',
-      messages: [{ role: 'user', content: 'Hello.' }],
+      message: 'Hello.',
     }),
   );
   expect(response.status).toBe(403);

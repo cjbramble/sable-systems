@@ -82,7 +82,7 @@ describe('support response fixes through the authenticated API', () => {
               session.request({
                 incidentId,
                 messageId: `MSG-RESPONSE-FIX-${scenario.name === 'topic switch' ? 'TOPIC' : 'RETURN'}-${sample}`,
-                messages: [{ role: 'user', content: scenario.question }],
+                message: scenario.question,
               }),
             );
             record.seconds = (performance.now() - started) / 1000;
