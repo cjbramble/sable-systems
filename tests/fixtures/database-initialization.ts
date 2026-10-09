@@ -136,9 +136,9 @@ export async function addUserRecords(
     database.prepare(`INSERT INTO sessions VALUES ('init-session', 'init-token',
       'USR-CPD-001', '2026-09-11T12:00:00Z', '2026-09-11T12:00:00Z',
       '2026-09-12T12:00:00Z', NULL, 'initialization test')`),
-    database.prepare(`INSERT INTO support_incidents VALUES ('INIT-INCIDENT',
+    database.prepare(`INSERT INTO support_incidents (incident_id, user_id, title, created_at, updated_at) VALUES ('INIT-INCIDENT',
       'USR-CPD-001', 'Keep this history', '2026-09-11T12:00:00Z', '2026-09-11T12:00:00Z')`),
-    database.prepare(`INSERT INTO support_messages VALUES ('INIT-MESSAGE',
+    database.prepare(`INSERT INTO support_messages (message_id, incident_id, sequence_number, role, content, created_at) VALUES ('INIT-MESSAGE',
       'INIT-INCIDENT', 1, 'user', 'Keep this message', '2026-09-11T12:00:00Z')`),
     database.prepare(
       "DELETE FROM support_incidents WHERE incident_id = 'INC-USR-CPD-001-01'",

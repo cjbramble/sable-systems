@@ -11,6 +11,7 @@ test('rejects oversized new completions before saving and permits the same comma
   const session = await supportApi.session(calderPikeUser);
   supportApi.mockModel('x'.repeat(8001), '🙂'.repeat(4000));
   const command = {
+    expectedRevision: 0,
     incidentId,
     messageId: 'MSG-OUTPUT-SIZE-BOUNDARY',
     message: 'Help with a shipment.',
@@ -47,6 +48,7 @@ test.for([200, 503])(
     try {
       const rejected = await POST(
         session.request({
+          expectedRevision: 0,
           incidentId,
           messageId: 'MSG-PROVIDER-BYTES',
           message: 'Help with a shipment.',

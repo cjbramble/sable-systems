@@ -27,6 +27,7 @@ describe('support response safety', () => {
       try {
         const rejected = await POST(
           session.request({
+            expectedRevision: 0,
             incidentId,
             messageId: 'MSG-INVALID-COMMAND',
             message,
@@ -42,6 +43,7 @@ describe('support response safety', () => {
       expect((await fixture.messages(incidentId)).results).toEqual([]);
       const accepted = await POST(
         session.request({
+          expectedRevision: 0,
           incidentId,
           messageId: 'MSG-INVALID-COMMAND',
           message: 'x'.repeat(4000),
@@ -137,6 +139,7 @@ describe('support response safety', () => {
       const makeRequest = (corrected: boolean) => {
         const request = session.request({
           message: customerMessage,
+          expectedRevision: 0,
           ...(corrected ? { incidentId, messageId } : rejectedIds),
         });
         request.headers.set('Origin', new URL(request.url).origin);
@@ -146,6 +149,7 @@ describe('support response safety', () => {
       const rejectedRequest = makeRequest(false);
       expect(await rejectedRequest.clone().json()).toEqual({
         ...rejectedIds,
+        expectedRevision: 0,
         message: customerMessage,
       });
       const prepareSpy = vi.spyOn(database, 'prepare');
@@ -213,6 +217,7 @@ describe('support response safety', () => {
     const customerMessage = 'Help with a shipment.';
     const assistantMessage = 'Which shipment do you need help with?';
     const payload = {
+      expectedRevision: 0,
       incidentId,
       messageId,
       message: customerMessage,
@@ -314,6 +319,7 @@ describe('support response safety', () => {
       const fetchMock = fixture.mockModel(assistantMessage);
       const makeRequest = (authenticated: boolean) => {
         const request = session.request({
+          expectedRevision: 0,
           incidentId,
           messageId,
           message: customerMessage,
@@ -413,6 +419,7 @@ describe('support response safety', () => {
       const fetchMock = fixture.mockModel(assistantMessage);
       const makeRequest = (untrusted: boolean) => {
         const request = session.request({
+          expectedRevision: 0,
           incidentId,
           messageId,
           message: customerMessage,
@@ -660,6 +667,7 @@ describe('support response safety', () => {
             `PRIOR-${messageId}`,
             'Existing shipment investigation.',
             'Please provide the shipment reference.',
+            0,
           );
           await database
             .prepare(
@@ -821,6 +829,7 @@ describe('support response safety', () => {
         }
         const makeRequest = () =>
           session.request({
+            expectedRevision: hasExistingIncident ? 1 : 0,
             incidentId,
             messageId,
             message: customerMessage,
@@ -919,6 +928,7 @@ describe('support response safety', () => {
         const fetchMock = fixture.mockModel(assistantMessage);
         const makeRequest = () =>
           session.request({
+            expectedRevision: 0,
             incidentId,
             messageId,
             message: customerMessage,
@@ -1005,6 +1015,7 @@ describe('support response safety', () => {
         );
         const makeRequest = () =>
           session.request({
+            expectedRevision: 0,
             incidentId,
             messageId,
             message: customerMessage,
@@ -1104,6 +1115,7 @@ describe('support response safety', () => {
       triggerCreated = true;
       const makeRequest = () =>
         session.request({
+          expectedRevision: 0,
           incidentId,
           messageId,
           message: customerMessage,
@@ -1196,6 +1208,7 @@ describe('support response safety', () => {
       restoreBatch = () => batchMock.mockRestore();
       const makeRequest = () =>
         session.request({
+          expectedRevision: 0,
           incidentId,
           messageId,
           message: customerMessage,
@@ -1271,6 +1284,7 @@ describe('support response safety', () => {
     await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
     const session = await fixture.session(calderPikeUser);
     const request = session.request({
+      expectedRevision: 0,
       incidentId,
       messageId,
       message: customerMessage,
@@ -1323,6 +1337,7 @@ describe('support response safety', () => {
     const session = await fixture.session(calderPikeUser);
     const makeRequest = () =>
       session.request({
+        expectedRevision: 0,
         incidentId,
         messageId,
         message: customerMessage,
@@ -1375,6 +1390,7 @@ describe('support response safety', () => {
         'Return RTN-2022-000014 is closed. Linked order: SBL-2022-000118.';
       const makeRequest = (session: SupportApiSession) =>
         session.request({
+          expectedRevision: 0,
           incidentId,
           messageId,
           message: customerMessage,
@@ -1400,6 +1416,7 @@ describe('support response safety', () => {
           messageId,
           customerMessage,
           privateReply,
+          0,
         );
         const savedIncident = await fixture.findIncident(incidentId);
         const savedMessages = await fixture.messages(incidentId);
@@ -1534,6 +1551,7 @@ describe('support response safety', () => {
           messageId,
           customerMessage,
           privateReply,
+          0,
         );
         const savedIncident = await fixture.findIncident(incidentId);
         const savedMessages = await fixture.messages(incidentId);
@@ -1577,6 +1595,7 @@ describe('support response safety', () => {
               .run();
           const response = await POST(
             session.request({
+              expectedRevision: 0,
               incidentId,
               messageId,
               message: customerMessage,
@@ -1586,6 +1605,7 @@ describe('support response safety', () => {
           expect(await response.json()).toEqual(
             status === 'active'
               ? {
+                  revision: 1,
                   message: privateReply,
                   customerCreatedAt: expect.any(String),
                   assistantCreatedAt: expect.any(String),
@@ -1654,6 +1674,7 @@ describe('support response safety', () => {
     const sessions: SupportApiSession[] = [];
     const makeRequest = (session: SupportApiSession) =>
       session.request({
+        expectedRevision: 0,
         incidentId,
         messageId,
         message: customerMessage,
@@ -1671,6 +1692,7 @@ describe('support response safety', () => {
       messageId,
       customerMessage,
       privateReply,
+      0,
     );
     const originalIncident = await findIncident();
     const originalMessages = await savedMessages();
@@ -1723,6 +1745,7 @@ describe('support response safety', () => {
     const session = await fixture.session(calderPikeUser);
     const makeRequest = (content: string) =>
       session.request({
+        expectedRevision: 0,
         incidentId,
         messageId,
         message: content,
@@ -1734,6 +1757,7 @@ describe('support response safety', () => {
       messageId,
       originalText,
       originalReply,
+      0,
     );
     const originalIncident = await findIncident();
     const originalMessages = await savedMessages();
@@ -1791,6 +1815,7 @@ describe('support response safety', () => {
     const session = await fixture.session(calderPikeUser);
     const makeRequest = (incidentId: string) =>
       session.request({
+        expectedRevision: 0,
         incidentId,
         messageId,
         message: customerMessage,
@@ -1802,6 +1827,7 @@ describe('support response safety', () => {
       messageId,
       customerMessage,
       originalReply,
+      0,
     );
     await saveSupportExchange(
       database,
@@ -1810,6 +1836,7 @@ describe('support response safety', () => {
       'MSG-CROSS-INCIDENT-TARGET-REGRESSION',
       'Hello.',
       'How can I help?',
+      0,
     );
     const originalIncidents = await incidents();
     const originalMessages = await savedMessages();
@@ -1857,6 +1884,7 @@ describe('support response safety', () => {
     const session = await fixture.session(calderPikeUser);
     const makeRequest = (messageId: string) =>
       session.request({
+        expectedRevision: 0,
         incidentId,
         messageId,
         message: customerMessage,
@@ -1868,6 +1896,7 @@ describe('support response safety', () => {
       originalMessageId,
       customerMessage,
       originalReply,
+      0,
     );
     const originalIncident = await findIncident();
     const originalMessages = await savedMessages();
@@ -1918,6 +1947,7 @@ describe('support response safety', () => {
     const session = await fixture.session(calderPikeUser);
     const makeRequest = (messageId: string) =>
       session.request({
+        expectedRevision: 0,
         incidentId,
         messageId,
         message: customerMessage,
@@ -1931,6 +1961,7 @@ describe('support response safety', () => {
       occupiedId,
       customerMessage,
       originalReply,
+      0,
     );
     const originalIncident = await findIncident();
     const originalMessages = await savedMessages();
@@ -1987,6 +2018,7 @@ describe('support response safety', () => {
     const session = await fixture.session(calderPikeUser);
     const makeRequest = () =>
       session.request({
+        expectedRevision: 0,
         incidentId,
         messageId,
         message: customerMessage,
@@ -2020,6 +2052,7 @@ describe('support response safety', () => {
         role: 'user',
         content: customerMessage,
         created_at: createdAt,
+        revision: 0,
       },
     ]);
 
@@ -2077,6 +2110,7 @@ describe('support response safety', () => {
     const session = await fixture.session(calderPikeUser);
     const makeRequest = (id: string) =>
       session.request({
+        expectedRevision: 0,
         incidentId,
         messageId: id,
         message: customerMessage,
@@ -2108,6 +2142,7 @@ describe('support response safety', () => {
       laterMessageId,
       customerMessage,
       assistantMessage,
+      0,
     );
     const originalIncident = await findIncident();
     const originalMessages = await savedMessages();
@@ -2180,6 +2215,7 @@ describe('support response safety', () => {
             'MSG-CONCURRENT-RETRY-SETUP',
             'Hello.',
             'How can I help?',
+            0,
           );
         }
         const before = await savedMessages();
@@ -2187,6 +2223,7 @@ describe('support response safety', () => {
         expect(before.results).toHaveLength(priorCount);
         const makeRequest = () =>
           session.request({
+            expectedRevision: isExisting ? 1 : 0,
             incidentId,
             messageId,
             message: customerMessage,
@@ -2278,6 +2315,7 @@ describe('support response safety', () => {
       }
       const makeRequest = (sessionIndex: number, messageIndex = sessionIndex) =>
         sessions[sessionIndex].request({
+          expectedRevision: 0,
           incidentId,
           messageId: participants[messageIndex].messageId,
           message: participants[messageIndex].prompt,
@@ -2347,7 +2385,7 @@ describe('support response safety', () => {
     expect((await fixture.messages(incidentId)).results).toEqual([]);
   });
 
-  it('preserves both distinct exchanges submitted concurrently to the same incident', async () => {
+  it('persists one distinct exchange at a shared revision and rejects the stale contender', async () => {
     const database = await getDatabase();
     const fixture = createSupportApiFixture(database);
     const incidentId = 'INC-CONCURRENT-DISTINCT-REGRESSION';
@@ -2383,11 +2421,13 @@ describe('support response safety', () => {
         'MSG-CONCURRENT-DISTINCT-SETUP',
         'Hello.',
         'How can I help?',
+        0,
       );
       const before = await fixture.messages(incidentId);
       expect(before.results).toHaveLength(2);
       const makeRequest = (exchange: (typeof exchanges)[number]) =>
         session.request({
+          expectedRevision: 1,
           incidentId,
           messageId: exchange.messageId,
           message: exchange.prompt,
@@ -2401,38 +2441,50 @@ describe('support response safety', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
 
       const saved = await fixture.messages(incidentId);
-      expect(saved.results).toHaveLength(6);
+      expect(saved.results).toHaveLength(4);
       expect(saved.results.slice(0, 2)).toEqual(before.results);
       expect(saved.results.map((row) => row.sequence_number)).toEqual([
-        1, 2, 3, 4, 5, 6,
+        1, 2, 3, 4,
       ]);
+      const winnerIndex = exchanges.findIndex(
+        (exchange) => exchange.messageId === saved.results[2].message_id,
+      );
+      expect(winnerIndex).toBeGreaterThanOrEqual(0);
+      const winner = exchanges[winnerIndex];
+      expect(saved.results.slice(2)).toMatchObject([
+        {
+          message_id: winner.messageId,
+          role: 'user',
+          content: winner.prompt,
+          revision: 2,
+        },
+        {
+          message_id: `AST-${winner.messageId}`,
+          role: 'assistant',
+          content: winner.reply,
+          revision: 2,
+        },
+      ]);
+      const conflictBody = {
+        error:
+          'This conversation changed. Reload it before sending your message again.',
+        code: 'incident_changed',
+      };
       for (const [index, exchange] of exchanges.entries()) {
-        const customerIndex = saved.results.findIndex(
-          (row) => row.message_id === exchange.messageId,
+        const isWinner = index === winnerIndex;
+        expect(responses[index].status).toBe(isWinner ? 200 : 409);
+        expect(await responses[index].json()).toMatchObject(
+          isWinner ? { message: winner.reply, revision: 2 } : conflictBody,
         );
-        expect([2, 4]).toContain(customerIndex);
-        expect(
-          saved.results.slice(customerIndex, customerIndex + 2),
-        ).toMatchObject([
-          {
-            message_id: exchange.messageId,
-            role: 'user',
-            content: exchange.prompt,
-          },
-          {
-            message_id: `AST-${exchange.messageId}`,
-            role: 'assistant',
-            content: exchange.reply,
-          },
-        ]);
-        expect(responses[index].status).toBe(200);
-        expect(await responses[index].json()).toMatchObject({
-          message: exchange.reply,
-        });
         const retry = await POST(makeRequest(exchange));
-        expect(retry.status).toBe(200);
-        expect(await retry.json()).toMatchObject({ message: exchange.reply });
+        expect(retry.status).toBe(isWinner ? 200 : 409);
+        expect(await retry.json()).toMatchObject(
+          isWinner ? { message: winner.reply, revision: 2 } : conflictBody,
+        );
       }
+      expect(await fixture.findIncident(incidentId)).toMatchObject({
+        revision: 2,
+      });
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect((await fixture.messages(incidentId)).results).toEqual(
         saved.results,
@@ -2487,11 +2539,13 @@ describe('support response safety', () => {
         'MSG-CONCURRENT-TEXT-SETUP',
         'Hello.',
         'How can I help?',
+        0,
       );
       const before = await fixture.messages(incidentId);
       expect(before.results).toHaveLength(2);
       const makeRequest = (exchange: (typeof exchanges)[number]) =>
         session.request({
+          expectedRevision: 1,
           incidentId,
           messageId,
           message: exchange.prompt,
@@ -2549,6 +2603,7 @@ describe('support response safety', () => {
                 customerCreatedAt: expect.any(String),
                 assistantCreatedAt: expect.any(String),
                 incidentUpdatedAt: expect.any(String),
+                revision: 2,
               }
             : conflictBody,
         );
@@ -2599,6 +2654,7 @@ describe('support response safety', () => {
           `MSG-CROSS-INCIDENT-SETUP-${index}`,
           'Hello.',
           'How can I help?',
+          0,
         );
       }
       // A fixed timestamp makes an unwanted metadata write observable even if
@@ -2614,6 +2670,7 @@ describe('support response safety', () => {
       expect(beforeIncidents.results).toHaveLength(2);
       const makeRequest = (incidentId: string) =>
         session.request({
+          expectedRevision: 1,
           incidentId,
           messageId,
           message: customerMessage,
@@ -2689,6 +2746,7 @@ describe('support response safety', () => {
                 customerCreatedAt: expect.any(String),
                 assistantCreatedAt: expect.any(String),
                 incidentUpdatedAt: expect.any(String),
+                revision: 2,
               }
             : conflictBody,
         );
@@ -2770,6 +2828,7 @@ describe('support response safety', () => {
             `MSG-REPLY-ID-SETUP-${index}`,
             'Hello.',
             'How can I help?',
+            0,
           );
         }
         await database
@@ -2783,6 +2842,7 @@ describe('support response safety', () => {
         expect(beforeIncidents.results).toHaveLength(priorIncidentCount);
         const makeRequest = (index: number) =>
           session.request({
+            expectedRevision: scope === 'a new incident' && index === 0 ? 0 : 1,
             incidentId: incidentIds[index],
             messageId: messageIds[index],
             message: prompts[index],
@@ -2854,6 +2914,7 @@ describe('support response safety', () => {
             index === 0
               ? conflictBody
               : {
+                  revision: 2,
                   message: assistantMessage,
                   customerCreatedAt: expect.any(String),
                   assistantCreatedAt: expect.any(String),
@@ -2889,6 +2950,7 @@ describe('support response safety', () => {
 
     const session = await fixture.session(calderPikeUser);
     const request = session.request({
+      expectedRevision: 0,
       incidentId,
       messageId: 'MSG-RETURN-SAFETY-REGRESSION',
       message: 'Show return RTN-2022-000014.',

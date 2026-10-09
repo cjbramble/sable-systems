@@ -6,11 +6,13 @@ import {
 } from '@/lib/chat-request';
 
 const command = {
+  expectedRevision: 0,
   incidentId: 'INC-CONTRACT-TEST',
   messageId: 'MSG-CONTRACT-TEST',
   message: 'Trace a shipment.',
 };
 const reply = {
+  revision: 1,
   message: 'Which shipment?',
   customerCreatedAt: '2026-10-09T04:00:00Z',
   assistantCreatedAt: '2026-10-09T04:00:01.000Z',
@@ -35,6 +37,11 @@ describe('support command contracts', () => {
     { message: ' ' },
     { ...command, incidentId: undefined },
     { ...command, messageId: undefined },
+    { ...command, expectedRevision: undefined },
+    ...[-1, 0.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, '0', null].map(
+      (expectedRevision) => ({ ...command, expectedRevision }),
+    ),
+    { message: 'Hello.', expectedRevision: 0 },
     { ...command, messages: [] },
     { messages: [{ role: 'user', content: 'Hello' }] },
     { ...command, message: '🙂'.repeat(2001) },
@@ -61,6 +68,10 @@ describe('support command contracts', () => {
     { ...reply, customerCreatedAt: 123 },
     { ...reply, assistantCreatedAt: [] },
     { ...reply, incidentUpdatedAt: 'invalid' },
+    { ...reply, revision: undefined },
+    ...[-1, 0.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, '1', null].map(
+      (revision) => ({ ...reply, revision }),
+    ),
   ])('rejects unverified persisted replies: %j', (value) =>
     expect(parseSupportReply(value)).toBeNull(),
   );
@@ -71,6 +82,9 @@ describe('support command contracts', () => {
     expect(
       parseSupportFailure({ error: 'Deleted', code: 'incident_deleted' }),
     ).toEqual({ error: 'Deleted', code: 'incident_deleted' });
+    expect(
+      parseSupportFailure({ error: 'Reload', code: 'incident_changed' }),
+    ).toEqual({ error: 'Reload', code: 'incident_changed' });
     for (const invalid of [
       null,
       {},

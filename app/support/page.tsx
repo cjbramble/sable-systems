@@ -70,10 +70,16 @@ import {
   supportTimeLabel,
 } from '@/lib/support-time';
 import { cn } from '@/lib/utils';
+import { parseIncidentSnapshot } from '@/lib/support-reconciliation';
 
 type RuntimeState = 'checking' | 'ready' | 'offline';
 
 type IncidentFailure = { error: string; request?: SupportCommand };
+type IncidentRecovery = {
+  message: string;
+  status: 'stale' | 'loading' | 'ready';
+  error?: string;
+};
 
 class ChatRequestError extends Error {
   constructor(
@@ -143,16 +149,37 @@ export default function SupportPage() {
   const deletingIncidents = useRef(new Set<string>());
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
   const [failures, setFailures] = useState<Record<string, IncidentFailure>>({});
-  const [deletedMessage, setDeletedMessage] = useState<string | null>(null);
+  const [recoveries, setRecoveries] = useState<
+    Record<string, IncidentRecovery>
+  >({});
+  const refreshRequests = useRef(new Map<string, AbortController>());
+  const [deletedMessages, setDeletedMessages] = useState<string[]>([]);
+  const deletedMessage = deletedMessages[0] ?? null;
+  const [recoveredIncidentId, setRecoveredIncidentId] = useState<string | null>(
+    null,
+  );
   const failure = activeIncidentId ? failures[activeIncidentId] : undefined;
+  const recovery = activeIncidentId ? recoveries[activeIncidentId] : undefined;
   const retryRequest = failure?.request;
   const isSending = sendingIncidentId !== null;
   const composerDisabled =
-    isSending || deletingIds.includes(activeIncidentId ?? '');
-  const sendDisabled = composerDisabled || deletedMessage !== null;
+    isSending ||
+    recovery?.status === 'loading' ||
+    deletingIds.includes(activeIncidentId ?? '');
+  const sendDisabled =
+    composerDisabled ||
+    (deletedMessage !== null && activeIncidentId !== recoveredIncidentId) ||
+    (recovery !== undefined && recovery.status !== 'ready');
   const [runtime, setRuntime] = useState<RuntimeState>('checking');
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const { sessionChanged } = useSessionGuard(account, '/support');
+  useEffect(() => {
+    if (sessionChanged) {
+      for (const controller of refreshRequests.current.values())
+        controller.abort();
+      refreshRequests.current.clear();
+    }
+  }, [sessionChanged]);
   const [loadStatus, setLoadStatus] = useState<
     'loading' | 'ready' | 'error' | 'redirecting'
   >('loading');
@@ -283,12 +310,13 @@ export default function SupportPage() {
       setMobileMenuOpen(false);
       if (!mobileMenuOpen)
         window.setTimeout(() => inputRef.current?.focus(), 0);
-      return;
+      return activeIncident.id;
     }
     const incident: SupportIncident = {
       id: createIncidentId(),
       title: 'New service incident',
       updatedAt: timestamp(),
+      revision: 0,
       messages: [openingMessage],
     };
     setConversation((current) => ({
@@ -299,19 +327,28 @@ export default function SupportPage() {
     setIncidentSearch('');
     setMobileMenuOpen(false);
     if (!mobileMenuOpen) window.setTimeout(() => inputRef.current?.focus(), 0);
+    return incident.id;
   }
 
   function recoverDeletedMessage() {
     if (deletedMessage === null || draft.length > 0) return;
-    newConversation(deletedMessage);
-    setDeletedMessage(null);
+    setRecoveredIncidentId(newConversation(deletedMessage));
+    discardDeletedMessage();
+  }
+
+  function discardDeletedMessage() {
+    setDeletedMessages((current) => current.slice(1));
+  }
+
+  function retainDeletedMessage(message: string) {
+    setDeletedMessages((current) => [...current, message]);
   }
 
   function selectIncident(incidentId: string) {
     setConversation((current) => ({
       ...current,
       activeIncidentId: incidentId,
-      draft: '',
+      draft: recoveries[incidentId]?.message ?? '',
     }));
     setMobileMenuOpen(false);
   }
@@ -363,6 +400,9 @@ export default function SupportPage() {
   }
 
   function removeIncident(incidentId: string) {
+    refreshRequests.current.get(incidentId)?.abort();
+    refreshRequests.current.delete(incidentId);
+    clearRecovery(incidentId);
     setConversation((current) => {
       const remaining = removeSupportIncident(current.incidents, incidentId);
       return {
@@ -385,6 +425,99 @@ export default function SupportPage() {
     });
   }
 
+  function clearRecovery(incidentId: string) {
+    setRecoveries((current) => {
+      const next = { ...current };
+      delete next[incidentId];
+      return next;
+    });
+  }
+
+  async function reloadConversation(incidentId: string) {
+    const pageSignal = pageRequest.current?.signal;
+    const savedRecovery = recoveries[incidentId];
+    if (
+      !pageSignal ||
+      pageSignal.aborted ||
+      sessionChanged ||
+      !savedRecovery ||
+      refreshRequests.current.has(incidentId) ||
+      deletingIncidents.current.has(incidentId)
+    )
+      return;
+    const controller = new AbortController();
+    const signal = AbortSignal.any([pageSignal, controller.signal]);
+    refreshRequests.current.set(incidentId, controller);
+    setRecoveries((current) => ({
+      ...current,
+      [incidentId]: {
+        ...current[incidentId],
+        status: 'loading',
+        error: undefined,
+      },
+    }));
+    try {
+      const response = await fetch('/api/incidents', {
+        cache: 'no-store',
+        signal,
+      });
+      if (signal.aborted) return;
+      if (response.status === 401) {
+        redirectToLogin('/support');
+        return;
+      }
+      if (!response.ok)
+        throw new Error(
+          'The conversation could not be reloaded. Please try again.',
+        );
+      const body: unknown = await response.json();
+      if (signal.aborted) return;
+      const snapshot = parseIncidentSnapshot(body, incidentId);
+      if (!snapshot) {
+        removeIncident(incidentId);
+        retainDeletedMessage(savedRecovery.message);
+        return;
+      }
+      setConversation((current) => ({
+        ...current,
+        incidents: current.incidents.map((incident) =>
+          incident.id === incidentId ? snapshot : incident,
+        ),
+      }));
+      setRecoveries((current) => ({
+        ...current,
+        [incidentId]: {
+          ...current[incidentId],
+          status: 'ready',
+          error: undefined,
+        },
+      }));
+    } catch {
+      if (signal.aborted) return;
+      setRecoveries((current) => ({
+        ...current,
+        [incidentId]: {
+          ...current[incidentId],
+          status: 'stale',
+          error: 'The conversation could not be reloaded. Please try again.',
+        },
+      }));
+    } finally {
+      if (refreshRequests.current.get(incidentId) === controller)
+        refreshRequests.current.delete(incidentId);
+    }
+  }
+
+  function changeDraft(message: string) {
+    setConversation((current) => ({ ...current, draft: message }));
+    if (activeIncidentId && recovery) {
+      setRecoveries((current) => ({
+        ...current,
+        [activeIncidentId]: { ...current[activeIncidentId], message },
+      }));
+    }
+  }
+
   async function sendMessage(rawMessage?: string) {
     const signal = pageRequest.current?.signal;
     if (!signal || signal.aborted) return;
@@ -392,7 +525,8 @@ export default function SupportPage() {
     if (
       !content ||
       pendingRequest.current ||
-      deletedMessage !== null ||
+      (deletedMessage !== null && activeIncidentId !== recoveredIncidentId) ||
+      (recovery !== undefined && recovery.status !== 'ready') ||
       deletingIncidents.current.has(activeIncidentId ?? '')
     )
       return;
@@ -433,17 +567,27 @@ export default function SupportPage() {
             id: incidentId,
             title: createIncidentTitle(content),
             updatedAt: userMessage.createdAt!,
+            revision: 0,
             messages: nextMessages,
           },
           ...current.incidents,
         ],
       }));
     }
+    clearRecovery(incidentId);
     await submitRequest({
       incidentId,
       messageId: userMessage.id,
       message: content,
+      expectedRevision: activeIncident?.revision ?? 0,
     });
+  }
+
+  function retryMessage(request: SupportCommand) {
+    // A retry can return a stale-conversation recovery. Keep any newer draft
+    // intact until the user explicitly clears it before retrying the old command.
+    if (draft.length > 0) return;
+    void submitRequest(request);
   }
 
   async function submitRequest(request: SupportCommand) {
@@ -452,7 +596,7 @@ export default function SupportPage() {
       !signal ||
       signal.aborted ||
       pendingRequest.current ||
-      deletedMessage !== null ||
+      (deletedMessage !== null && request.incidentId !== recoveredIncidentId) ||
       deletingIncidents.current.has(request.incidentId)
     )
       return;
@@ -480,7 +624,21 @@ export default function SupportPage() {
       const failure = parseSupportFailure(body);
       if (response.status === 410 && failure?.code === 'incident_deleted') {
         removeIncident(request.incidentId);
-        setDeletedMessage(request.message);
+        retainDeletedMessage(request.message);
+        return;
+      }
+      if (response.status === 409 && failure?.code === 'incident_changed') {
+        setRecoveries((current) => ({
+          ...current,
+          [request.incidentId]: { message: request.message, status: 'stale' },
+        }));
+        setConversation((current) => ({
+          ...current,
+          draft:
+            current.activeIncidentId === request.incidentId
+              ? request.message
+              : current.draft,
+        }));
         return;
       }
       if (!response.ok) {
@@ -510,6 +668,7 @@ export default function SupportPage() {
             ? {
                 ...incident,
                 updatedAt: payload.incidentUpdatedAt,
+                revision: payload.revision,
                 messages: [
                   ...incident.messages.map((message) =>
                     message.id === request.messageId
@@ -874,11 +1033,19 @@ export default function SupportPage() {
                       Your message wasn’t saved. Use it in a new incident or
                       discard it to continue.
                     </p>
+                    <blockquote>{deletedMessage}</blockquote>
+                    {deletedMessages.length > 1 ? (
+                      <p>
+                        {deletedMessages.length - 1} more{' '}
+                        {deletedMessages.length === 2 ? 'message' : 'messages'}{' '}
+                        waiting to be recovered.
+                      </p>
+                    ) : null}
                     {draft.length > 0 ? (
                       <p>
-                        Clear your current draft before recovering this message,
-                        or discard the recovered message to continue with your
-                        draft.
+                        {activeIncidentId === recoveredIncidentId
+                          ? 'Send or clear your current draft before recovering the next message.'
+                          : 'Clear your current draft before recovering this message, or discard the recovered message to continue with your draft.'}
                       </p>
                     ) : null}
                     <Button
@@ -887,10 +1054,7 @@ export default function SupportPage() {
                     >
                       Use message in a new incident
                     </Button>
-                    <Button
-                      variant="ghost"
-                      onClick={() => setDeletedMessage(null)}
-                    >
+                    <Button variant="ghost" onClick={discardDeletedMessage}>
                       Discard unsent message
                     </Button>
                   </div>
@@ -904,11 +1068,55 @@ export default function SupportPage() {
                     <strong>Support request interrupted</strong>
                     <p>{failure.error}</p>
                     {retryRequest ? (
+                      <>
+                        {draft.length > 0 ? (
+                          <p>
+                            Clear your current draft before retrying the earlier
+                            message.
+                          </p>
+                        ) : null}
+                        <Button
+                          disabled={sendDisabled || draft.length > 0}
+                          onClick={() => retryMessage(retryRequest)}
+                        >
+                          Retry message
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              {recovery ? (
+                <div
+                  className="chat-notice"
+                  role={recovery.status === 'ready' ? 'status' : 'alert'}
+                >
+                  <TriangleAlert aria-hidden="true" />
+                  <div>
+                    <strong>
+                      {recovery.status === 'ready'
+                        ? 'Conversation reloaded'
+                        : 'This conversation changed.'}
+                    </strong>
+                    <p>
+                      {recovery.error ??
+                        (recovery.status === 'ready'
+                          ? 'Review the latest messages and your draft before sending again.'
+                          : 'Reload it before sending your message again. Your draft is preserved.')}
+                    </p>
+                    {recovery.status !== 'ready' && activeIncidentId ? (
                       <Button
-                        disabled={sendDisabled}
-                        onClick={() => void submitRequest(retryRequest)}
+                        disabled={
+                          recovery.status === 'loading' || composerDisabled
+                        }
+                        onClick={() =>
+                          void reloadConversation(activeIncidentId)
+                        }
                       >
-                        Retry message
+                        {recovery.status === 'loading'
+                          ? 'Reloading conversation…'
+                          : 'Reload conversation'}
                       </Button>
                     ) : null}
                   </div>
@@ -939,12 +1147,7 @@ export default function SupportPage() {
               <Textarea
                 ref={inputRef}
                 value={draft}
-                onChange={(event) =>
-                  setConversation((current) => ({
-                    ...current,
-                    draft: event.target.value,
-                  }))
-                }
+                onChange={(event) => changeDraft(event.target.value)}
                 onKeyDown={handleKeyDown}
                 maxLength={MAX_CHAT_MESSAGE_LENGTH}
                 rows={1}

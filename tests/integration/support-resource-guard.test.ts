@@ -38,6 +38,7 @@ describe('SABLE resource guard', () => {
       const model = fixture.mockModel(unsupported, supported);
       const response = await chat(
         session.request({
+          expectedRevision: 0,
           incidentId,
           messageId: `MSG-RESOURCE-RETURN-${kind}`,
           message: question,
@@ -65,6 +66,7 @@ describe('SABLE resource guard', () => {
 
     const response = await chat(
       session.request({
+        expectedRevision: 0,
         incidentId,
         messageId: 'MSG-RESOURCE-GUARD-RETRY',
         message: question,
@@ -106,6 +108,7 @@ describe('SABLE resource guard', () => {
 
     const response = await chat(
       session.request({
+        expectedRevision: 0,
         incidentId,
         messageId: 'MSG-RESOURCE-GUARD-TWICE',
         message: question,
@@ -134,6 +137,7 @@ describe('SABLE resource guard', () => {
 
     const response = await chat(
       session.request({
+        expectedRevision: 0,
         incidentId,
         messageId: 'MSG-RESOURCE-GUARD-IDENTIFIER',
         message: 'Show order SBL-2022-000118.',

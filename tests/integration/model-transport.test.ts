@@ -38,6 +38,7 @@ for (const endpoint of ['completion', 'readiness'] as const) {
             endpoint === 'completion'
               ? await POST(
                   session.request({
+                    expectedRevision: 0,
                     incidentId,
                     messageId: `MSG-${id}`,
                     message: 'Help with a shipment.',

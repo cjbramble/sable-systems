@@ -10,6 +10,7 @@ const incident = (
   title = `Incident ${index}`,
 ): SupportIncident => ({
   id: `INC-LIST-${index}`,
+  revision: 0,
   title,
   updatedAt: `2026-09-${String(10 + index).padStart(2, '0')}T08:00:00.000Z`,
   messages: Array.from({ length: index % 3 }, (_, message) => ({

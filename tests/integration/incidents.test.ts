@@ -34,6 +34,7 @@ describe('support incident persistence', () => {
         'MSG-EXISTING-ROLLBACK-SETUP',
         'Hello.',
         'How can I help?',
+        0,
       );
       // Both title and timestamp must visibly change on a successful write.
       await database
@@ -83,6 +84,7 @@ describe('support incident persistence', () => {
           messageId,
           customerMessage,
           assistantMessage,
+          1,
         );
 
       await expect(save()).rejects.toThrow(
@@ -119,6 +121,7 @@ describe('support incident persistence', () => {
       const savedIncident = await fixture.findIncident(incidentId);
       expect(savedIncident).toMatchObject({
         ...beforeIncident,
+        revision: 2,
         title: customerMessage,
         updated_at: expect.any(String),
       });
@@ -184,6 +187,7 @@ describe('support incident persistence', () => {
           messageId,
           customerMessage,
           assistantMessage,
+          0,
         );
 
       await expect(save()).rejects.toThrow(

@@ -144,6 +144,7 @@ test('keeps the corrective retry and persists only a grounded OpenRouter reply',
   );
   const response = await POST(
     session.request({
+      expectedRevision: 0,
       incidentId,
       messageId: 'MSG-OPENROUTER-GUARD',
       message: question,
@@ -180,6 +181,7 @@ test.for([401, 402, 429, 503])(
       );
     const response = await POST(
       session.request({
+        expectedRevision: 0,
         incidentId,
         messageId: `MSG-OPENROUTER-FAIL-${status}`,
         message: 'Show order SBL-2022-000118.',

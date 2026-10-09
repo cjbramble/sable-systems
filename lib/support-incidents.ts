@@ -10,6 +10,7 @@ export type SupportIncident = {
   id: string;
   title: string;
   updatedAt: string;
+  revision: number;
   messages: SupportChatMessage[];
 };
 

@@ -2,17 +2,15 @@ import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { consumeRequestQuota, requestLimitResponse } from '@/db/request-limits';
 import {
-  getSupportIncidentState,
+  checkSupportCommand,
   IncidentDeletedError,
-  getSavedSupportExchange,
   getSupportConversationHistory,
-  hasSupportMessageIdConflict,
   IncidentAccessDeniedError,
   listSupportIncidents,
   saveSupportExchange,
-  supportReply,
   SupportMessageIdConflictError,
   SupportMessageTextConflictError,
+  SupportRevisionConflictError,
 } from '@/db/incidents';
 import { buildAuthorizedContext } from '@/db/support';
 import {
@@ -82,7 +80,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         error:
-          'Send a message of 1–4,000 characters and either both incident/message IDs or neither. The messages array is no longer supported.',
+          'Send a message of 1–4,000 characters. Saved conversations require incident/message IDs and a nonnegative integer expectedRevision; direct requests omit all three. The messages array is no longer supported.',
       },
       { status: 400 },
     );
@@ -99,23 +97,8 @@ export async function POST(request: Request) {
         { status: 401 },
       );
     if (incidentId && messageId) {
-      const state = await getSupportIncidentState(db, user, incidentId);
-      if (state === 'forbidden') throw new IncidentAccessDeniedError();
-      if (state === 'deleted') throw new IncidentDeletedError();
-      if (await hasSupportMessageIdConflict(db, incidentId, messageId))
-        throw new SupportMessageIdConflictError();
-      const savedExchange = await getSavedSupportExchange(
-        db,
-        user,
-        incidentId,
-        messageId,
-      );
-      if (savedExchange) {
-        if (savedExchange.customerMessage !== customerMessage)
-          throw new SupportMessageTextConflictError();
-        if (savedExchange.assistantMessage !== null)
-          return Response.json(supportReply(savedExchange));
-      }
+      const replay = await checkSupportCommand(db, user, command);
+      if (replay) return Response.json(replay);
     }
 
     // The model sees only saved incident history and the current customer message.
@@ -146,6 +129,7 @@ export async function POST(request: Request) {
           messageId,
           customerMessage,
           content,
+          command.expectedRevision,
         ),
       );
     };
@@ -305,6 +289,14 @@ export async function POST(request: Request) {
       error instanceof SupportMessageIdConflictError
     )
       return Response.json({ error: error.message }, { status: 409 });
+    if (error instanceof SupportRevisionConflictError)
+      return Response.json(
+        {
+          error: error.message,
+          code: 'incident_changed',
+        } satisfies SupportFailure,
+        { status: 409 },
+      );
     if (error instanceof IncidentDeletedError)
       return Response.json(
         {
