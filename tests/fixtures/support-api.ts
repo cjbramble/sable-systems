@@ -101,8 +101,8 @@ export function createSupportApiFixture(database: D1Database) {
       // still share the real quota until this fixture is torn down.
       cleanups.push(async () => {
         await database
-          .prepare('DELETE FROM request_limits WHERE quota_key = ?')
-          .bind(`chat:${user.userId}`)
+          .prepare('DELETE FROM request_limits WHERE quota_key IN (?, ?)')
+          .bind(`chat:${user.userId}`, `incident-delete:${user.userId}`)
           .run();
       });
       return { request };

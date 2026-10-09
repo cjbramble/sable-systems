@@ -161,7 +161,10 @@ Login permits 10 attempts per normalized email and 60 attempts across the app pe
 part of the same customer request. Limits are stored atomically in D1, survive
 worker restarts, return HTTP 429 with `Retry-After`, and fail closed if storage is
 unavailable. Saved reply replay and server-built record replies do not consume
-model quota. Expired quota rows are removed when checking a quota.
+model quota. Incident deletion has a separate limit of 30 requests per user per
+60-second window, shared across sessions, including requests for missing IDs.
+Rejected deletions do not create markers or remove content. Expired quota rows are
+removed when checking a quota.
 
 Assistant Markdown cannot render images, including external tracking images;
 raw HTML remains disabled. Logout clears the browser cookie only after server

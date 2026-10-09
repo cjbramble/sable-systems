@@ -119,3 +119,42 @@ test('discarding recovery preserves another selected incident and its draft', as
   ).toBeEnabled();
   expect(app.modelRequests).toHaveLength(0);
 });
+
+test('recovery cannot overwrite an active draft', async ({
+  page,
+  loginPage,
+  supportPage,
+  app,
+}) => {
+  await loginPage.goto();
+  await loginPage.signIn('mara.venn@calderpike.example', 'Sable-WHS-0427!');
+  await supportPage.openIncident(deletedTitle);
+  await page.request.delete(`${app.url}/api/incidents`, {
+    data: { incidentId: deletedId },
+  });
+  expect((await supportPage.sendMessage(question)).status()).toBe(410);
+  await expect(
+    page.getByText('Incident deleted', { exact: true }),
+  ).toBeVisible();
+  await supportPage.openIncident(otherTitle);
+  await supportPage.messageInput.fill('Keep this draft.');
+  const recover = page.getByRole('button', {
+    name: 'Use message in a new incident',
+  });
+  await expect(recover).toBeDisabled();
+  await expect(supportPage.messageInput).toHaveValue('Keep this draft.');
+  await expect(supportPage.incident(otherTitle)).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(
+    page.getByText(
+      'Clear your current draft before recovering this message, or discard the recovered message to continue with your draft.',
+    ),
+  ).toBeVisible();
+  await supportPage.messageInput.clear();
+  await expect(recover).toBeEnabled();
+  await recover.click();
+  await expect(supportPage.messageInput).toHaveValue(question);
+  expect(app.modelRequests).toHaveLength(0);
+});

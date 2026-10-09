@@ -304,6 +304,12 @@ export default function SupportPage() {
     if (!mobileMenuOpen) window.setTimeout(() => inputRef.current?.focus(), 0);
   }
 
+  function recoverDeletedMessage() {
+    if (deletedMessage === null || draft.length > 0) return;
+    newConversation(deletedMessage);
+    setDeletedMessage(null);
+  }
+
   function selectIncident(incidentId: string) {
     setConversation((current) => ({
       ...current,
@@ -875,11 +881,16 @@ export default function SupportPage() {
                       Your message wasn’t saved. Use it in a new incident or
                       discard it to continue.
                     </p>
+                    {draft.length > 0 ? (
+                      <p>
+                        Clear your current draft before recovering this message,
+                        or discard the recovered message to continue with your
+                        draft.
+                      </p>
+                    ) : null}
                     <Button
-                      onClick={() => {
-                        newConversation(deletedMessage);
-                        setDeletedMessage(null);
-                      }}
+                      disabled={draft.length > 0}
+                      onClick={recoverDeletedMessage}
                     >
                       Use message in a new incident
                     </Button>

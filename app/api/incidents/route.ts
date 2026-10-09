@@ -1,5 +1,6 @@
 import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
 import { getDatabase } from '@/db/database';
+import { consumeRequestQuota, requestLimitResponse } from '@/db/request-limits';
 import {
   deleteSupportIncident,
   listSupportIncidents,
@@ -60,6 +61,13 @@ export async function DELETE(request: Request) {
         { error: 'Authentication required.' },
         { status: 401 },
       );
+    const retryAfter = await consumeRequestQuota(
+      db,
+      `incident-delete:${user.userId}`,
+      30,
+      60,
+    );
+    if (retryAfter) return requestLimitResponse(retryAfter);
     await deleteSupportIncident(db, user, incidentId);
     return new Response(null, { status: 204 });
   } catch {
