@@ -85,6 +85,9 @@ describe('support command contracts', () => {
     expect(
       parseSupportFailure({ error: 'Reload', code: 'incident_changed' }),
     ).toEqual({ error: 'Reload', code: 'incident_changed' });
+    expect(
+      parseSupportFailure({ error: 'Retry', code: 'request_not_saved' }),
+    ).toEqual({ error: 'Retry', code: 'request_not_saved' });
     for (const invalid of [
       null,
       {},

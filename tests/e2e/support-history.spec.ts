@@ -267,14 +267,18 @@ test.describe('model failure recovery', () => {
     ],
   });
 
-  test('recovers from a model error without adding error text to the conversation or subsequent model history', async ({
+  test('discards a definitely unsaved exchange before sending a preserved follow-up draft', async ({
+    page,
     supportPage,
     app,
   }) => {
     await supportPage.startIncident();
     const failedResponse = await supportPage.sendMessage(firstMessage);
     expect(failedResponse.status()).toBe(502);
-    expect(await failedResponse.json()).toEqual({ error: errorMessage });
+    expect(await failedResponse.json()).toEqual({
+      error: errorMessage,
+      code: 'request_not_saved',
+    });
     await expect(supportPage.requestError).toBeVisible();
     await expect(supportPage.requestError).toContainText(errorMessage);
     await expect(
@@ -288,6 +292,13 @@ test.describe('model failure recovery', () => {
       supportPage.messages.filter({ hasText: errorMessage }),
     ).toHaveCount(0);
     await expect(supportPage.messageInput).toBeEnabled();
+    await expect(page.getByText('Not saved', { exact: true })).toBeVisible();
+    await supportPage.messageInput.fill(followUpMessage);
+    await expect(
+      page.getByRole('button', { name: 'Send message' }),
+    ).toBeDisabled();
+    await supportPage.messageInput.press('Enter');
+    await expect(supportPage.messageInput).toHaveValue(followUpMessage);
 
     const { incidentId } = failedResponse.request().postDataJSON();
     const readExchange = async () => {
@@ -308,6 +319,16 @@ test.describe('model failure recovery', () => {
       ],
     });
 
+    await page
+      .getByRole('button', { name: 'Discard unsent message', exact: true })
+      .click();
+    await expect(
+      supportPage.messages.filter({ hasText: firstMessage }),
+    ).toHaveCount(0);
+    await expect(supportPage.messageInput).toHaveValue(followUpMessage);
+    await expect(
+      page.getByRole('button', { name: 'Send message' }),
+    ).toBeEnabled();
     const recoveredResponse = await supportPage.sendMessage(followUpMessage);
     expect(recoveredResponse.status()).toBe(200);
     expect(await recoveredResponse.json()).toMatchObject({
@@ -315,10 +336,9 @@ test.describe('model failure recovery', () => {
     });
     await expect(supportPage.requestError).toHaveCount(0);
     await expect(supportPage.messageInput).toBeEnabled();
-    await expect(supportPage.messages).toHaveCount(4);
     await expect(
       supportPage.messages.filter({ hasText: firstMessage }),
-    ).toHaveCount(1);
+    ).toHaveCount(0);
     await expect(
       supportPage.messages.filter({ hasText: followUpMessage }),
     ).toHaveCount(1);
@@ -358,6 +378,12 @@ test.describe('model failure recovery', () => {
         role: 'assistant',
         content: recoveredReply,
       },
+    ]);
+    await supportPage.reload();
+    await supportPage.openIncident(followUpMessage);
+    await expect(supportPage.messages).toHaveText([
+      followUpMessage,
+      recoveredReply,
     ]);
   });
 });

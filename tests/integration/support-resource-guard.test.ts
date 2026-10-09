@@ -117,6 +117,7 @@ describe('SABLE resource guard', () => {
 
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({
+      code: 'request_not_saved',
       error:
         'The response referred to an unverified SABLE resource. Please try again.',
     });

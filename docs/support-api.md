@@ -27,6 +27,11 @@ Saved replies contain `message`, `revision`, `customerCreatedAt`, `assistantCrea
 contain only `message`. Errors contain `error`; a deleted incident additionally
 returns `code: "incident_deleted"` with HTTP 410.
 
+Other rejections may include `code: "request_not_saved"`: that HTTP attempt ended
+without writing an exchange. This does not settle an earlier attempt whose response
+was lost. A network error, malformed response, or unclassified save failure leaves
+the command's outcome unknown; keep its original IDs, text, and expected revision.
+
 Retry an uncertain saved exchange with the same IDs, text, and expected revision. Exact retries return
 the saved reply without another model call. Reusing a message ID for different
 text returns HTTP 409. A deliberate new message needs a new ID, even if its text
@@ -48,6 +53,22 @@ A replay returns the original reply's revision even if later exchanges exist.
 Clients must not treat that receipt as proof they have loaded later history.
 Existing records start at revision 0 after the schema upgrade. Recovering a missing
 historical assistant reply advances the revision; replaying a complete pair does not.
+
+The support page keeps editable drafts separately for each incident and labels
+submitted messages as pending, not saved, or unconfirmed until resolved. A newer
+draft can be edited while retrying the original command. Dependent sends remain
+blocked until the exchange is confirmed, a known unsaved message is explicitly
+discarded, or the customer completes conversation-change recovery.
+
+“Check saved conversation” confirms an uncertain exchange only when saved history
+contains its matching customer/assistant pair. An absent message or new incident
+does not prove failure: its original request may still be running. A later revision
+without the pair proves that the old command can no longer save and allows explicit
+review and resubmission. Checking history never sends a message automatically.
+
+Drafts stay in memory while switching incidents. Deleting an incident clears its
+local draft; remote deletion preserves unsent text for recovery into a new incident.
+Reloading the page or changing accounts clears local drafts and pending recovery.
 
 | Limit                                             | Maximum                 | Failure  |
 | ------------------------------------------------- | ----------------------- | -------- |

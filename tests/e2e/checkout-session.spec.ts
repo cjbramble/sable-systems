@@ -305,6 +305,19 @@ for (const destination of ['orders', 'support'] as const) {
     else {
       await supportPage.waitUntilSettled();
       await supportPage.messageInput.fill('Unsent account-specific question');
+      await supportPage.openIncident('Nerveline allocation');
+      await supportPage.messageInput.fill('Another account-specific draft');
+      await supportPage.startIncident();
+      await page.route('**/api/chat', (route) => route.abort('failed'), {
+        times: 1,
+      });
+      await supportPage.submitMessage(
+        'An unconfirmed account-specific message',
+      );
+      await expect(
+        page.getByText('Save unconfirmed', { exact: true }),
+      ).toBeVisible();
+      await supportPage.messageInput.fill('A newer account-specific draft');
     }
     expect(
       (
@@ -332,6 +345,18 @@ for (const destination of ['orders', 'support'] as const) {
     else {
       await supportPage.waitUntilSettled();
       await expect(supportPage.messageInput).toHaveValue('');
+      await expect(supportPage.retryMessageButton).toHaveCount(0);
+      await expect(
+        page.getByRole('button', {
+          name: 'Check saved conversation',
+          exact: true,
+        }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByText('An unconfirmed account-specific message', {
+          exact: true,
+        }),
+      ).toHaveCount(0);
       await expect(supportPage.session.signOutButton).toContainText(
         'Imani Kade',
       );

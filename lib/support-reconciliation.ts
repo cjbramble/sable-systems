@@ -1,4 +1,8 @@
-import { isSupportRevision, isSupportTimestamp } from './chat-request';
+import {
+  isSupportRevision,
+  isSupportTimestamp,
+  type SupportCommand,
+} from './chat-request';
 import type { SupportChatMessage, SupportIncident } from './support-incidents';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -18,7 +22,8 @@ function isSavedMessage(value: unknown): value is SupportChatMessage {
 }
 
 // Decode only the requested snapshot; unrelated conversations are not replaced.
-// A missing incident is a deletion, while invalid data must remain retryable.
+// A missing new incident may still be saving; callers decide whether absence
+// means deletion. Invalid data must remain retryable.
 export function parseIncidentSnapshot(
   value: unknown,
   incidentId: string,
@@ -59,4 +64,34 @@ export function parseIncidentSnapshot(
     revision: incident.revision,
     messages: incident.messages,
   };
+}
+
+export function reconcileSupportSnapshot(
+  snapshot: SupportIncident | null,
+  request: SupportCommand,
+): 'confirmed' | 'changed' | 'unconfirmed' {
+  if (
+    !snapshot ||
+    snapshot.id !== request.incidentId ||
+    snapshot.revision < request.expectedRevision
+  )
+    return 'unconfirmed';
+  const customerIndex = snapshot.messages.findIndex(
+    (message) =>
+      message.id === request.messageId &&
+      message.role === 'user' &&
+      message.content === request.message,
+  );
+  const assistant =
+    customerIndex >= 0 ? snapshot.messages[customerIndex + 1] : undefined;
+  if (
+    assistant?.id === `AST-${request.messageId}` &&
+    assistant.role === 'assistant'
+  )
+    return 'confirmed';
+  // A different exchange advanced the compare-and-save revision, so the old
+  // command can no longer commit. An unchanged snapshot proves no such thing.
+  return snapshot.revision > request.expectedRevision
+    ? 'changed'
+    : 'unconfirmed';
 }

@@ -157,6 +157,7 @@ describe('support response safety', () => {
         const rejected = await POST(rejectedRequest);
         expect(rejected.status).toBe(400);
         expect(await rejected.json()).toMatchObject({
+          code: 'request_not_saved',
           error: expect.any(String),
         });
         expect(fetchMock).not.toHaveBeenCalled();
@@ -246,6 +247,7 @@ describe('support response safety', () => {
       const rejected = await POST(makeRequest(true));
       expect(rejected.status).toBe(400);
       expect(await rejected.json()).toEqual({
+        code: 'request_not_saved',
         error: 'The request was not valid JSON.',
       });
       expect(fetchMock).not.toHaveBeenCalled();
@@ -346,6 +348,7 @@ describe('support response safety', () => {
         const denied = await POST(makeRequest(false));
         expect(denied.status).toBe(401);
         expect(await denied.json()).toEqual({
+          code: 'request_not_saved',
           error: 'Authentication required.',
         });
         expect(fetchMock).not.toHaveBeenCalled();
@@ -386,6 +389,7 @@ describe('support response safety', () => {
         const deniedReplay = await POST(makeRequest(false));
         expect(deniedReplay.status).toBe(401);
         expect(await deniedReplay.json()).toEqual({
+          code: 'request_not_saved',
           error: 'Authentication required.',
         });
         expect(fetchMock).toHaveBeenCalledOnce();
@@ -458,6 +462,7 @@ describe('support response safety', () => {
       const denied = await POST(makeRequest(true));
       expect(denied.status).toBe(403);
       expect(await denied.json()).toEqual({
+        code: 'request_not_saved',
         error: 'Cross-origin access denied.',
       });
       expect(fetchMock).not.toHaveBeenCalled();
@@ -494,6 +499,7 @@ describe('support response safety', () => {
       const deniedReplay = await POST(makeRequest(true));
       expect(deniedReplay.status).toBe(403);
       expect(await deniedReplay.json()).toEqual({
+        code: 'request_not_saved',
         error: 'Cross-origin access denied.',
       });
       expect(fetchMock).toHaveBeenCalledOnce();
@@ -839,7 +845,10 @@ describe('support response safety', () => {
         verifyTimeout?.();
         expect(fetchMock).toHaveBeenCalledOnce();
         expect(failed.status).toBe(expectedStatus);
-        expect(await failed.json()).toEqual({ error: expectedError });
+        expect(await failed.json()).toEqual({
+          error: expectedError,
+          code: 'request_not_saved',
+        });
         if (modelResponse) expect(modelResponse.bodyUsed).toBe(true);
         expect(await fixture.findIncident(incidentId)).toEqual(initialIncident);
         expect((await fixture.messages(incidentId)).results).toEqual(
@@ -938,6 +947,7 @@ describe('support response safety', () => {
         expect(fetchMock).not.toHaveBeenCalled();
         expect(failed.status).toBe(500);
         expect(await failed.json()).toEqual({
+          code: 'request_not_saved',
           error: 'Support records could not be loaded. Please try again.',
         });
         expect(await fixture.findIncident(incidentId)).toBeNull();
@@ -1024,10 +1034,12 @@ describe('support response safety', () => {
         expect(exchangeReads).toBe(2);
         expect(fetchMock).toHaveBeenCalledOnce();
         expect(failed.status).toBe(500);
-        expect(await failed.json()).toEqual({
+        const failureBody = await failed.json();
+        expect(failureBody).toEqual({
           error:
             'We could not confirm your support message was saved. Please try again.',
         });
+        expect(failureBody).not.toHaveProperty('code');
         // Independent queries prove the transaction committed despite the error.
         const savedIncident = await fixture.findIncident(incidentId);
         const savedMessages = await fixture.messages(incidentId);
@@ -1441,6 +1453,7 @@ describe('support response safety', () => {
           const denied = await POST(makeRequest(session));
           expect(denied.status).toBe(401);
           expect(await denied.json()).toEqual({
+            code: 'request_not_saved',
             error: 'Authentication required.',
           });
           expect(fetchMock).not.toHaveBeenCalled();
@@ -1611,7 +1624,10 @@ describe('support response safety', () => {
                   assistantCreatedAt: expect.any(String),
                   incidentUpdatedAt: expect.any(String),
                 }
-              : { error: 'Authentication required.' },
+              : {
+                  error: 'Authentication required.',
+                  code: 'request_not_saved',
+                },
           );
           expect(fetchMock).not.toHaveBeenCalled();
           expect(await fixture.findIncident(incidentId)).toEqual(savedIncident);
@@ -1713,6 +1729,7 @@ describe('support response safety', () => {
     const otherResponse = await POST(makeRequest(sessions[1]));
     expect(otherResponse.status).toBe(403);
     expect(await otherResponse.json()).toEqual({
+      code: 'request_not_saved',
       error: 'Incident access denied.',
     });
     expect(fetchMock).not.toHaveBeenCalled();
@@ -1774,6 +1791,7 @@ describe('support response safety', () => {
     const response = await POST(makeRequest(changedText));
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
+      code: 'request_not_saved',
       error:
         'This message ID was already used for different text. Send a new message.',
     });
@@ -1847,6 +1865,7 @@ describe('support response safety', () => {
     const response = await POST(makeRequest(targetId));
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
+      code: 'request_not_saved',
       error: 'This message ID is already in use. Send a new message.',
     });
     expect(fetchMock).not.toHaveBeenCalled();
@@ -1910,6 +1929,7 @@ describe('support response safety', () => {
     const response = await POST(makeRequest(assistantMessageId));
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
+      code: 'request_not_saved',
       error: 'This message ID is already in use. Send a new message.',
     });
     expect(fetchMock).not.toHaveBeenCalled();
@@ -1978,6 +1998,7 @@ describe('support response safety', () => {
     const response = await POST(makeRequest(newMessageId));
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
+      code: 'request_not_saved',
       error: 'This message ID is already in use. Send a new message.',
     });
     expect(fetchMock).not.toHaveBeenCalled();
@@ -2160,6 +2181,7 @@ describe('support response safety', () => {
     const response = await POST(makeRequest(messageId));
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
+      code: 'request_not_saved',
       error: 'This message ID is already in use. Send a new message.',
     });
     expect(fetchMock).not.toHaveBeenCalled();
@@ -2359,6 +2381,7 @@ describe('support response safety', () => {
       });
       expect(responses[loserIndex].status).toBe(403);
       expect(await responses[loserIndex].json()).toEqual({
+        code: 'request_not_saved',
         error: 'Incident access denied.',
       });
 
@@ -2366,6 +2389,7 @@ describe('support response safety', () => {
       const deniedRetry = await POST(makeRequest(loserIndex, winnerIndex));
       expect(deniedRetry.status).toBe(403);
       expect(await deniedRetry.json()).toEqual({
+        code: 'request_not_saved',
         error: 'Incident access denied.',
       });
       const ownerRetry = await POST(makeRequest(winnerIndex));
@@ -2516,6 +2540,7 @@ describe('support response safety', () => {
       },
     ];
     const conflictBody = {
+      code: 'request_not_saved',
       error:
         'This message ID was already used for different text. Send a new message.',
     };
@@ -2633,6 +2658,7 @@ describe('support response safety', () => {
     const customerMessage = 'Help with a shipment.';
     const assistantMessage = 'Which shipment do you need help with?';
     const conflictBody = {
+      code: 'request_not_saved',
       error: 'This message ID is already in use. Send a new message.',
     };
     expect((await fixture.incidents(...incidentIds)).results).toEqual([]);
@@ -2790,6 +2816,7 @@ describe('support response safety', () => {
       const prompts = ['Help with a shipment.', 'Help with a return.'] as const;
       const assistantMessage = 'Which item do you need help with?';
       const conflictBody = {
+        code: 'request_not_saved',
         error: 'This message ID is already in use. Send a new message.',
       };
       const concurrent = createConcurrentSupportFixture(
@@ -2968,6 +2995,7 @@ describe('support response safety', () => {
     expect(records).not.toContain('SBL-2022-0000118');
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({
+      code: 'request_not_saved',
       error:
         'The response contained an unverified record reference. Please try again.',
     });

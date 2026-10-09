@@ -42,10 +42,12 @@ const failureResponses = {
   loading: {
     error: 'Support records could not be loaded. Please try again.',
     status: 500,
+    code: 'request_not_saved',
   },
   model: {
     error: 'The support model is unavailable. Please try again.',
     status: 503,
+    code: 'request_not_saved',
   },
   saving: {
     error:
@@ -54,9 +56,21 @@ const failureResponses = {
   },
 } as const;
 
+// This describes only this HTTP attempt; an earlier lost response may still
+// have committed the same command. Saving failures must remain unclassified.
+function unsavedResponse(
+  failure: Pick<SupportFailure, 'error'>,
+  init: ResponseInit,
+) {
+  return Response.json(
+    { ...failure, code: 'request_not_saved' } satisfies SupportFailure,
+    init,
+  );
+}
+
 export async function POST(request: Request) {
   if (!isTrustedMutation(request))
-    return Response.json(
+    return unsavedResponse(
       { error: 'Cross-origin access denied.' },
       { status: 403 },
     );
@@ -65,11 +79,11 @@ export async function POST(request: Request) {
     body = await readJsonBody(request, MAX_CHAT_REQUEST_BYTES);
   } catch (error) {
     if (error instanceof BodyTooLargeError)
-      return Response.json(
+      return unsavedResponse(
         { error: 'The support request was too large.' },
         { status: 413 },
       );
-    return Response.json(
+    return unsavedResponse(
       { error: 'The request was not valid JSON.' },
       { status: 400 },
     );
@@ -77,7 +91,7 @@ export async function POST(request: Request) {
 
   const command = parseSupportRequest(body);
   if (!command)
-    return Response.json(
+    return unsavedResponse(
       {
         error:
           'Send a message of 1–4,000 characters. Saved conversations require incident/message IDs and a nonnegative integer expectedRevision; direct requests omit all three. The messages array is no longer supported.',
@@ -92,7 +106,7 @@ export async function POST(request: Request) {
     const db = await getDatabase();
     const user = await getAuthenticatedUser(db, request);
     if (!user)
-      return Response.json(
+      return unsavedResponse(
         { error: 'Authentication required.' },
         { status: 401 },
       );
@@ -114,7 +128,7 @@ export async function POST(request: Request) {
         : [{ role: 'user' as const, content: customerMessage }];
     const reply = async (content: string) => {
       if (content.length > MAX_SUPPORT_REPLY_LENGTH)
-        return Response.json(
+        return unsavedResponse(
           { error: 'The support reply was too long. Please try again.' },
           { status: 502 },
         );
@@ -150,7 +164,8 @@ export async function POST(request: Request) {
       30,
       60,
     );
-    if (retryAfter) return requestLimitResponse(retryAfter);
+    if (retryAfter)
+      return requestLimitResponse(retryAfter, 'request_not_saved');
     phase = 'model';
     let correction: string[] | undefined;
     for (let attempt = 1; ; attempt += 1) {
@@ -164,7 +179,7 @@ export async function POST(request: Request) {
       const modelResponse = await fetch(modelUrl, modelRequest);
       if (modelResponse.status >= 300 && modelResponse.status < 400) {
         await modelResponse.body?.cancel();
-        return Response.json(
+        return unsavedResponse(
           { error: failureResponses.model.error },
           { status: failureResponses.model.status },
         );
@@ -179,7 +194,7 @@ export async function POST(request: Request) {
         );
       } catch (error) {
         if (error instanceof BodyTooLargeError)
-          return Response.json(
+          return unsavedResponse(
             {
               error:
                 'The support model response was too large. Please try again.',
@@ -192,7 +207,7 @@ export async function POST(request: Request) {
         )
           throw error;
         if (modelResponse.ok)
-          return Response.json(
+          return unsavedResponse(
             {
               error:
                 'The support model returned an invalid response. Please try again.',
@@ -205,7 +220,7 @@ export async function POST(request: Request) {
         modelResponse.status === 400 &&
         isContextOverflowPayload(modelPayload)
       ) {
-        return Response.json(
+        return unsavedResponse(
           {
             error:
               'That message is too long for the support model. Shorten it and try again.',
@@ -214,7 +229,7 @@ export async function POST(request: Request) {
         );
       }
       if (!modelResponse.ok) {
-        return Response.json(
+        return unsavedResponse(
           {
             error:
               'The support model could not complete that request. Please try again.',
@@ -224,7 +239,7 @@ export async function POST(request: Request) {
       }
 
       if (isIncompleteSupportModelReply(modelPayload)) {
-        return Response.json(
+        return unsavedResponse(
           {
             error:
               "The support model's reply was incomplete. Please try again.",
@@ -234,7 +249,7 @@ export async function POST(request: Request) {
       }
       const content = extractSupportModelContent(modelPayload);
       if (!content) {
-        return Response.json(
+        return unsavedResponse(
           {
             error:
               'The support model returned an empty response. Please try again.',
@@ -244,7 +259,7 @@ export async function POST(request: Request) {
       }
 
       if (!hasGroundedSupportIdentifiers(content, authorizedContext)) {
-        return Response.json(
+        return unsavedResponse(
           {
             error:
               'The response contained an unverified record reference. Please try again.',
@@ -260,7 +275,7 @@ export async function POST(request: Request) {
         // invented is returned or saved.
         correction = invented;
         if (attempt < MAX_RESOURCE_ATTEMPTS) continue;
-        return Response.json(
+        return unsavedResponse(
           {
             error:
               'The response referred to an unverified SABLE resource. Please try again.',
@@ -277,7 +292,7 @@ export async function POST(request: Request) {
       error instanceof DOMException &&
       error.name === 'TimeoutError'
     )
-      return Response.json(
+      return unsavedResponse(
         {
           error:
             'The support model took too long to respond. Please try again.',
@@ -288,7 +303,7 @@ export async function POST(request: Request) {
       error instanceof SupportMessageTextConflictError ||
       error instanceof SupportMessageIdConflictError
     )
-      return Response.json({ error: error.message }, { status: 409 });
+      return unsavedResponse({ error: error.message }, { status: 409 });
     if (error instanceof SupportRevisionConflictError)
       return Response.json(
         {
@@ -306,11 +321,11 @@ export async function POST(request: Request) {
         { status: 410 },
       );
     if (error instanceof IncidentAccessDeniedError)
-      return Response.json(
+      return unsavedResponse(
         { error: 'Incident access denied.' },
         { status: 403 },
       );
-    const failure = failureResponses[phase];
-    return Response.json({ error: failure.error }, { status: failure.status });
+    const { status, ...failure } = failureResponses[phase];
+    return Response.json(failure, { status });
   }
 }

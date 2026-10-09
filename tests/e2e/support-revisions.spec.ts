@@ -299,15 +299,16 @@ test('redirects an expired refresh before trying to decode its body', async ({
   await expect(page).toHaveURL(/\/login\?next=%2Fsupport$/);
 });
 
-test('keeps a newer draft until it is cleared before retrying an older command', async ({
+test('preserves a newer draft and rejected message when an exact retry finds a changed conversation', async ({
   page,
   supportPage,
+  app,
 }) => {
-  let requests = 0;
+  const requests: unknown[] = [];
   await page.route('**/api/chat', (route) => {
-    requests += 1;
+    requests.push(route.request().postDataJSON());
     return route.fulfill(
-      requests === 1
+      requests.length === 1
         ? { status: 503, json: { error: 'Please retry this request.' } }
         : {
             status: 409,
@@ -322,19 +323,40 @@ test('keeps a newer draft until it is cleared before retrying an older command',
   await supportPage.sendMessage(rejectedMessage);
   await expect(supportPage.retryMessageButton).toBeEnabled();
   await supportPage.messageInput.fill('Keep this newer draft.');
-  await expect(supportPage.retryMessageButton).toBeDisabled();
-  await expect(supportPage.requestError).toContainText(
-    'Clear your current draft before retrying',
-  );
+  await expect(supportPage.retryMessageButton).toBeEnabled();
   await expect(supportPage.messageInput).toHaveValue('Keep this newer draft.');
-  expect(requests).toBe(1);
-  await supportPage.messageInput.clear();
   await supportPage.retryMessage();
   await expect(
     page.getByRole('button', { name: 'Reload conversation', exact: true }),
   ).toBeVisible();
+  await expect(supportPage.messageInput).toHaveValue('Keep this newer draft.');
+  await expect(supportPage.requestError).toContainText(rejectedMessage);
+  expect(requests).toHaveLength(2);
+  expect(requests[1]).toEqual(requests[0]);
+  await page
+    .getByRole('button', { name: 'Reload conversation', exact: true })
+    .click();
+  await expect(
+    page.getByRole('button', { name: 'Reload conversation', exact: true }),
+  ).toHaveCount(0);
+  const useUnsent = page.getByRole('button', {
+    name: 'Use unsent message',
+    exact: true,
+  });
+  await expect(useUnsent).toBeDisabled();
+  await expect(supportPage.messageInput).toHaveValue('Keep this newer draft.');
+  await supportPage.openIncident(otherTitle);
+  await supportPage.messageInput.fill('Keep another incident draft.');
+  await supportPage.openIncident(title);
+  await expect(supportPage.messageInput).toHaveValue('Keep this newer draft.');
+  await supportPage.messageInput.clear();
+  await useUnsent.click();
   await expect(supportPage.messageInput).toHaveValue(rejectedMessage);
-  expect(requests).toBe(2);
+  await supportPage.openIncident(otherTitle);
+  await expect(supportPage.messageInput).toHaveValue(
+    'Keep another incident draft.',
+  );
+  expect(app.modelRequests).toHaveLength(0);
 });
 
 test('queues messages from two deleted refreshes and sends each recovered draft', async ({

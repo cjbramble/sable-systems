@@ -23,6 +23,7 @@ test.for([false, true])(
       );
       expect(response.status).toBe(400);
       expect(await response.json()).toMatchObject({
+        code: 'request_not_saved',
         error: expect.stringContaining('messages array is no longer supported'),
       });
       expect(prepare).not.toHaveBeenCalled();

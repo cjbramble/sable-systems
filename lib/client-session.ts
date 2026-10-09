@@ -19,9 +19,13 @@ export function notifySessionChanged() {
 export function useSessionGuard(
   subject: SessionSubject | null,
   destination: string | (() => string),
+  onInvalidated?: () => void,
 ) {
   const [sessionChanged, setSessionChanged] = useState(false);
-  const invalidateSession = useCallback(() => setSessionChanged(true), []);
+  const invalidateSession = useCallback(() => {
+    onInvalidated?.();
+    setSessionChanged(true);
+  }, [onInvalidated]);
   const reviewedSubject = useRef<SessionSubject | null>(null);
   const userId = subject?.userId;
   const customerId = subject?.customerId;

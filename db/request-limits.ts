@@ -33,9 +33,12 @@ export async function loginQuotaKey(email: string) {
   ).join('')}`;
 }
 
-export function requestLimitResponse(retryAfter: number) {
+export function requestLimitResponse(retryAfter: number, code?: string) {
   return Response.json(
-    { error: 'Too many requests. Please wait and try again.' },
+    {
+      error: 'Too many requests. Please wait and try again.',
+      ...(code === undefined ? {} : { code }),
+    },
     {
       status: 429,
       headers: {

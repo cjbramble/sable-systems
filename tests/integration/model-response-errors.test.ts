@@ -74,6 +74,7 @@ describe('model response failures', () => {
 
       expect(response.status).toBe(reason === 'TimeoutError' ? 504 : 503);
       expect(await response.json()).toEqual({
+        code: 'request_not_saved',
         error:
           reason === 'TimeoutError'
             ? 'The support model took too long to respond. Please try again.'
@@ -171,7 +172,10 @@ describe('model response failures', () => {
       );
 
       expect(response.status).toBe(expectedStatus);
-      expect(await response.json()).toEqual({ error });
+      expect(await response.json()).toEqual({
+        error,
+        code: 'request_not_saved',
+      });
       expect(fetchMock).toHaveBeenCalledOnce();
       expect(await supportApi.findIncident(incidentId)).toBeNull();
       expect((await supportApi.messages(incidentId)).results).toEqual([]);
