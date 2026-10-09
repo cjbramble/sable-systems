@@ -8,7 +8,9 @@ shipments, returns, account, and inventory, plus the user's support incidents.
 1. Authenticate the session.
 2. Interpret the current question and relevant saved conversation.
 3. Retrieve records scoped to the distributor or user.
-4. Send the policy, authorized records, and conversation to the support model.
+4. Answer ambiguous references and single order, shipment, or return lookups with
+   no match directly; otherwise send the policy, authorized records, and conversation
+   to the support model.
 5. Validate the response before returning or saving it.
 
 The model cannot write SQL or change business records. Saving a chat exchange

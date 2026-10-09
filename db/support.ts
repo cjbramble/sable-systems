@@ -4,7 +4,10 @@ import { AS_OF_DATE } from './seed';
 import type { ChatHistoryMessage } from '@/lib/chat-history';
 import type { AccountSummary } from '@/lib/contracts';
 import { formatCurrency } from '@/lib/format';
-import { itemReferences } from '@/lib/support-references';
+import {
+  itemReferences,
+  type SupportRecordReference,
+} from '@/lib/support-references';
 import {
   classifySupportQueries,
   type SupportOrderStatus,
@@ -70,26 +73,51 @@ export async function getAccountSummary(
   };
 }
 
+const REFERENCE_NAMESPACE_LABELS = {
+  order_id: 'order ID',
+  customer_po: 'customer PO',
+  shipment_id: 'shipment ID',
+  tracking_reference: 'tracking reference',
+  return_id: 'return ID',
+};
+
 function compoundPartLabel(intent: SupportQueryIntent) {
-  return 'identifier' in intent
-    ? `${intent.kind} ${intent.identifier}`
-    : 'catalog request';
+  if (!('identifier' in intent)) return 'catalog request';
+  const namespace =
+    intent.namespace === 'unresolved'
+      ? ''
+      : ` (${REFERENCE_NAMESPACE_LABELS[intent.namespace]})`;
+  return `${intent.kind} ${intent.identifier}${namespace}`;
 }
+
+const CLARIFICATION_REFERENCES = {
+  order: 'order ID or customer PO number',
+  shipment: 'shipment ID or tracking reference',
+  return: 'return ID',
+  record: 'order, shipment, or return reference, or item number',
+};
+
+export type SupportContextResult =
+  | { kind: 'records'; records: string }
+  | { kind: 'clarification'; message: string };
+
+type Clarification = Extract<SupportContextResult, { kind: 'clarification' }>;
 
 // Each part of a compound question is retrieved with the same scoped lookups
 // and combined into one records block, so every part is evidence and a missing
 // record is stated alongside the authorized ones.
-export async function buildAuthorizedContext(
+export async function buildSupportContext(
   db: D1Database,
   messages: ChatHistoryMessage[],
   user: AuthenticatedUser,
-) {
+): Promise<SupportContextResult> {
   const intents = classifySupportQueries(messages);
-  if (intents.length === 1)
-    return authorizedContextForIntent(db, intents[0], user);
   const parts: string[] = [];
   for (const [index, intent] of intents.entries()) {
     const context = await authorizedContextForIntent(db, intent, user);
+    // Resolve ambiguity before any compound facts are sent to the model.
+    if (typeof context !== 'string') return context;
+    if (intents.length === 1) return { kind: 'records', records: context };
     const records = context
       .replace(/^<authorized_records>\n/, '')
       .replace(/\n<\/authorized_records>$/, '');
@@ -97,18 +125,34 @@ export async function buildAuthorizedContext(
       `Part ${index + 1} of ${intents.length}: ${compoundPartLabel(intent)}\n${records}`,
     );
   }
-  return `<authorized_records>
+  return {
+    kind: 'records',
+    records: `<authorized_records>
 The customer asked about ${intents.length} things in one message. Answer each part from its own records.
 
 ${parts.join('\n\n')}
-</authorized_records>`;
+</authorized_records>`,
+  };
+}
+
+// Compatibility adapter for existing context/model consumers. Remove in Phase
+// 5D after those consumers migrate to typed retrieval outcomes.
+export async function buildAuthorizedContext(
+  db: D1Database,
+  messages: ChatHistoryMessage[],
+  user: AuthenticatedUser,
+) {
+  const result = await buildSupportContext(db, messages, user);
+  return result.kind === 'records'
+    ? result.records
+    : `<authorized_records>\n${result.message}\n</authorized_records>`;
 }
 
 async function authorizedContextForIntent(
   db: D1Database,
   intent: SupportQueryIntent,
   user: AuthenticatedUser,
-) {
+): Promise<string | Clarification> {
   const products =
     'message' in intent ? await matchProducts(db, intent.message) : [];
   if (
@@ -129,10 +173,15 @@ No catalog item matching ${unknown.join(', ')} was found. Ask the customer to ve
     }
   }
   switch (intent.kind) {
+    case 'clarification':
+      return {
+        kind: 'clarification',
+        message: `Please specify ${intent.reason === 'multiple_targets' ? 'which' : 'the'} ${intent.entity} you mean by its ${CLARIFICATION_REFERENCES[intent.entity]}.`,
+      };
     case 'order':
-      return orderContext(db, intent.identifier, user);
+      return orderContext(db, intent, user);
     case 'shipment':
-      return shipmentContext(db, intent.identifier, user);
+      return shipmentContext(db, intent, user);
     case 'return':
       return returnContext(db, intent.identifier, user);
     case 'orders': {
@@ -195,18 +244,35 @@ No specific order or item was identified in the request. Ask for a SABLE order I
 
 async function orderContext(
   db: D1Database,
-  identifier: string,
+  reference: Extract<SupportRecordReference, { kind: 'order' }>,
   user: AuthenticatedUser,
-) {
-  const order = await db
+): Promise<string | Clarification> {
+  const { identifier, namespace } = reference;
+  const predicate =
+    namespace === 'order_id'
+      ? 'o.order_id = ?'
+      : namespace === 'customer_po'
+        ? 'o.customer_po_number = ?'
+        : '(o.order_id = ? OR o.customer_po_number = ?)';
+  const matches = await db
     .prepare(`SELECT o.order_id, o.customer_po_number, o.created_on,
       o.requested_ship_date, o.status, o.currency, o.order_total_cents,
       o.shipping_region, o.placed_by_user_id, u.display_name AS placed_by_name
       FROM orders o
       JOIN users u ON u.user_id = o.placed_by_user_id
-      WHERE o.customer_id = ? AND (o.order_id = ? OR o.customer_po_number = ?)`)
-    .bind(user.distributorId, identifier, identifier)
-    .first<Record<string, string | number>>();
+      WHERE o.customer_id = ? AND ${predicate} LIMIT 2`)
+    .bind(
+      user.distributorId,
+      identifier,
+      ...(namespace === 'unresolved' ? [identifier] : []),
+    )
+    .all<Record<string, string | number>>();
+  if (matches.results.length > 1)
+    return {
+      kind: 'clarification',
+      message: `Please specify whether ${identifier} is an order ID or a customer PO number.`,
+    };
+  const order = matches.results[0];
 
   if (!order) {
     return `<authorized_records>
@@ -261,19 +327,39 @@ Charge account: ${charge ? `${charge.status}; ${formatCurrency(Number(charge.amo
 
 async function shipmentContext(
   db: D1Database,
-  identifier: string,
+  reference: Extract<SupportRecordReference, { kind: 'shipment' }>,
   user: AuthenticatedUser,
-) {
-  const shipment = await db
+): Promise<string | Clarification> {
+  const { identifier, namespace } = reference;
+  const predicate =
+    namespace === 'shipment_id'
+      ? 's.shipment_id = ?'
+      : namespace === 'tracking_reference'
+        ? 's.tracking_reference = ?'
+        : '(s.shipment_id = ? OR s.tracking_reference = ?)';
+  const matches = await db
     .prepare(`SELECT s.shipment_id, s.status, s.carrier_name,
       s.tracking_reference, s.shipped_on, s.estimated_delivery_date,
       s.delivered_on, o.order_id, o.customer_po_number
       FROM shipments s
       JOIN orders o ON o.order_id = s.order_id
       WHERE o.customer_id = ?
-        AND (s.shipment_id = ? OR s.tracking_reference = ?)`)
-    .bind(user.distributorId, identifier, identifier)
-    .first<Record<string, string | null>>();
+        AND ${predicate} LIMIT 2`)
+    .bind(
+      user.distributorId,
+      identifier,
+      ...(namespace === 'unresolved' ? [identifier] : []),
+    )
+    .all<Record<string, string | null>>();
+  if (matches.results.length > 1)
+    return {
+      kind: 'clarification',
+      message:
+        namespace === 'tracking_reference'
+          ? `Please specify a shipment ID for tracking reference ${identifier}.`
+          : `Please specify whether ${identifier} is a shipment ID or a tracking reference.`,
+    };
+  const shipment = matches.results[0];
   if (!shipment)
     return `<authorized_records>
 No shipment matching ${identifier} is available within ${user.distributorDisplayName}'s authorization scope. Do not confirm or deny whether it belongs to another customer.
