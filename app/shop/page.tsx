@@ -44,7 +44,7 @@ import {
 import type {
   AccountSummary,
   CatalogProduct,
-  CheckoutFailure,
+  CheckoutReceipt,
   CheckoutInput,
 } from '@/lib/contracts';
 import {
@@ -55,15 +55,9 @@ import {
 import { shopDestination } from '@/lib/auth-navigation';
 import { reconcileCart, type CartSelections } from '@/lib/cart';
 import { formatCurrency } from '@/lib/format';
+import { parseCheckoutFailure, parseCheckoutReceipt } from '@/lib/checkout';
 
 type ShopCategory = 'All' | CatalogCategory;
-
-type Confirmation = {
-  orderId: string;
-  authorizationCode: string;
-  totalCents: number;
-  requestedShipDate: string;
-};
 
 const productNotes: Record<string, string> = {
   'SBL-M14-CW': 'Cryogenic wafer-scale compute for dense autonomous systems.',
@@ -125,7 +119,13 @@ export default function ShopPage() {
   const [chargeAccountAuthorized, setChargeAccountAuthorized] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
-  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [checkoutCommand, setCheckoutCommand] = useState<CheckoutInput | null>(
+    null,
+  );
+  const checkoutLocked = submitting || checkoutCommand !== null;
+  const [confirmation, setConfirmation] = useState<CheckoutReceipt | null>(
+    null,
+  );
 
   const loadCatalog = useCallback((signal = pageRequest.current?.signal) => {
     if (!signal || signal.aborted) return;
@@ -250,7 +250,7 @@ export default function ShopPage() {
   const cartTotalLabel = subtotal === null ? 'Unavailable' : money(subtotal);
 
   function changeQuantity(product: CatalogProduct, delta: number) {
-    if (checkoutPending.current) return;
+    if (checkoutPending.current || checkoutCommand) return;
     setCart((current) => {
       const nextQuantity = Math.max(
         0,
@@ -277,7 +277,7 @@ export default function ShopPage() {
   }
 
   function removeFromCart(itemNumber: string) {
-    if (checkoutPending.current) return;
+    if (checkoutPending.current || checkoutCommand) return;
     setCart((current) => {
       const next = { ...current };
       delete next[itemNumber];
@@ -299,16 +299,46 @@ export default function ShopPage() {
 
   async function submitOrder(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (
+      !account ||
+      accountStatus !== 'ready' ||
+      sessionChanged ||
+      !cartReady ||
+      !chargeAccountAuthorized ||
+      checkoutPending.current ||
+      checkoutCommand
+    )
+      return;
+    const command: CheckoutInput = {
+      commandId: crypto.randomUUID(),
+      expectedSubject: {
+        userId: account.userId,
+        customerId: account.customerId,
+      },
+      customerPoNumber: poNumber,
+      requestedShipDate: shipDate,
+      shippingRegion: region,
+      items: cartLines.map(({ itemNumber, quantity, product }) => ({
+        itemNumber,
+        quantity,
+        // cartReady ensures every selected item has a current product.
+        expectedUnitPriceCents: product!.unitPriceCents,
+      })),
+    };
+    setCheckoutCommand(command);
+    await sendOrder(command);
+  }
+
+  async function sendOrder(command: CheckoutInput) {
     const signal = pageRequest.current?.signal;
     if (
       !signal ||
       signal.aborted ||
       sessionChanged ||
       accountStatus !== 'ready' ||
-      !account
+      !account ||
+      checkoutPending.current
     )
-      return;
-    if (!cartReady || !chargeAccountAuthorized || checkoutPending.current)
       return;
     checkoutPending.current = true;
     setSubmitting(true);
@@ -318,49 +348,50 @@ export default function ShopPage() {
         method: 'POST',
         signal,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          expectedSubject: {
-            userId: account.userId,
-            customerId: account.customerId,
-          },
-          customerPoNumber: poNumber,
-          requestedShipDate: shipDate,
-          shippingRegion: region,
-          items: cartLines.map(({ itemNumber, quantity, product }) => ({
-            itemNumber,
-            quantity,
-            // cartReady ensures every selected item has a current product.
-            expectedUnitPriceCents: product!.unitPriceCents,
-          })),
-        } satisfies CheckoutInput),
+        body: JSON.stringify(command),
       });
-      const payload = (await response.json()) as Confirmation &
-        Partial<CheckoutFailure>;
       if (signal.aborted) return;
       if (response.status === 401) {
+        setChargeAccountAuthorized(false);
         setAccountStatus('redirecting');
         redirectToLogin(requestedDestination());
         return;
       }
-      if (response.status === 409 && payload.code === 'account_changed') {
+      const payload: unknown = await response.json();
+      if (signal.aborted) return;
+      if (response.ok) {
+        const receipt = parseCheckoutReceipt(payload, command.commandId);
+        if (!receipt) throw new Error('Invalid checkout receipt.');
+        setConfirmation(receipt);
+        setCheckoutCommand(null);
+        setCart({});
+        setPoNumber('');
+        setChargeAccountAuthorized(false);
+        await loadCatalog();
+        return;
+      }
+      const failure = parseCheckoutFailure(payload);
+      if (response.status === 409 && failure?.code === 'account_changed') {
         setChargeAccountAuthorized(false);
         invalidateSession();
         return;
       }
-      if (!response.ok)
-        throw new Error(payload.error || 'Order could not be placed.');
-      setConfirmation(payload);
-      setCart({});
-      setPoNumber('');
-      setChargeAccountAuthorized(false);
-      await loadCatalog();
-    } catch (error) {
+      if (failure && [400, 403, 409, 422].includes(response.status)) {
+        // A definite rejection allows a newly reviewed command. Transport and
+        // server failures keep the original command for explicit recovery.
+        setCheckoutCommand(null);
+        setChargeAccountAuthorized(false);
+        setCheckoutError(failure.error);
+        await loadCatalog();
+        return;
+      }
+      throw new Error('Unverified checkout result.');
+    } catch {
       if (signal.aborted) return;
       setChargeAccountAuthorized(false);
       setCheckoutError(
-        error instanceof Error ? error.message : 'Order could not be placed.',
+        'Order confirmation could not be verified. The order may already be placed. Retry this order to recover its receipt.',
       );
-      await loadCatalog();
     } finally {
       checkoutPending.current = false;
       if (!signal.aborted) setSubmitting(false);
@@ -493,7 +524,9 @@ export default function ShopPage() {
             <ShieldCheck />
             <h2>Inventory link interrupted</h2>
             <p>{loadError}</p>
-            <Button onClick={retryCatalog}>Retry uplink</Button>
+            <Button onClick={retryCatalog} disabled={checkoutLocked}>
+              Retry uplink
+            </Button>
           </div>
         ) : loading ? (
           <div className="catalog-state">
@@ -574,13 +607,15 @@ export default function ShopPage() {
                       <QuantityControl
                         product={product}
                         quantity={inCart}
-                        disabled={submitting || inCart % product.casePack !== 0}
+                        disabled={
+                          checkoutLocked || inCart % product.casePack !== 0
+                        }
                         onChange={(delta) => changeQuantity(product, delta)}
                       />
                     ) : (
                       <Button
                         disabled={
-                          submitting ||
+                          checkoutLocked ||
                           (product.availableQuantity !== null &&
                             product.availableQuantity < product.casePack)
                         }
@@ -645,7 +680,12 @@ export default function ShopPage() {
                 </div>
                 <div>
                   <dt>Order total</dt>
-                  <dd>{money(confirmation.totalCents)}</dd>
+                  <dd>
+                    {formatCurrency(
+                      confirmation.totalCents,
+                      confirmation.currency,
+                    )}
+                  </dd>
                 </div>
                 <div>
                   <dt>Requested ship</dt>
@@ -660,9 +700,10 @@ export default function ShopPage() {
                 View order history <ArrowRight />
               </Link>
               <Button
-                disabled={submitting}
+                disabled={checkoutLocked}
                 onClick={() => {
-                  if (!checkoutPending.current) setConfirmation(null);
+                  if (!checkoutPending.current && !checkoutCommand)
+                    setConfirmation(null);
                 }}
               >
                 Build another order <ArrowRight />
@@ -695,7 +736,7 @@ export default function ShopPage() {
                       <QuantityControl
                         product={line.product}
                         quantity={line.quantity}
-                        disabled={submitting || line.issue === 'case_pack'}
+                        disabled={checkoutLocked || line.issue === 'case_pack'}
                         onChange={(delta) =>
                           changeQuantity(line.product!, delta)
                         }
@@ -714,7 +755,7 @@ export default function ShopPage() {
                       size="icon-sm"
                       type="button"
                       aria-label={`Remove ${line.name} from cart`}
-                      disabled={submitting}
+                      disabled={checkoutLocked}
                       onClick={() => removeFromCart(line.itemNumber)}
                     >
                       <Trash2 />
@@ -736,9 +777,9 @@ export default function ShopPage() {
                     maxLength={40}
                     pattern="[A-Za-z0-9][A-Za-z0-9-]{3,39}"
                     value={poNumber}
-                    disabled={submitting}
+                    disabled={checkoutLocked}
                     onChange={(event) => {
-                      if (!checkoutPending.current) {
+                      if (!checkoutPending.current && !checkoutCommand) {
                         setPoNumber(event.target.value);
                         setChargeAccountAuthorized(false);
                       }
@@ -754,9 +795,9 @@ export default function ShopPage() {
                     type="date"
                     min={dateOffset(0)}
                     value={shipDate}
-                    disabled={submitting}
+                    disabled={checkoutLocked}
                     onChange={(event) => {
-                      if (!checkoutPending.current) {
+                      if (!checkoutPending.current && !checkoutCommand) {
                         setShipDate(event.target.value);
                         setChargeAccountAuthorized(false);
                       }
@@ -771,9 +812,9 @@ export default function ShopPage() {
                     minLength={3}
                     maxLength={80}
                     value={region}
-                    disabled={submitting}
+                    disabled={checkoutLocked}
                     onChange={(event) => {
-                      if (!checkoutPending.current) {
+                      if (!checkoutPending.current && !checkoutCommand) {
                         setRegion(event.target.value);
                         setChargeAccountAuthorized(false);
                       }
@@ -785,9 +826,10 @@ export default function ShopPage() {
                 <input
                   type="checkbox"
                   checked={chargeAccountAuthorized}
-                  disabled={submitting || !cartReady}
+                  disabled={checkoutLocked || !cartReady}
                   onChange={(event) =>
                     !checkoutPending.current &&
+                    !checkoutCommand &&
                     setChargeAccountAuthorized(event.target.checked)
                   }
                 />
@@ -807,23 +849,29 @@ export default function ShopPage() {
                   {checkoutError}
                 </p>
               ) : null}
-              <Button
-                className="place-order"
-                size="lg"
-                type="submit"
-                disabled={
-                  !account ||
-                  accountStatus !== 'ready' ||
-                  !cartReady ||
-                  !chargeAccountAuthorized ||
-                  submitting
-                }
-              >
-                {submitting
-                  ? 'Reserving inventory…'
-                  : 'Place charge account order'}{' '}
-                <ArrowRight />
-              </Button>
+              {checkoutCommand ? (
+                <Button
+                  className="place-order"
+                  size="lg"
+                  type="button"
+                  disabled={submitting || accountStatus !== 'ready'}
+                  onClick={() => void sendOrder(checkoutCommand)}
+                >
+                  {submitting ? 'Reserving inventory…' : 'Retry this order'}{' '}
+                  <ArrowRight />
+                </Button>
+              ) : (
+                <Button
+                  className="place-order"
+                  size="lg"
+                  type="submit"
+                  disabled={
+                    !cartReady || !chargeAccountAuthorized || submitting
+                  }
+                >
+                  Place charge account order <ArrowRight />
+                </Button>
+              )}
             </form>
           ) : (
             <div className="empty-cart">

@@ -2,11 +2,7 @@ import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { getOrderHistory, parseOrderHistoryInput } from '@/db/orders';
 import type { CheckoutFailure } from '@/lib/contracts';
-import {
-  CheckoutError,
-  parseCheckoutInput,
-  placeChargeAccountOrder,
-} from '@/db/shop';
+import { CheckoutError, placeChargeAccountOrder } from '@/db/shop';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,16 +46,6 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const input = parseCheckoutInput(body);
-  if (!input) {
-    return Response.json(
-      {
-        error:
-          'Enter a valid account context, PO, ship date, destination, and order lines.',
-      },
-      { status: 400 },
-    );
-  }
   try {
     const db = await getDatabase();
     const user = await getAuthenticatedUser(db, request);
@@ -68,7 +54,7 @@ export async function POST(request: Request) {
         { error: 'Authentication required.' },
         { status: 401 },
       );
-    return Response.json(await placeChargeAccountOrder(db, input, user), {
+    return Response.json(await placeChargeAccountOrder(db, body, user), {
       status: 201,
     });
   } catch (error) {

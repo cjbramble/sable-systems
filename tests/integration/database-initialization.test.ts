@@ -3,6 +3,9 @@ import { describe, expect } from 'vitest';
 import { schemaStatements, SCHEMA_VERSION, SEED_VERSION } from '@/db/schema';
 import { deleteSupportIncident, getSupportIncidentState } from '@/db/incidents';
 import { buildSeedStatements } from '@/db/seed';
+import { placeChargeAccountOrder } from '@/db/shop';
+import { checkoutCommand } from '../fixtures/checkout';
+import { loadActiveUserFixture } from '../fixtures/users';
 import { historicalSchemaStatements } from '../fixtures/historical-schema';
 import { calderPikeUser } from '../fixtures/users';
 import {
@@ -21,6 +24,63 @@ async function expectStartupFailure(
 }
 
 describe('database initialization', () => {
+  test('adds durable checkout commands atomically to schema 11 and replays after restart', async ({
+    initialization,
+  }) => {
+    const { database, getDatabase, restart } = initialization;
+    await seedHistoricalDatabase(database, '11');
+    await database
+      .prepare(
+        "INSERT INTO metadata VALUES ('support_incidents_seed_version', '1')",
+      )
+      .run();
+    const before = await databaseSnapshot(database);
+    await database
+      .prepare(`CREATE TRIGGER fail_checkout_upgrade BEFORE UPDATE ON metadata
+      WHEN NEW.key = 'schema_version' AND NEW.value = '12'
+      BEGIN SELECT RAISE(ABORT, 'checkout upgrade interrupted'); END`)
+      .run();
+    try {
+      await expectStartupFailure(getDatabase(), /checkout upgrade interrupted/);
+      expect(
+        await database
+          .prepare(
+            "SELECT name FROM sqlite_schema WHERE name = 'checkout_commands'",
+          )
+          .first(),
+      ).toBeNull();
+      expect((await databaseSnapshot(database)).tables).toEqual(before.tables);
+    } finally {
+      await database.prepare('DROP TRIGGER fail_checkout_upgrade').run();
+    }
+    await getDatabase();
+    const after = await databaseSnapshot(database);
+    for (const [table, rows] of Object.entries(before.tables))
+      if (table !== 'metadata')
+        expect(after.tables[table], table).toEqual(rows);
+    expect(after.tables.checkout_commands).toEqual([]);
+    const input = checkoutCommand('RECOVERY-MIGRATION');
+    const user = await loadActiveUserFixture(database, 'USR-MCS-001');
+    const receipt = await placeChargeAccountOrder(database, input, user);
+    const rejected = checkoutCommand('RECOVERY-MIGRATION-REJECTED', {
+      items: [{ ...input.items[0], expectedUnitPriceCents: 68001 }],
+    });
+    await expect(
+      placeChargeAccountOrder(database, rejected, user),
+    ).rejects.toMatchObject({ status: 409, code: 'price_changed' });
+    const saved = await databaseSnapshot(database);
+    await (
+      await restart()
+    )();
+    expect(await placeChargeAccountOrder(database, input, user)).toEqual(
+      receipt,
+    );
+    await expect(
+      placeChargeAccountOrder(database, rejected, user),
+    ).rejects.toMatchObject({ status: 409, code: 'price_changed' });
+    expect(await databaseSnapshot(database)).toEqual(saved);
+  });
+
   test('refuses a prior-schema initialization checkpoint without modifying it', async ({
     initialization,
   }) => {
@@ -94,7 +154,7 @@ describe('database initialization', () => {
     },
   );
 
-  test.for(['6', '7', '8', '9', '10'] as const)(
+  test.for(['6', '7', '8', '9', '10', '11'] as const)(
     'upgrades historical schema %s without reseeding or losing records',
     async (version, { initialization }) => {
       const { database, getDatabase, restart } = initialization;
@@ -164,8 +224,8 @@ describe('database initialization', () => {
     await seedHistoricalDatabase(database, '10');
     const before = await databaseSnapshot(database);
     await database
-      .prepare(`CREATE TRIGGER fail_schema11 BEFORE UPDATE ON metadata
-      WHEN NEW.key = 'schema_version' AND NEW.value = '11'
+      .prepare(`CREATE TRIGGER fail_schema_upgrade BEFORE UPDATE ON metadata
+      WHEN NEW.key = 'schema_version' AND NEW.value = '${SCHEMA_VERSION}'
       BEGIN SELECT RAISE(ABORT, 'upgrade interrupted'); END`)
       .run();
     try {
@@ -179,7 +239,7 @@ describe('database initialization', () => {
       ).toBeNull();
       expect((await databaseSnapshot(database)).tables).toEqual(before.tables);
     } finally {
-      await database.prepare('DROP TRIGGER fail_schema11').run();
+      await database.prepare('DROP TRIGGER fail_schema_upgrade').run();
     }
     await getDatabase();
     const incidentId = 'INC-USR-CPD-001-01';

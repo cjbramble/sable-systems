@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { getDatabase } from '@/db/database';
 import { buildAuthorizedContext } from '@/db/support';
 import { classifySupportQuery } from '@/lib/support-query';
-import { parseCheckoutInput } from '@/db/shop';
+import { parseCheckoutInput } from '@/lib/checkout';
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
 // Count independently: the context must report every match, not only listed rows.
@@ -58,6 +58,7 @@ describe('support order grounding', () => {
     const reference = 'REVIEW-CUSTOM-PO';
     expect(
       parseCheckoutInput({
+        commandId: crypto.randomUUID(),
         expectedSubject: { userId: 'USR-CPD-001', customerId: 'WHS-0427' },
         customerPoNumber: reference.toLowerCase(),
         requestedShipDate: '2031-01-01',

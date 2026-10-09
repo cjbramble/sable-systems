@@ -161,6 +161,16 @@ blocked while any line is unavailable, violates its current case pack, or exceed
 stock. Requested quantities are never reduced by a refresh. A missing current price
 makes the total unavailable, and refreshed carts require charge authorization again.
 
+Checkout preserves reviewed prices and uses a stable command ID to recover the
+original receipt after a lost response. While the result is uncertain, the open
+page keeps the submitted order unchanged and offers **Retry this order**; retrying
+cannot create another order or charge for that command. A definite rejection
+unlocks the cart for a new review. Closing or reloading the page clears this local
+recovery state; check order history before starting another order. The server keeps
+committed receipts and terminal rejections across restarts, so an earlier delayed
+attempt cannot commit after a rejection. Reused IDs with a different account or
+order intent are rejected.
+
 Login permits 10 attempts per normalized email and 60 attempts across the app per
 60-second window. Model generation permits 30 customer requests per user per
 60-second window, shared across sessions; an automatic corrective model retry is

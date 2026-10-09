@@ -1,4 +1,22 @@
 import { expect, onTestFinished } from 'vitest';
+import type { CheckoutInput } from '@/lib/contracts';
+
+export function checkoutCommand(
+  customerPoNumber: string,
+  overrides: Partial<CheckoutInput> = {},
+): CheckoutInput {
+  return {
+    commandId: crypto.randomUUID(),
+    expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
+    customerPoNumber,
+    requestedShipDate: '2031-01-01',
+    shippingRegion: 'Great Lakes District',
+    items: [
+      { itemNumber: 'SBL-RPC-12', quantity: 8, expectedUnitPriceCents: 68000 },
+    ],
+    ...overrides,
+  };
+}
 
 type BusinessRow = Record<string, string | number | null>;
 
@@ -63,9 +81,23 @@ export async function createCheckoutFixture(
 
   // Never register cleanup for an existing order, even in the disposable DB.
   expect((await ordersForPO()).results).toEqual([]);
+  const commandsForPO = () =>
+    database
+      .prepare(
+        "SELECT command_id FROM checkout_commands WHERE json_extract(intent_json, '$.customerPoNumber') = ?",
+      )
+      .bind(customerPoNumber)
+      .all();
+  expect((await commandsForPO()).results).toEqual([]);
   const beforeInventory = (await inventory()).results;
   onTestFinished(async () => {
     await database.batch([
+      // Rejected commands have no order to cascade from.
+      database
+        .prepare(
+          "DELETE FROM checkout_commands WHERE json_extract(intent_json, '$.customerPoNumber') = ?",
+        )
+        .bind(customerPoNumber),
       // Cascades remove this test order's lines, charge, and confirmation event.
       database
         .prepare('DELETE FROM orders WHERE customer_po_number = ?')
@@ -89,6 +121,7 @@ export async function createCheckoutFixture(
       ),
     ]);
     expect((await ordersForPO()).results).toEqual([]);
+    expect((await commandsForPO()).results).toEqual([]);
     expect((await inventory()).results).toEqual(beforeInventory);
   });
 

@@ -11,6 +11,7 @@ import { loadActiveUserFixture } from '../fixtures/users';
 const cell = 'SBL-RPC-12';
 const cable = 'SBL-SWC-12';
 const order = {
+  commandId: crypto.randomUUID(),
   expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
   requestedShipDate: '2031-01-01',
   shippingRegion: 'Great Lakes District',
@@ -162,6 +163,8 @@ describe('reviewed checkout prices', () => {
             customerPoNumber,
             // A caller-supplied total cannot set the charge, even with valid expectations.
             totalCents: 1,
+            // Each revised price is a newly reviewed command, as in the browser.
+            commandId: crypto.randomUUID(),
             items: [{ itemNumber: cell, quantity: 8, expectedUnitPriceCents }],
           }),
         }),

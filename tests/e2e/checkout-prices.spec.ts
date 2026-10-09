@@ -109,6 +109,9 @@ for (const [direction, price, total] of [
     await shopPage.chargeConsent.check();
     const accepted = await shopPage.placeOrder();
     expect(accepted.status()).toBe(201);
+    expect(accepted.request().postDataJSON().commandId).not.toBe(
+      conflict.request().postDataJSON().commandId,
+    );
     expect(accepted.request().postDataJSON().items).toEqual([
       { itemNumber: cell, quantity: 8, expectedUnitPriceCents: price },
     ]);
