@@ -5,6 +5,10 @@ import type { ChatHistoryMessage } from '@/lib/chat-history';
 import type { AccountSummary } from '@/lib/contracts';
 import { formatCurrency } from '@/lib/format';
 import {
+  matchingOrderStatuses,
+  type SupportOrderStatusFilter,
+} from '@/lib/support-order-status';
+import {
   bindProductQuantities,
   type ProductMention,
   type QuantityOccurrence,
@@ -15,7 +19,6 @@ import {
 } from '@/lib/support-references';
 import {
   classifySupportQueries,
-  type SupportOrderStatus,
   type SupportQueryIntent,
 } from '@/lib/support-query';
 
@@ -87,6 +90,7 @@ const REFERENCE_NAMESPACE_LABELS = {
 };
 
 function compoundPartLabel(intent: SupportQueryIntent) {
+  if (intent.kind === 'orders') return 'order search';
   if (!('identifier' in intent)) return 'catalog request';
   const namespace =
     intent.namespace === 'unresolved'
@@ -174,6 +178,12 @@ async function authorizedContextForIntent(
   intent: SupportQueryIntent,
   user: AuthenticatedUser,
 ): Promise<string | Clarification> {
+  if (intent.kind === 'orders' && intent.statusFilter?.kind === 'clarification')
+    return {
+      kind: 'clarification',
+      message:
+        'Please clarify which order statuses to include or exclude. For example, ask for orders excluding cancelled and delivered.',
+    };
   if (intent.kind === 'catalog') {
     for (const { quantity } of intent.quantities)
       if (quantity.kind === 'invalid')
@@ -220,7 +230,9 @@ No catalog item matching ${unknown.join(', ')} was found. Ask the customer to ve
       return orderSearchContext(
         db,
         user,
-        intent.status,
+        intent.statusFilter?.kind === 'filter'
+          ? intent.statusFilter
+          : undefined,
         intent.year,
         intent.yearField,
         products[0],
@@ -465,18 +477,21 @@ ${items.results.map((item) => `- ${item.item_number} ${item.product_name_snapsho
 async function orderSearchContext(
   db: D1Database,
   user: AuthenticatedUser,
-  status?: SupportOrderStatus,
+  statusFilter?: Extract<SupportOrderStatusFilter, { kind: 'filter' }>,
   year?: number,
   yearField?: 'created' | 'requested',
   product?: ProductRow,
 ) {
   const clauses = ['o.customer_id = ?'];
   const params: unknown[] = [user.distributorId];
-  if (status === 'active') {
-    clauses.push("o.status NOT IN ('scheduled', 'delivered', 'cancelled')");
-  } else if (status) {
-    clauses.push('o.status = ?');
-    params.push(status);
+  if (statusFilter) {
+    const statuses = matchingOrderStatuses(statusFilter);
+    clauses.push(
+      statuses.length
+        ? `o.status IN (${statuses.map(() => '?').join(', ')})`
+        : '0 = 1',
+    );
+    params.push(...statuses);
   }
   if (year) {
     const column =
@@ -509,8 +524,17 @@ async function orderSearchContext(
     (countResult.results[0] as { total: number } | undefined)?.total ?? 0,
   );
   const rows = rowResult as D1Result<Record<string, string | number>>;
+  const included = statusFilter?.include.map((status) =>
+    status.replaceAll('_', ' '),
+  );
+  const excluded = statusFilter?.exclude.map((status) =>
+    status.replaceAll('_', ' '),
+  );
   const criteria = [
-    status ? `status ${status.replaceAll('_', ' ')}` : null,
+    included?.length ? `status ${included.join(' or ')}` : null,
+    excluded?.length
+      ? `excluding ${excluded.length === 1 ? 'status' : 'statuses'} ${excluded.join(' and ')}`
+      : null,
     year
       ? `${yearField === 'requested' ? 'requested' : 'created'} in ${year}`
       : null,

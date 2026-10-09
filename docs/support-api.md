@@ -36,6 +36,13 @@ such as “24 units each.” Fractional, invalid, or ambiguous quantities prompt
 clarification before the model is called. Quantity requests can assess up to three
 matched products; an unclear target or a larger set also prompts clarification.
 
+Order searches support status lists and explicit exclusions, such as “shipped or
+partially shipped orders,” “orders that are not cancelled,” and “active orders
+excluding on hold.” Active orders exclude scheduled, delivered, and cancelled
+statuses. Ambiguous negation, unknown explicit statuses, and contradictory filters
+prompt a saved clarification without a model call. Excluding scheduled orders does
+not change a year filter from the order's creation year to its requested ship year.
+
 The former `messages` array is no longer accepted (HTTP 400). Migrate callers to
 `message` and `expectedRevision`, preserving the entire command for retries.
 

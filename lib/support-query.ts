@@ -1,5 +1,9 @@
 import type { ChatHistoryMessage } from './chat-history.ts';
-import type { OrderStatus } from './contracts.ts';
+import {
+  matchingOrderStatuses,
+  parseOrderStatusFilter,
+  type SupportOrderStatusFilter,
+} from './support-order-status.ts';
 import {
   parseQuantityOccurrences,
   type QuantityOccurrence,
@@ -15,8 +19,6 @@ import {
   type CatalogCategory,
 } from './catalog-categories.ts';
 
-export type SupportOrderStatus = OrderStatus | 'active';
-
 export type SupportQueryIntent =
   | SupportRecordReference
   | {
@@ -27,7 +29,7 @@ export type SupportQueryIntent =
   | {
       kind: 'orders';
       message: string;
-      status?: SupportOrderStatus;
+      statusFilter?: SupportOrderStatusFilter;
       year?: number;
       yearField?: 'created' | 'requested';
     }
@@ -42,22 +44,6 @@ export type SupportQueryIntent =
       compare: boolean;
     }
   | { kind: 'summary'; message: string };
-
-function orderStatus(message: string): SupportOrderStatus | undefined {
-  if (/\bpart(?:ial|ially)[ -]shipped\b/.test(message))
-    return 'partially_shipped';
-  if (/\bon[ -]hold\b/.test(message)) return 'on_hold';
-  if (/\bbackorder(?:ed)?\b/.test(message)) return 'backordered';
-  if (/\bcancel(?:led|ed)?\b/.test(message)) return 'cancelled';
-  if (/\bdeliver(?:ed|ies|y)?\b/.test(message)) return 'delivered';
-  if (/\bshipped\b/.test(message)) return 'shipped';
-  if (/\ballocat(?:ing|ion)\b/.test(message)) return 'allocating';
-  if (/\bconfirm(?:ed|ation)?\b/.test(message)) return 'confirmed';
-  if (/\bschedul(?:ed|e)\b|\bfuture\b|\bupcoming\b/.test(message))
-    return 'scheduled';
-  if (/\bactive\b|\bopen orders?\b/.test(message)) return 'active';
-  return undefined;
-}
 
 function requestedCategory(message: string) {
   for (const word of message.match(/[a-z]+/g) ?? []) {
@@ -78,17 +64,23 @@ function classifyCurrentTopic(latest: string): SupportQueryIntent {
   if (includeCharges && items.length === 0 && !category)
     return { kind: 'account', includeCharges: true };
 
-  const status = orderStatus(normalized);
   const yearMatch = normalized.match(/\b(20\d{2})\b/);
   const year = yearMatch ? Number(yearMatch[1]) : undefined;
   if (/\b(orders|purchases?|releases?)\b/.test(normalized)) {
+    const statusFilter = parseOrderStatusFilter(normalized);
+    const includedStatuses =
+      statusFilter?.kind === 'filter' && statusFilter.include.length
+        ? matchingOrderStatuses({ ...statusFilter, exclude: [] })
+        : [];
+    const scheduledOnly =
+      includedStatuses.length === 1 && includedStatuses[0] === 'scheduled';
     return {
       kind: 'orders',
       message: normalized,
-      status,
+      statusFilter,
       year,
       yearField:
-        year && (status === 'scheduled' || /\breleases?\b/.test(normalized))
+        year && (scheduledOnly || /\breleases?\b/.test(normalized))
           ? 'requested'
           : year
             ? 'created'
@@ -351,6 +343,29 @@ export function classifySupportQueries(
   const intents: SupportQueryIntent[] = [...records];
   const rest = classifyCurrentTopic(remainder);
   if (rest.kind === 'catalog') intents.push(rest);
+  // Split only at a new request or record label. Preserve source spans so a
+  // description of named records cannot become a broad search after masking.
+  // Other continuations stay attached, including unsupported negative clauses.
+  const boundaries = Array.from(
+    latest.matchAll(
+      /(?:[;.!?]\s*|\b(?:and|also)\s+)(?=(?:please\s+)?(?:show|list|find|count|orders?|purchases?|releases?|shipments?|returns?|customer\s+po)\b)/gi,
+    ),
+    (match) => ({ start: match.index, end: match.index + match[0].length }),
+  );
+  const starts = [0, ...boundaries.map((boundary) => boundary.end)];
+  const ends = [...boundaries.map((boundary) => boundary.start), latest.length];
+  for (const [index, start] of starts.entries()) {
+    const end = ends[index];
+    if (
+      occurrences.some(
+        (reference) => reference.start < end && reference.end > start,
+      )
+    )
+      continue;
+    const request = classifyCurrentTopic(remainder.slice(start, end));
+    if (request.kind === 'orders' && request.statusFilter)
+      intents.push(request);
+  }
   return intents.length > 1
     ? intents.slice(0, MAX_COMPOUND_REQUESTS)
     : [primary];
