@@ -16,6 +16,7 @@ describe('support return grounding', () => {
 
     expect(classifySupportQuery(messages)).toEqual({
       kind: 'return',
+      namespace: 'return_id',
       identifier: 'RTN-2022-000014',
     });
 
@@ -81,6 +82,7 @@ Items:
 
     expect(classifySupportQuery(messages)).toEqual({
       kind: 'return',
+      namespace: 'return_id',
       identifier: unknownReturnId,
     });
 

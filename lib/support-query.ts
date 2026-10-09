@@ -1,10 +1,10 @@
 import type { ChatHistoryMessage } from './chat-history.ts';
 import type { OrderStatus } from './contracts.ts';
 import {
-  explicitCustomerPos,
-  explicitOrderPo,
   itemReferences,
-  referenceTokens,
+  parseSupportReferences,
+  type ReferenceOccurrence,
+  type SupportRecordReference,
 } from './support-references.ts';
 import {
   isCatalogCategory,
@@ -14,9 +14,12 @@ import {
 export type SupportOrderStatus = OrderStatus | 'active';
 
 export type SupportQueryIntent =
-  | { kind: 'order'; identifier: string }
-  | { kind: 'shipment'; identifier: string }
-  | { kind: 'return'; identifier: string }
+  | SupportRecordReference
+  | {
+      kind: 'clarification';
+      entity: 'order' | 'shipment' | 'return' | 'record';
+      reason: 'multiple_targets' | 'missing_target';
+    }
   | {
       kind: 'orders';
       message: string;
@@ -35,38 +38,6 @@ export type SupportQueryIntent =
       compare: boolean;
     }
   | { kind: 'summary'; message: string };
-
-const ORDER_PATTERN =
-  /^(?:SBL-\d{4}-[A-Z0-9-]+|[A-Z]{3}-(?:PO|REL)-[A-Z0-9-]+)$/i;
-const SHIPMENT_PATTERN = /^(?:SHP|AST)-[A-Z0-9-]+$/i;
-const RETURN_PATTERN = /^RTN-[A-Z0-9-]+$/i;
-
-function identifierFrom(message: string) {
-  const tokens = referenceTokens(message);
-  const returnIdentifier = tokens.find((token) => RETURN_PATTERN.test(token));
-  if (returnIdentifier)
-    return {
-      kind: 'return' as const,
-      identifier: returnIdentifier.toUpperCase(),
-    };
-  const shipmentIdentifier = tokens.find((token) =>
-    SHIPMENT_PATTERN.test(token),
-  );
-  if (shipmentIdentifier)
-    return {
-      kind: 'shipment' as const,
-      identifier: shipmentIdentifier.toUpperCase(),
-    };
-  const orderIdentifier =
-    explicitOrderPo(message) ??
-    tokens.find((token) => ORDER_PATTERN.test(token));
-  if (orderIdentifier)
-    return {
-      kind: 'order' as const,
-      identifier: orderIdentifier.toUpperCase(),
-    };
-  return null;
-}
 
 function orderStatus(message: string): SupportOrderStatus | undefined {
   if (/\bpart(?:ial|ially)[ -]shipped\b/.test(message))
@@ -92,50 +63,10 @@ function requestedCategory(message: string) {
   return undefined;
 }
 
-export function classifySupportQuery(
-  messages: ChatHistoryMessage[],
-): SupportQueryIntent {
-  const latest = messages.at(-1)?.content.trim() ?? '';
+function classifyCurrentTopic(latest: string): SupportQueryIntent {
   const normalized = latest.toLowerCase();
-  const explicitIdentifier = identifierFrom(latest);
-  if (explicitIdentifier) return explicitIdentifier;
-
   const items = itemReferences(latest);
   const category = requestedCategory(normalized);
-  const currentTopic =
-    items.length > 0 ||
-    category ||
-    /\b(?:orders|purchases?|releases?|incidents?|my account|account tier)\b/.test(
-      normalized,
-    );
-  // Explicit current targets outrank follow-ups. Bare "this" (for example,
-  // "this warehouse") does not refer back to an earlier order.
-  if (
-    !currentTopic &&
-    /\b(?:it|its|those|them)\b|\b(?:the|that|this) (?:order|shipment|return)\b|\b(?:about|for) that\s*[?.!]*$/.test(
-      normalized,
-    )
-  ) {
-    let assistantItems: string[] | undefined;
-    for (const message of messages.slice(0, -1).toReversed()) {
-      const previousIdentifier = identifierFrom(message.content);
-      if (previousIdentifier) return previousIdentifier;
-      const previousItems = itemReferences(message.content);
-      if (!previousItems.length) continue;
-      // Line-item SKUs in a reply must not displace the customer's order.
-      // Retain them as a fallback when no explicit conversation target exists.
-      if (message.role === 'assistant') assistantItems ??= previousItems;
-      else
-        return classifySupportQuery([
-          { role: 'user', content: `${latest} ${previousItems.join(' ')}` },
-        ]);
-    }
-    if (assistantItems)
-      return classifySupportQuery([
-        { role: 'user', content: `${latest} ${assistantItems.join(' ')}` },
-      ]);
-  }
-
   const includeCharges =
     /\b(charge|billing|authorization|payment|terms|currency|account tier|region)\b/.test(
       normalized,
@@ -197,48 +128,224 @@ export function classifySupportQuery(
 
 const MAX_COMPOUND_REQUESTS = 3;
 
-type RecordIntent = Extract<
+type RecordKind = SupportRecordReference['kind'];
+type ClarificationIntent = Extract<
   SupportQueryIntent,
-  { kind: 'order' | 'shipment' | 'return' }
+  { kind: 'clarification' }
 >;
+type Target = { references: SupportRecordReference[]; items: string[] };
+type NamespaceAnswer =
+  | { kind: 'order'; namespace: 'order_id' | 'customer_po' }
+  | { kind: 'shipment'; namespace: 'shipment_id' | 'tracking_reference' };
+type ConversationFrame = {
+  active?: Target | ClarificationIntent;
+  customer: Partial<Record<RecordKind, SupportRecordReference[]>>;
+  assistant: Partial<Record<RecordKind, SupportRecordReference[]>>;
+  assistantActive?: Target;
+};
 
-// Every explicit order, shipment or return reference, in order of appearance.
-function recordIdentifiers(message: string): RecordIntent[] {
-  const records: RecordIntent[] = [];
-  const add = (kind: RecordIntent['kind'], identifier: string) => {
-    const normalized = identifier.toUpperCase();
-    if (!records.some((record) => record.identifier === normalized))
-      records.push({ kind, identifier: normalized });
-  };
-  for (const token of referenceTokens(message)) {
-    if (RETURN_PATTERN.test(token)) add('return', token);
-    else if (SHIPMENT_PATTERN.test(token)) add('shipment', token);
-    else if (ORDER_PATTERN.test(token)) add('order', token);
-  }
-  for (const po of explicitCustomerPos(message)) add('order', po);
-  return records;
+function emptyFrame(): ConversationFrame {
+  return { customer: {}, assistant: {} };
 }
 
-// A question that names more than one record, or a record and a product, gets
-// one intent per part (up to three) so each part is retrieved. Everything else,
-// including follow-ups, keeps the single intent from classifySupportQuery.
+function uniqueReferences(occurrences: ReferenceOccurrence[]) {
+  const references: SupportRecordReference[] = [];
+  for (const { reference } of occurrences)
+    if (
+      !references.some(
+        (existing) =>
+          existing.kind === reference.kind &&
+          existing.namespace === reference.namespace &&
+          existing.identifier === reference.identifier,
+      )
+    )
+      references.push(reference);
+  return references;
+}
+
+function rememberCustomer(frame: ConversationFrame, target: Target) {
+  frame.active = target;
+  for (const kind of ['order', 'shipment', 'return'] as const) {
+    const references = target.references.filter(
+      (reference) => reference.kind === kind,
+    );
+    if (references.length) frame.customer[kind] = references;
+  }
+}
+
+function referenceEntity(
+  references: SupportRecordReference[],
+): RecordKind | 'record' {
+  const kinds = new Set(references.map((reference) => reference.kind));
+  return kinds.size === 1 ? references[0].kind : 'record';
+}
+
+function clarify(
+  frame: ConversationFrame,
+  entity: ClarificationIntent['entity'],
+  reason: ClarificationIntent['reason'],
+): ClarificationIntent {
+  const clarification = { kind: 'clarification' as const, entity, reason };
+  frame.active = clarification;
+  return clarification;
+}
+
+// Only a complete affirmative answer chooses a namespace. Questions, negation,
+// and alternatives such as "order ID or customer PO" keep their usual meaning.
+function namespaceAnswer(message: string): NamespaceAnswer | undefined {
+  const label = message
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .match(
+      /^(?:(?:it['’]s|it is) )?(?:(?:the|a|an) )?(order (?:id|number)|customer po(?: number)?|shipment (?:id|number)|tracking (?:reference|number))\s*[.!]?$/,
+    )?.[1];
+  if (label === 'order id' || label === 'order number')
+    return { kind: 'order', namespace: 'order_id' };
+  if (label === 'customer po' || label === 'customer po number')
+    return { kind: 'order', namespace: 'customer_po' };
+  if (label === 'shipment id' || label === 'shipment number')
+    return { kind: 'shipment', namespace: 'shipment_id' };
+  if (label === 'tracking reference' || label === 'tracking number')
+    return { kind: 'shipment', namespace: 'tracking_reference' };
+  return undefined;
+}
+
+function refineNamespace(
+  frame: ConversationFrame,
+  answer: NamespaceAnswer,
+): SupportQueryIntent {
+  // A field choice cannot supply a missing identifier or choose between records.
+  if (frame.active && 'kind' in frame.active) return frame.active;
+  const candidates = frame.customer[answer.kind] ?? [];
+  if (candidates.length !== 1)
+    return clarify(
+      frame,
+      answer.kind,
+      candidates.length ? 'multiple_targets' : 'missing_target',
+    );
+  const previous = candidates[0];
+  const reference: SupportRecordReference =
+    previous.namespace === 'unresolved'
+      ? { ...answer, identifier: previous.identifier }
+      : previous;
+  rememberCustomer(frame, { references: [reference], items: [] });
+  return reference;
+}
+
+function resolveFollowUp(
+  latest: string,
+  frame: ConversationFrame,
+  entity?: RecordKind,
+): SupportQueryIntent {
+  const target = entity
+    ? {
+        references: frame.customer[entity] ?? frame.assistant[entity] ?? [],
+        items: [],
+      }
+    : (frame.active ?? frame.assistantActive ?? { references: [], items: [] });
+  if ('kind' in target) return target;
+  if (
+    target.references.length > 1 ||
+    (target.references.length && target.items.length)
+  )
+    return clarify(
+      frame,
+      entity ?? referenceEntity(target.references),
+      'multiple_targets',
+    );
+  const reference = target.references[0];
+  if (reference) {
+    rememberCustomer(frame, { references: [reference], items: [] });
+    return reference;
+  }
+  if (target.items.length) {
+    rememberCustomer(frame, target);
+    return classifyCurrentTopic(`${latest} ${target.items.join(' ')}`);
+  }
+  return clarify(frame, entity ?? 'record', 'missing_target');
+}
+
+// Replay the bounded saved window. Assistant mentions provide entity-specific
+// fallbacks but never replace the customer's active target. New explicit topics
+// reset the frame; resolved follow-ups keep related targets within that frame.
+export function classifySupportQuery(
+  messages: ChatHistoryMessage[],
+): SupportQueryIntent {
+  let frame = emptyFrame();
+  let intent: SupportQueryIntent = { kind: 'summary', message: '' };
+  for (const message of messages) {
+    const latest = message.content.trim();
+    const { occurrences, remainder } = parseSupportReferences(latest);
+    const normalized = remainder.toLowerCase();
+    const references = uniqueReferences(occurrences);
+    const items = itemReferences(remainder);
+    if (message.role === 'assistant') {
+      for (const kind of ['order', 'shipment', 'return'] as const) {
+        const matching = references.filter(
+          (reference) => reference.kind === kind,
+        );
+        if (matching.length) frame.assistant[kind] = matching;
+      }
+      if (references.length || items.length)
+        frame.assistantActive = { references, items };
+      continue;
+    }
+
+    const entityCues = [
+      ...new Set(
+        Array.from(
+          normalized.matchAll(
+            /\b(?:the|that|this)\s+(order|shipment|return)\b/g,
+          ),
+          ([, entity]) => entity as RecordKind,
+        ),
+      ),
+    ];
+    const followUp =
+      entityCues.length > 0 ||
+      /\b(?:it|its|those|them)\b|\b(?:about|for) that\s*[?.!]*$/.test(
+        normalized,
+      );
+    const currentTopic =
+      items.length > 0 ||
+      requestedCategory(normalized) ||
+      /\b(?:orders|purchases?|releases?|incidents?|my account|account tier)\b/.test(
+        normalized,
+      );
+    const current = classifyCurrentTopic(remainder);
+    const answer = namespaceAnswer(latest);
+    if (
+      references.length ||
+      currentTopic ||
+      (!followUp && current.kind !== 'summary')
+    ) {
+      frame = emptyFrame();
+      rememberCustomer(frame, { references, items });
+      intent = references[0] ?? current;
+    } else if (answer) {
+      intent = refineNamespace(frame, answer);
+    } else if (followUp) {
+      intent =
+        entityCues.length > 1
+          ? clarify(frame, 'record', 'multiple_targets')
+          : resolveFollowUp(remainder, frame, entityCues[0]);
+    } else intent = current;
+  }
+  return intent;
+}
+
+// Explicit records retain appearance order and namespace, including two labels
+// with the same value. The existing three-part retrieval budget stays unchanged.
 export function classifySupportQueries(
   messages: ChatHistoryMessage[],
 ): SupportQueryIntent[] {
   const primary = classifySupportQuery(messages);
   const latest = messages.at(-1)?.content.trim() ?? '';
-  const records = recordIdentifiers(latest);
+  const { occurrences, remainder } = parseSupportReferences(latest);
+  const records = uniqueReferences(occurrences);
   if (!records.length) return [primary];
   const intents: SupportQueryIntent[] = [...records];
-  const remainder = records.reduce(
-    (text, record) =>
-      text.replace(
-        new RegExp(record.identifier.replace(/[-]/g, '\\-'), 'gi'),
-        ' ',
-      ),
-    latest,
-  );
-  const rest = classifySupportQuery([{ role: 'user', content: remainder }]);
+  const rest = classifyCurrentTopic(remainder);
   if (rest.kind === 'catalog') intents.push(rest);
   return intents.length > 1
     ? intents.slice(0, MAX_COMPOUND_REQUESTS)

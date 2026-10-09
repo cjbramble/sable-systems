@@ -1,9 +1,49 @@
-import { explicitCustomerPos, explicitOrderPo } from './support-references.ts';
+import { parseSupportReferences } from './support-references.ts';
 
 // Accept any suffix length so malformed IDs (including extra zeros) are checked,
 // not silently ignored by a regex that only recognizes valid database formats.
 const SUPPORT_IDENTIFIER_PATTERN =
   /\b(?:(?:SBL|SHP|RTN|AST|INC)-[A-Z0-9]+(?:-[A-Z0-9]+)*|[A-Z]{3}-(?:PO|REL)-[A-Z0-9]+(?:-[A-Z0-9]+)*)\b/gi;
+
+// The current context adapter uses labeled fields and two order-list formats.
+// Read those fields rather than authorizing custom IDs mentioned in event prose.
+function authorizedOrderReferences(context: string) {
+  const orderIds = new Set<string>();
+  const customerPos = new Set<string>();
+  let list: 'orders' | 'charges' | undefined;
+  for (const line of context.split('\n')) {
+    if (line.startsWith('Order search')) {
+      list = 'orders';
+      continue;
+    }
+    if (line === 'Recent charge-account authorizations:') {
+      list = 'charges';
+      continue;
+    }
+    if (line.startsWith('- ')) {
+      const row =
+        list === 'orders'
+          ? /^- ([A-Z0-9-]+) \/ ([A-Z0-9-]+):/.exec(line)
+          : list === 'charges'
+            ? /^- ([A-Z0-9-]+):/.exec(line)
+            : null;
+      if (row) {
+        orderIds.add(row[1].toUpperCase());
+        if (row[2]) customerPos.add(row[2].toUpperCase());
+      }
+      continue;
+    }
+    list = undefined;
+    if (!/^(?:Order|Shipment|Return|Customer PO):/i.test(line)) continue;
+    for (const [, field, identifier] of line.matchAll(
+      /(?:^|;)\s*(order|customer PO):\s*`?([A-Z0-9-]+)`?(?=[;.]|$)/gi,
+    ))
+      (field.toLowerCase() === 'order' ? orderIds : customerPos).add(
+        identifier.toUpperCase(),
+      );
+  }
+  return { orderIds, customerPos };
+}
 
 export function hasGroundedSupportIdentifiers(
   content: string,
@@ -14,22 +54,31 @@ export function hasGroundedSupportIdentifiers(
       id.toUpperCase(),
     ),
   );
-  // Plain-word POs must be present as references, not merely as prose somewhere
-  // in the context. Unresolved inquiries may be echoed without claiming a match.
-  const authorizedReferences = new Set([
-    ...authorizedIdentifiers,
-    ...explicitCustomerPos(authorizedContext),
-    ...Array.from(
+  const { orderIds, customerPos } =
+    authorizedOrderReferences(authorizedContext);
+  // Unresolved inquiries may still be echoed without claiming a match. The
+  // prose adapter does not retain the namespace of an unavailable reference.
+  const unavailableOrders = new Set(
+    Array.from(
       authorizedContext.matchAll(
-        /\bNo order matching ([A-Z0-9-]+) is available\b/g,
+        /^No order matching ([A-Z0-9-]+) is available\b/gm,
       ),
-      ([, reference]) => reference,
+      ([, identifier]) => identifier,
     ),
-  ]);
-  const orderPo = explicitOrderPo(content);
+  );
   return (
-    (!orderPo || authorizedReferences.has(orderPo)) &&
-    explicitCustomerPos(content).every((po) => authorizedReferences.has(po)) &&
+    parseSupportReferences(content).occurrences.every(({ reference }) => {
+      if (reference.kind !== 'order') return true;
+      const { identifier, namespace } = reference;
+      if (unavailableOrders.has(identifier)) return true;
+      if (namespace === 'order_id') return orderIds.has(identifier);
+      if (namespace === 'customer_po') return customerPos.has(identifier);
+      return (
+        orderIds.has(identifier) ||
+        customerPos.has(identifier) ||
+        authorizedIdentifiers.has(identifier)
+      );
+    }) &&
     Array.from(
       content.matchAll(SUPPORT_IDENTIFIER_PATTERN),
       // Record IDs are uppercase; a model may echo a customer's lowercase form.

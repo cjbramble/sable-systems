@@ -12,7 +12,7 @@ import {
   SupportMessageTextConflictError,
   SupportRevisionConflictError,
 } from '@/db/incidents';
-import { buildAuthorizedContext } from '@/db/support';
+import { buildSupportContext } from '@/db/support';
 import {
   parseSupportRequest,
   MAX_CHAT_REQUEST_BYTES,
@@ -155,7 +155,9 @@ export async function POST(request: Request) {
         formatIncidentListReply(await listSupportIncidents(db, user)),
       );
 
-    const authorizedContext = await buildAuthorizedContext(db, history, user);
+    const context = await buildSupportContext(db, history, user);
+    if (context.kind === 'clarification') return await reply(context.message);
+    const authorizedContext = context.records;
     const unavailable = unavailableRecordReply(authorizedContext);
     if (unavailable) return await reply(unavailable);
     const retryAfter = await consumeRequestQuota(

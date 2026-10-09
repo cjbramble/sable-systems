@@ -16,6 +16,7 @@ describe('support shipment grounding', () => {
 
     expect(classifySupportQuery(messages)).toEqual({
       kind: 'shipment',
+      namespace: 'shipment_id',
       identifier: 'SHP-2026-000417',
     });
 
@@ -90,6 +91,7 @@ Shipped: 2026-08-26; estimated delivery: 2026-08-31; delivered: not yet.
 
     expect(classifySupportQuery(messages)).toEqual({
       kind: 'shipment',
+      namespace: 'shipment_id',
       identifier: externalShipment.shipment_id,
     });
 

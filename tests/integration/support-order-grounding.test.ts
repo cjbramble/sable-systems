@@ -133,6 +133,7 @@ describe('support order grounding', () => {
 
     expect(classifySupportQuery(messages)).toEqual({
       kind: 'order',
+      namespace: 'unresolved',
       identifier: 'SBL-2026-000417',
     });
 
@@ -174,6 +175,7 @@ describe('support order grounding', () => {
 
     expect(classifySupportQuery(messages)).toEqual({
       kind: 'order',
+      namespace: 'customer_po',
       identifier: 'CPD-PO-260417',
     });
 
@@ -301,6 +303,7 @@ describe('support order grounding', () => {
 
     expect(classifySupportQuery(messages)).toEqual({
       kind: 'order',
+      namespace: 'unresolved',
       identifier: 'SBL-2026-000417',
     });
 
@@ -362,6 +365,7 @@ describe('support order grounding', () => {
 
     expect(classifySupportQuery(messages)).toEqual({
       kind: 'order',
+      namespace: 'unresolved',
       identifier: 'SBL-2026-000418',
     });
 
@@ -456,6 +460,7 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
 
     expect(classifySupportQuery(messages)).toEqual({
       kind: 'order',
+      namespace: 'customer_po',
       identifier: 'MCS-PO-500000',
     });
 
@@ -504,6 +509,7 @@ No order matching MCS-PO-500000 is available within Calder Pike Distribution's a
 
     expect(classifySupportQuery(messages)).toEqual({
       kind: 'order',
+      namespace: 'order_id',
       identifier: 'SBL-2021-500000',
     });
 
