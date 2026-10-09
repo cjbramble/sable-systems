@@ -79,6 +79,14 @@ test('keeps a pending exchange owned by its incident and replays a saved but los
 }) => {
   const received = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
+  const submitted: unknown[] = [];
+  page.on('request', (request) => {
+    if (
+      new URL(request.url()).pathname === '/api/chat' &&
+      request.method() === 'POST'
+    )
+      submitted.push(request.postDataJSON());
+  });
   let original!: { incidentId: string; messageId: string; message: string };
   await page.route(
     '**/api/chat',
@@ -98,16 +106,41 @@ test('keeps a pending exchange owned by its incident and replays a saved but los
     await supportPage.submitMessage(question);
     await received.promise;
     await expect(supportPage.responding).toBeVisible();
+    await expect(page.getByText('Pending', { exact: true })).toBeVisible();
+    await expect(supportPage.messageInput).toBeEnabled();
+    await supportPage.messageInput.fill('Keep this dependent draft.');
+    await expect(
+      page.getByRole('button', { name: 'Send message' }),
+    ).toBeDisabled();
     await supportPage.openIncident(firstTitle);
     await expect(supportPage.responding).toHaveCount(0);
     await expect(supportPage.deleteButton(question)).toBeDisabled();
     await expect(supportPage.deleteButton(firstTitle)).toBeEnabled();
+    await supportPage.messageInput.fill('Keep this unrelated draft.');
     release.resolve();
     await expect(supportPage.messageInput).toBeEnabled();
     await expect(supportPage.requestError).toHaveCount(0);
     await supportPage.openIncident(question);
     await expect(supportPage.requestError).toBeVisible();
+    await expect(
+      page.getByText('Save unconfirmed', { exact: true }),
+    ).toBeVisible();
+    await expect(supportPage.messageInput).toHaveValue(
+      'Keep this dependent draft.',
+    );
     await expect(supportPage.retryMessageButton).toBeEnabled();
+    await expect(
+      page.getByRole('button', { name: 'Send message' }),
+    ).toBeDisabled();
+    await supportPage.messageInput.press('Enter');
+    await page
+      .getByRole('button', { name: /Trace an order/ })
+      .dispatchEvent('click');
+    await expect(supportPage.messageInput).toHaveValue(
+      'Keep this dependent draft.',
+    );
+    expect(app.modelRequests).toHaveLength(1);
+    expect(submitted).toHaveLength(1);
 
     const readMessages = async () =>
       (
@@ -133,6 +166,9 @@ test('keeps a pending exchange owned by its incident and replays a saved but los
     expect(response.status()).toBe(200);
     expect(response.request().postDataJSON()).toEqual(original);
     await expect(supportPage.requestError).toHaveCount(0);
+    await expect(supportPage.messageInput).toHaveValue(
+      'Keep this dependent draft.',
+    );
     await expect(
       supportPage.messages.filter({ hasText: question }),
     ).toHaveCount(1);
@@ -141,6 +177,10 @@ test('keeps a pending exchange owned by its incident and replays a saved but los
     );
     expect(await readMessages()).toEqual(saved);
     expect(app.modelRequests).toHaveLength(1);
+    await supportPage.openIncident(firstTitle);
+    await expect(supportPage.messageInput).toHaveValue(
+      'Keep this unrelated draft.',
+    );
     await supportPage.reload();
     await supportPage.openIncident(question);
     await expect(supportPage.messages).toHaveText([question, reply]);

@@ -200,7 +200,7 @@ export class SupportPage {
 
   async startIncident() {
     await this.page
-      .getByRole('button', { name: 'New service incident' })
+      .getByRole('button', { name: 'New service incident', exact: true })
       .click();
   }
 

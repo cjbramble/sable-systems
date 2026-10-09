@@ -415,7 +415,10 @@ test('foreign users cannot delete, claim, or inspect owned and deleted identitie
     }),
   );
   expect(response.status).toBe(403);
-  expect(await response.json()).toEqual({ error: 'Incident access denied.' });
+  expect(await response.json()).toEqual({
+    code: 'request_not_saved',
+    error: 'Incident access denied.',
+  });
 });
 
 test('a failed content deletion rolls back its marker and remains writable', async ({

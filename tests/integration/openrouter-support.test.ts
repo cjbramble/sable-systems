@@ -189,6 +189,7 @@ test.for([401, 402, 429, 503])(
     );
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({
+      code: 'request_not_saved',
       error:
         'The support model could not complete that request. Please try again.',
     });

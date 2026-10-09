@@ -19,6 +19,7 @@ test('rejects oversized new completions before saving and permits the same comma
   const rejected = await POST(session.request(command));
   expect(rejected.status).toBe(502);
   expect(await rejected.json()).toMatchObject({
+    code: 'request_not_saved',
     error: expect.stringContaining('reply was too long'),
   });
   expect(await supportApi.findIncident(incidentId)).toBeNull();
@@ -56,6 +57,7 @@ test.for([200, 503])(
       );
       expect(rejected.status).toBe(502);
       expect(await rejected.json()).toMatchObject({
+        code: 'request_not_saved',
         error: expect.stringContaining('response was too large'),
       });
       expect(await supportApi.findIncident(incidentId)).toBeNull();

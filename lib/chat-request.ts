@@ -31,7 +31,7 @@ export type SupportReply = SupportResponse & {
 
 export type SupportFailure = {
   error: string;
-  code?: 'incident_deleted' | 'incident_changed';
+  code?: 'incident_deleted' | 'incident_changed' | 'request_not_saved';
 };
 
 export function parseIncidentId(value: unknown): string | null {
@@ -112,7 +112,9 @@ export function parseSupportFailure(value: unknown): SupportFailure | null {
   if (typeof error !== 'string' || !error.trim() || error.length > 1000)
     return null;
   if (code === undefined) return { error };
-  return code === 'incident_deleted' || code === 'incident_changed'
+  return code === 'incident_deleted' ||
+    code === 'incident_changed' ||
+    code === 'request_not_saved'
     ? { error, code }
     : null;
 }

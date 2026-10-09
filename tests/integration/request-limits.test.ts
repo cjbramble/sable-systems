@@ -76,6 +76,9 @@ describe('durable request quotas', () => {
     expect(blocked.status).toBe(429);
     expect(blocked.headers.get('Retry-After')).toBe('60');
     expect(blocked.headers.get('Set-Cookie')).toBeNull();
+    expect(await blocked.json()).toEqual({
+      error: 'Too many requests. Please wait and try again.',
+    });
     const key = await loginQuotaKey(email);
     expect(key).not.toContain(email);
 
@@ -141,6 +144,11 @@ describe('durable request quotas', () => {
     const blocked = await chat(anotherSession.request(next));
     expect(blocked.status).toBe(429);
     expect(blocked.headers.get('Retry-After')).toBe('60');
+    expect(blocked.headers.get('Cache-Control')).toBe('no-store');
+    expect(await blocked.json()).toEqual({
+      error: 'Too many requests. Please wait and try again.',
+      code: 'request_not_saved',
+    });
     expect(model).toHaveBeenCalledTimes(1);
     expect((await supportApi.messageContents(incidentId)).results).toHaveLength(
       2,
@@ -184,6 +192,9 @@ describe('durable request quotas', () => {
     expect(denied).toHaveLength(2);
     for (const index of denied) {
       expect(responses[index].headers.get('Retry-After')).toBe('60');
+      expect(await responses[index].json()).toEqual({
+        error: 'Too many requests. Please wait and try again.',
+      });
       expect(
         await database
           .prepare(

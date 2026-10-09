@@ -7,9 +7,11 @@ import {
   KeyboardEvent,
   Fragment,
   SyntheticEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
+  useReducer,
   useState,
 } from 'react';
 import {
@@ -58,9 +60,7 @@ import {
 import { SessionChangedNotice } from '@/components/session-changed-notice';
 import type { AccountSummary } from '@/lib/contracts';
 import {
-  createIncidentTitle,
   filterSupportIncidents,
-  removeSupportIncident,
   type SupportChatMessage,
   type SupportIncident,
 } from '@/lib/support-incidents';
@@ -70,21 +70,25 @@ import {
   supportTimeLabel,
 } from '@/lib/support-time';
 import { cn } from '@/lib/utils';
-import { parseIncidentSnapshot } from '@/lib/support-reconciliation';
+import {
+  parseIncidentSnapshot,
+  reconcileSupportSnapshot,
+} from '@/lib/support-reconciliation';
+import {
+  initialSupportConversation,
+  supportConversationReducer,
+  supportDraft,
+} from '@/lib/support-conversation';
 
 type RuntimeState = 'checking' | 'ready' | 'offline';
 
-type IncidentFailure = { error: string; request?: SupportCommand };
-type IncidentRecovery = {
-  message: string;
-  status: 'stale' | 'loading' | 'ready';
-  error?: string;
-};
+type IncidentFailure = { error: string };
 
 class ChatRequestError extends Error {
   constructor(
     message: string,
     readonly modelUnavailable = false,
+    readonly requestNotSaved = false,
   ) {
     super(message);
     this.name = 'ChatRequestError';
@@ -135,12 +139,19 @@ function createIncidentId() {
 export default function SupportPage() {
   const { signOut, signingOut, signOutError } = useSignOut();
   const pageRequest = useRef<AbortController | null>(null);
-  const [conversation, setConversation] = useState<{
-    incidents: SupportIncident[];
-    activeIncidentId: string | null;
-    draft: string;
-  }>({ incidents: [], activeIncidentId: null, draft: '' });
-  const { incidents, activeIncidentId, draft } = conversation;
+  const [conversation, dispatch] = useReducer(
+    supportConversationReducer,
+    undefined,
+    initialSupportConversation,
+  );
+  const {
+    incidents,
+    activeIncidentId,
+    exchanges,
+    recoveries,
+    deletedMessages,
+  } = conversation;
+  const draft = supportDraft(conversation);
   const [incidentSearch, setIncidentSearch] = useState('');
   const pendingRequest = useRef<SupportCommand | null>(null);
   const [sendingIncidentId, setSendingIncidentId] = useState<string | null>(
@@ -149,37 +160,44 @@ export default function SupportPage() {
   const deletingIncidents = useRef(new Set<string>());
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
   const [failures, setFailures] = useState<Record<string, IncidentFailure>>({});
-  const [recoveries, setRecoveries] = useState<
-    Record<string, IncidentRecovery>
-  >({});
   const refreshRequests = useRef(new Map<string, AbortController>());
-  const [deletedMessages, setDeletedMessages] = useState<string[]>([]);
+  const [refreshingIds, setRefreshingIds] = useState<string[]>([]);
   const deletedMessage = deletedMessages[0] ?? null;
-  const [recoveredIncidentId, setRecoveredIncidentId] = useState<string | null>(
-    null,
-  );
   const failure = activeIncidentId ? failures[activeIncidentId] : undefined;
+  const exchange = activeIncidentId ? exchanges[activeIncidentId] : undefined;
   const recovery = activeIncidentId ? recoveries[activeIncidentId] : undefined;
-  const retryRequest = failure?.request;
   const isSending = sendingIncidentId !== null;
-  const composerDisabled =
-    isSending ||
-    recovery?.status === 'loading' ||
-    deletingIds.includes(activeIncidentId ?? '');
+  const isRefreshing = refreshingIds.includes(activeIncidentId ?? '');
+  const composerDisabled = deletingIds.includes(activeIncidentId ?? '');
+  const actionDisabled = isSending || isRefreshing || composerDisabled;
   const sendDisabled =
-    composerDisabled ||
-    (deletedMessage !== null && activeIncidentId !== recoveredIncidentId) ||
-    (recovery !== undefined && recovery.status !== 'ready');
+    actionDisabled ||
+    Boolean(exchange) ||
+    Boolean(
+      recovery && (recovery.status !== 'ready' || recovery.message !== null),
+    );
   const [runtime, setRuntime] = useState<RuntimeState>('checking');
   const [account, setAccount] = useState<AccountSummary | null>(null);
-  const { sessionChanged } = useSessionGuard(account, '/support');
-  useEffect(() => {
-    if (sessionChanged) {
-      for (const controller of refreshRequests.current.values())
-        controller.abort();
-      refreshRequests.current.clear();
-    }
-  }, [sessionChanged]);
+  const clearConversationState = useCallback(() => {
+    pageRequest.current?.abort();
+    for (const controller of refreshRequests.current.values())
+      controller.abort();
+    refreshRequests.current.clear();
+    deletingIncidents.current.clear();
+    pendingRequest.current = null;
+    dispatch({ type: 'reset' });
+    setFailures({});
+    setSendingIncidentId(null);
+    setDeletingIds([]);
+    setRefreshingIds([]);
+    setIncidentSearch('');
+    setAccount(null);
+  }, []);
+  const { sessionChanged } = useSessionGuard(
+    account,
+    '/support',
+    clearConversationState,
+  );
   const [loadStatus, setLoadStatus] = useState<
     'loading' | 'ready' | 'error' | 'redirecting'
   >('loading');
@@ -192,10 +210,21 @@ export default function SupportPage() {
     () => incidents.find((incident) => incident.id === activeIncidentId),
     [activeIncidentId, incidents],
   );
-  const messages = useMemo(
-    () => activeIncident?.messages ?? [openingMessage],
-    [activeIncident],
-  );
+  const messages = useMemo(() => {
+    const saved = activeIncident?.messages.length
+      ? activeIncident.messages
+      : [openingMessage];
+    if (!exchange) return saved;
+    return [
+      ...saved,
+      {
+        id: exchange.request.messageId,
+        role: 'user' as const,
+        content: exchange.request.message,
+        createdAt: exchange.createdAt,
+      },
+    ];
+  }, [activeIncident, exchange]);
   const filteredIncidents = useMemo(
     () => filterSupportIncidents(incidents, incidentSearch),
     [incidentSearch, incidents],
@@ -234,6 +263,7 @@ export default function SupportPage() {
           accountResponse.status === 401 ||
           incidentsResponse.status === 401
         ) {
+          clearConversationState();
           setLoadStatus('redirecting');
           redirectToLogin('/support');
           return;
@@ -254,11 +284,7 @@ export default function SupportPage() {
       .then((payload) => {
         if (!controller.signal.aborted && payload) {
           const [summary, incidentPayload] = payload;
-          setConversation({
-            incidents: incidentPayload.incidents,
-            activeIncidentId: incidentPayload.incidents[0]?.id ?? null,
-            draft: '',
-          });
+          dispatch({ type: 'load', incidents: incidentPayload.incidents });
           setAccount(summary);
           setLoadStatus('ready');
         }
@@ -276,7 +302,7 @@ export default function SupportPage() {
     return () => {
       controller.abort();
     };
-  }, [loadAttempt]);
+  }, [loadAttempt, clearConversationState]);
 
   function retrySupport() {
     setLoadStatus('loading');
@@ -301,61 +327,50 @@ export default function SupportPage() {
     return () => desktop.removeEventListener('change', closeOnDesktop);
   }, []);
 
-  function newConversation(initialDraft = '') {
+  function expireSupportSession() {
+    clearConversationState();
+    setLoadStatus('redirecting');
+    redirectToLogin('/support');
+  }
+
+  function newConversation() {
     if (
-      !initialDraft &&
-      activeIncident?.title === 'New service incident' &&
-      activeIncident.messages.length === 1
+      activeIncident &&
+      !(
+        activeIncident.title === 'New service incident' &&
+        activeIncident.messages.length === 0 &&
+        !exchange
+      )
     ) {
-      setMobileMenuOpen(false);
-      if (!mobileMenuOpen)
-        window.setTimeout(() => inputRef.current?.focus(), 0);
-      return activeIncident.id;
+      dispatch({
+        type: 'new',
+        incidentId: createIncidentId(),
+        createdAt: timestamp(),
+      });
     }
-    const incident: SupportIncident = {
-      id: createIncidentId(),
-      title: 'New service incident',
-      updatedAt: timestamp(),
-      revision: 0,
-      messages: [openingMessage],
-    };
-    setConversation((current) => ({
-      incidents: [incident, ...current.incidents],
-      activeIncidentId: incident.id,
-      draft: initialDraft,
-    }));
     setIncidentSearch('');
     setMobileMenuOpen(false);
     if (!mobileMenuOpen) window.setTimeout(() => inputRef.current?.focus(), 0);
-    return incident.id;
   }
 
   function recoverDeletedMessage() {
-    if (deletedMessage === null || draft.length > 0) return;
-    setRecoveredIncidentId(newConversation(deletedMessage));
-    discardDeletedMessage();
-  }
-
-  function discardDeletedMessage() {
-    setDeletedMessages((current) => current.slice(1));
-  }
-
-  function retainDeletedMessage(message: string) {
-    setDeletedMessages((current) => [...current, message]);
+    dispatch({
+      type: 'recoverDeleted',
+      incidentId: createIncidentId(),
+      createdAt: timestamp(),
+    });
+    setIncidentSearch('');
+    setMobileMenuOpen(false);
   }
 
   function selectIncident(incidentId: string) {
-    setConversation((current) => ({
-      ...current,
-      activeIncidentId: incidentId,
-      draft: recoveries[incidentId]?.message ?? '',
-    }));
+    dispatch({ type: 'select', incidentId });
     setMobileMenuOpen(false);
   }
 
   async function deleteIncident(incident: SupportIncident) {
     const signal = pageRequest.current?.signal;
-    if (!signal || signal.aborted) return;
+    if (!signal || signal.aborted || sessionChanged) return;
     if (
       pendingRequest.current?.incidentId === incident.id ||
       deletingIncidents.current.has(incident.id)
@@ -373,7 +388,7 @@ export default function SupportPage() {
       });
       if (signal.aborted) return;
       if (response.status === 401) {
-        redirectToLogin('/support');
+        expireSupportSession();
         return;
       }
       if (!response.ok) {
@@ -386,7 +401,6 @@ export default function SupportPage() {
       setFailures((current) => ({
         ...current,
         [incident.id]: {
-          ...current[incident.id],
           error:
             error instanceof Error
               ? error.message
@@ -399,21 +413,11 @@ export default function SupportPage() {
     }
   }
 
-  function removeIncident(incidentId: string) {
+  function removeIncident(incidentId: string, unavailable = false) {
     refreshRequests.current.get(incidentId)?.abort();
     refreshRequests.current.delete(incidentId);
-    clearRecovery(incidentId);
-    setConversation((current) => {
-      const remaining = removeSupportIncident(current.incidents, incidentId);
-      return {
-        incidents: remaining,
-        activeIncidentId:
-          current.activeIncidentId === incidentId
-            ? (remaining[0]?.id ?? null)
-            : current.activeIncidentId,
-        draft: current.activeIncidentId === incidentId ? '' : current.draft,
-      };
-    });
+    setRefreshingIds((current) => current.filter((id) => id !== incidentId));
+    dispatch({ type: unavailable ? 'unavailable' : 'remove', incidentId });
     clearFailure(incidentId);
   }
 
@@ -425,22 +429,16 @@ export default function SupportPage() {
     });
   }
 
-  function clearRecovery(incidentId: string) {
-    setRecoveries((current) => {
-      const next = { ...current };
-      delete next[incidentId];
-      return next;
-    });
-  }
-
   async function reloadConversation(incidentId: string) {
     const pageSignal = pageRequest.current?.signal;
-    const savedRecovery = recoveries[incidentId];
+    const retained = exchanges[incidentId];
+    const stale = recoveries[incidentId];
     if (
       !pageSignal ||
       pageSignal.aborted ||
       sessionChanged ||
-      !savedRecovery ||
+      (!stale && retained?.status !== 'uncertain') ||
+      pendingRequest.current?.incidentId === incidentId ||
       refreshRequests.current.has(incidentId) ||
       deletingIncidents.current.has(incidentId)
     )
@@ -448,14 +446,7 @@ export default function SupportPage() {
     const controller = new AbortController();
     const signal = AbortSignal.any([pageSignal, controller.signal]);
     refreshRequests.current.set(incidentId, controller);
-    setRecoveries((current) => ({
-      ...current,
-      [incidentId]: {
-        ...current[incidentId],
-        status: 'loading',
-        error: undefined,
-      },
-    }));
+    setRefreshingIds((current) => [...current, incidentId]);
     try {
       const response = await fetch('/api/incidents', {
         cache: 'no-store',
@@ -463,7 +454,7 @@ export default function SupportPage() {
       });
       if (signal.aborted) return;
       if (response.status === 401) {
-        redirectToLogin('/support');
+        expireSupportSession();
         return;
       }
       if (!response.ok)
@@ -473,120 +464,93 @@ export default function SupportPage() {
       const body: unknown = await response.json();
       if (signal.aborted) return;
       const snapshot = parseIncidentSnapshot(body, incidentId);
-      if (!snapshot) {
-        removeIncident(incidentId);
-        retainDeletedMessage(savedRecovery.message);
-        return;
+      if (stale) {
+        if (!snapshot) {
+          removeIncident(incidentId, true);
+          return;
+        }
+        dispatch({ type: 'reloaded', snapshot });
+      } else if (retained) {
+        const outcome = reconcileSupportSnapshot(snapshot, retained.request);
+        if (snapshot && outcome === 'confirmed') {
+          dispatch({ type: 'reconciled', request: retained.request, snapshot });
+        } else if (snapshot && outcome === 'changed') {
+          dispatch({ type: 'changed', request: retained.request, snapshot });
+        } else {
+          dispatch({
+            type: 'unconfirmed',
+            request: retained.request,
+            error:
+              'Your message is not confirmed yet. Retry the same message to resolve it before sending another.',
+          });
+        }
       }
-      setConversation((current) => ({
-        ...current,
-        incidents: current.incidents.map((incident) =>
-          incident.id === incidentId ? snapshot : incident,
-        ),
-      }));
-      setRecoveries((current) => ({
-        ...current,
-        [incidentId]: {
-          ...current[incidentId],
-          status: 'ready',
-          error: undefined,
-        },
-      }));
     } catch {
       if (signal.aborted) return;
-      setRecoveries((current) => ({
-        ...current,
-        [incidentId]: {
-          ...current[incidentId],
-          status: 'stale',
-          error: 'The conversation could not be reloaded. Please try again.',
-        },
-      }));
+      const error = 'The conversation could not be reloaded. Please try again.';
+      if (stale) dispatch({ type: 'recoveryFailed', incidentId, error });
+      else if (retained)
+        dispatch({ type: 'unconfirmed', request: retained.request, error });
     } finally {
-      if (refreshRequests.current.get(incidentId) === controller)
+      if (refreshRequests.current.get(incidentId) === controller) {
         refreshRequests.current.delete(incidentId);
+        setRefreshingIds((current) =>
+          current.filter((id) => id !== incidentId),
+        );
+      }
     }
   }
 
   function changeDraft(message: string) {
-    setConversation((current) => ({ ...current, draft: message }));
-    if (activeIncidentId && recovery) {
-      setRecoveries((current) => ({
-        ...current,
-        [activeIncidentId]: { ...current[activeIncidentId], message },
-      }));
+    let incidentId = activeIncidentId;
+    if (!incidentId) {
+      if (!message) return;
+      incidentId = createIncidentId();
+      dispatch({ type: 'new', incidentId, createdAt: timestamp() });
     }
+    dispatch({ type: 'edit', incidentId, message });
   }
 
   async function sendMessage(rawMessage?: string) {
     const signal = pageRequest.current?.signal;
-    if (!signal || signal.aborted) return;
+    if (!signal || signal.aborted || sessionChanged) return;
     const content = (rawMessage ?? draft).trim();
     if (
       !content ||
       pendingRequest.current ||
-      (deletedMessage !== null && activeIncidentId !== recoveredIncidentId) ||
-      (recovery !== undefined && recovery.status !== 'ready') ||
+      exchange ||
+      (recovery &&
+        (recovery.status !== 'ready' || recovery.message !== null)) ||
+      refreshRequests.current.has(activeIncidentId ?? '') ||
       deletingIncidents.current.has(activeIncidentId ?? '')
     )
       return;
-
-    const userMessage: SupportChatMessage = {
-      id: createId(),
-      role: 'user',
-      content,
-      createdAt: timestamp(),
-    };
-    const incidentId = activeIncident?.id ?? createIncidentId();
-    const nextMessages = [...messages, userMessage];
-
-    if (activeIncident) {
-      setConversation((current) => ({
-        ...current,
-        draft: '',
-        incidents: current.incidents.map((incident) =>
-          incident.id === incidentId
-            ? {
-                ...incident,
-                title:
-                  incident.messages.length === 1
-                    ? createIncidentTitle(content)
-                    : incident.title,
-                updatedAt: userMessage.createdAt!,
-                messages: nextMessages,
-              }
-            : incident,
-        ),
-      }));
-    } else {
-      setConversation((current) => ({
-        draft: '',
-        activeIncidentId: incidentId,
-        incidents: [
-          {
-            id: incidentId,
-            title: createIncidentTitle(content),
-            updatedAt: userMessage.createdAt!,
-            revision: 0,
-            messages: nextMessages,
-          },
-          ...current.incidents,
-        ],
-      }));
-    }
-    clearRecovery(incidentId);
-    await submitRequest({
-      incidentId,
-      messageId: userMessage.id,
+    const request: SupportCommand = {
+      incidentId: activeIncident?.id ?? createIncidentId(),
+      messageId: createId(),
       message: content,
       expectedRevision: activeIncident?.revision ?? 0,
+    };
+    dispatch({
+      type: 'send',
+      request,
+      createdAt: timestamp(),
+      consumeDraft:
+        rawMessage === undefined || rawMessage.trim() === draft.trim(),
     });
+    await submitRequest(request);
   }
 
   function retryMessage(request: SupportCommand) {
-    // A retry can return a stale-conversation recovery. Keep any newer draft
-    // intact until the user explicitly clears it before retrying the old command.
-    if (draft.length > 0) return;
+    if (
+      pendingRequest.current ||
+      refreshRequests.current.has(request.incidentId) ||
+      deletingIncidents.current.has(request.incidentId) ||
+      sessionChanged ||
+      pageRequest.current?.signal.aborted
+    )
+      return;
+    dispatch({ type: 'retry', incidentId: request.incidentId });
     void submitRequest(request);
   }
 
@@ -596,16 +560,13 @@ export default function SupportPage() {
       !signal ||
       signal.aborted ||
       pendingRequest.current ||
-      (deletedMessage !== null && request.incidentId !== recoveredIncidentId) ||
+      sessionChanged ||
       deletingIncidents.current.has(request.incidentId)
     )
       return;
-    // Retain the exact exchange identity/text so a lost response can replay
-    // the server's saved winner without creating another customer message.
     pendingRequest.current = request;
     setSendingIncidentId(request.incidentId);
     clearFailure(request.incidentId);
-
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -613,38 +574,27 @@ export default function SupportPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
       });
-
       if (signal.aborted) return;
       if (response.status === 401) {
-        redirectToLogin('/support');
+        expireSupportSession();
         return;
       }
       const body: unknown = await response.json();
       if (signal.aborted) return;
       const failure = parseSupportFailure(body);
       if (response.status === 410 && failure?.code === 'incident_deleted') {
-        removeIncident(request.incidentId);
-        retainDeletedMessage(request.message);
+        removeIncident(request.incidentId, true);
         return;
       }
       if (response.status === 409 && failure?.code === 'incident_changed') {
-        setRecoveries((current) => ({
-          ...current,
-          [request.incidentId]: { message: request.message, status: 'stale' },
-        }));
-        setConversation((current) => ({
-          ...current,
-          draft:
-            current.activeIncidentId === request.incidentId
-              ? request.message
-              : current.draft,
-        }));
+        dispatch({ type: 'changed', request });
         return;
       }
       if (!response.ok) {
         throw new ChatRequestError(
           failure?.error || 'The support request could not be completed.',
           response.status >= 500,
+          failure?.code === 'request_not_saved',
         );
       }
       const payload = parseSupportReply(body);
@@ -653,54 +603,29 @@ export default function SupportPage() {
           'The support reply could not be verified. Please retry your message.',
           true,
         );
-      const reply = payload.message;
-
-      const replyMessage: SupportChatMessage = {
-        id: `AST-${request.messageId}`,
-        role: 'assistant',
-        content: reply,
-        createdAt: payload.assistantCreatedAt,
-      };
-      setConversation((current) => ({
-        ...current,
-        incidents: current.incidents.map((incident) =>
-          incident.id === request.incidentId
-            ? {
-                ...incident,
-                updatedAt: payload.incidentUpdatedAt,
-                revision: payload.revision,
-                messages: [
-                  ...incident.messages.map((message) =>
-                    message.id === request.messageId
-                      ? { ...message, createdAt: payload.customerCreatedAt }
-                      : message,
-                  ),
-                  replyMessage,
-                ],
-              }
-            : incident,
-        ),
-      }));
+      dispatch({ type: 'confirmed', request, reply: payload });
       setRuntime('ready');
     } catch (error) {
       if (signal.aborted) return;
       if (!(error instanceof ChatRequestError) || error.modelUnavailable)
         setRuntime('offline');
-      setFailures((current) => ({
-        ...current,
-        [request.incidentId]: {
-          request,
-          error:
-            error instanceof Error
-              ? error.message
-              : 'The support request could not be completed. Please try again.',
-        },
-      }));
+      dispatch({
+        type: 'failed',
+        request,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'The support request could not be completed. Please try again.',
+        requestNotSaved:
+          error instanceof ChatRequestError && error.requestNotSaved,
+      });
     } finally {
-      if (!signal.aborted) {
+      if (pendingRequest.current === request) {
         pendingRequest.current = null;
-        setSendingIncidentId(null);
-        window.setTimeout(() => inputRef.current?.focus(), 0);
+        if (!signal.aborted) {
+          setSendingIncidentId(null);
+          window.setTimeout(() => inputRef.current?.focus(), 0);
+        }
       }
     }
   }
@@ -721,8 +646,8 @@ export default function SupportPage() {
     return (
       <SessionChangedNotice>
         <p>
-          Reloading clears unsent drafts. Saved conversations remain with their
-          original account.
+          Unsent drafts and pending messages have been cleared. Saved
+          conversations remain with their original account.
         </p>
       </SessionChangedNotice>
     );
@@ -973,6 +898,15 @@ export default function SupportPage() {
                         {message.role === 'assistant' ? (
                           <BadgeCheck aria-label="Verified assistant" />
                         ) : null}
+                        {exchange?.request.messageId === message.id ? (
+                          <span>
+                            {exchange.status === 'pending'
+                              ? 'Pending'
+                              : exchange.status === 'failed'
+                                ? 'Not saved'
+                                : 'Save unconfirmed'}
+                          </span>
+                        ) : null}
                         {message.createdAt ? (
                           <time dateTime={message.createdAt}>
                             {supportTimeLabel(message.createdAt)}
@@ -1030,8 +964,8 @@ export default function SupportPage() {
                   <div>
                     <strong>Incident deleted</strong>
                     <p>
-                      Your message wasn’t saved. Use it in a new incident or
-                      discard it to continue.
+                      This incident is no longer available. Use the retained
+                      text in a new incident or discard it.
                     </p>
                     <blockquote>{deletedMessage}</blockquote>
                     {deletedMessages.length > 1 ? (
@@ -1041,20 +975,13 @@ export default function SupportPage() {
                         waiting to be recovered.
                       </p>
                     ) : null}
-                    {draft.length > 0 ? (
-                      <p>
-                        {activeIncidentId === recoveredIncidentId
-                          ? 'Send or clear your current draft before recovering the next message.'
-                          : 'Clear your current draft before recovering this message, or discard the recovered message to continue with your draft.'}
-                      </p>
-                    ) : null}
-                    <Button
-                      disabled={draft.length > 0}
-                      onClick={recoverDeletedMessage}
-                    >
+                    <Button onClick={recoverDeletedMessage}>
                       Use message in a new incident
                     </Button>
-                    <Button variant="ghost" onClick={discardDeletedMessage}>
+                    <Button
+                      variant="ghost"
+                      onClick={() => dispatch({ type: 'discardDeleted' })}
+                    >
                       Discard unsent message
                     </Button>
                   </div>
@@ -1067,22 +994,52 @@ export default function SupportPage() {
                   <div>
                     <strong>Support request interrupted</strong>
                     <p>{failure.error}</p>
-                    {retryRequest ? (
-                      <>
-                        {draft.length > 0 ? (
-                          <p>
-                            Clear your current draft before retrying the earlier
-                            message.
-                          </p>
-                        ) : null}
-                        <Button
-                          disabled={sendDisabled || draft.length > 0}
-                          onClick={() => retryMessage(retryRequest)}
-                        >
-                          Retry message
-                        </Button>
-                      </>
-                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              {exchange && exchange.status !== 'pending' ? (
+                <div className="chat-notice" role="alert">
+                  <TriangleAlert aria-hidden="true" />
+                  <div>
+                    <strong>Support request interrupted</strong>
+                    <p>{exchange.error}</p>
+                    <p>
+                      {exchange.status === 'failed'
+                        ? 'Your message was not saved. Retry it or discard it before sending another.'
+                        : 'We could not confirm whether your message was saved. Retry it or check the saved conversation before sending another.'}
+                    </p>
+                    <Button
+                      disabled={actionDisabled}
+                      onClick={() => retryMessage(exchange.request)}
+                    >
+                      Retry message
+                    </Button>
+                    {exchange.status === 'failed' ? (
+                      <Button
+                        variant="ghost"
+                        disabled={actionDisabled}
+                        onClick={() =>
+                          dispatch({
+                            type: 'discardFailed',
+                            incidentId: exchange.request.incidentId,
+                          })
+                        }
+                      >
+                        Discard unsent message
+                      </Button>
+                    ) : (
+                      <Button
+                        disabled={actionDisabled}
+                        onClick={() =>
+                          void reloadConversation(exchange.request.incidentId)
+                        }
+                      >
+                        {isRefreshing
+                          ? 'Checking saved conversation…'
+                          : 'Check saved conversation'}
+                      </Button>
+                    )}
                   </div>
                 </div>
               ) : null}
@@ -1107,17 +1064,48 @@ export default function SupportPage() {
                     </p>
                     {recovery.status !== 'ready' && activeIncidentId ? (
                       <Button
-                        disabled={
-                          recovery.status === 'loading' || composerDisabled
-                        }
+                        disabled={actionDisabled}
                         onClick={() =>
                           void reloadConversation(activeIncidentId)
                         }
                       >
-                        {recovery.status === 'loading'
+                        {isRefreshing
                           ? 'Reloading conversation…'
                           : 'Reload conversation'}
                       </Button>
+                    ) : null}
+                    {recovery.message !== null && activeIncidentId ? (
+                      <>
+                        <blockquote>{recovery.message}</blockquote>
+                        <p>
+                          Your newer draft is preserved. Use this unsent message
+                          when the draft is empty, or discard the message to
+                          keep your draft.
+                        </p>
+                        <Button
+                          disabled={draft.length > 0 || actionDisabled}
+                          onClick={() =>
+                            dispatch({
+                              type: 'recoverUnsent',
+                              incidentId: activeIncidentId,
+                            })
+                          }
+                        >
+                          Use unsent message
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          disabled={actionDisabled}
+                          onClick={() =>
+                            dispatch({
+                              type: 'discardUnsent',
+                              incidentId: activeIncidentId,
+                            })
+                          }
+                        >
+                          Discard unsent message
+                        </Button>
+                      </>
                     ) : null}
                   </div>
                 </div>

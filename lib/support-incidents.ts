@@ -25,13 +25,6 @@ export function filterSupportIncidents(
   );
 }
 
-export function removeSupportIncident(
-  incidents: SupportIncident[],
-  incidentId: string,
-) {
-  return incidents.filter((incident) => incident.id !== incidentId);
-}
-
 export function createIncidentTitle(message: string) {
   const normalized = message.trim().replace(/\s+/g, ' ');
   if (normalized.length <= 42) return normalized;
