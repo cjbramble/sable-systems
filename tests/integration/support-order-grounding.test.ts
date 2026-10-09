@@ -560,7 +560,11 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     expect(classifySupportQuery(messages)).toEqual({
       kind: 'orders',
       message: 'show my partially shipped orders.',
-      status: 'partially_shipped',
+      statusFilter: {
+        kind: 'filter',
+        include: ['partially_shipped'],
+        exclude: [],
+      },
       year: undefined,
       yearField: undefined,
     });
@@ -628,7 +632,7 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     expect(classifySupportQuery(messages)).toEqual({
       kind: 'orders',
       message: 'show my scheduled orders requested for shipment in 2030.',
-      status: 'scheduled',
+      statusFilter: { kind: 'filter', include: ['scheduled'], exclude: [] },
       year: 2030,
       yearField: 'requested',
     });
@@ -708,7 +712,7 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     expect(classifySupportQuery(messages)).toEqual({
       kind: 'orders',
       message: 'show my orders containing the redline power cell r12.',
-      status: undefined,
+      statusFilter: undefined,
       year: undefined,
       yearField: undefined,
     });
@@ -772,7 +776,7 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     ];
     expect(classifySupportQuery(messages)).toMatchObject({
       kind: 'orders',
-      status: 'delivered',
+      statusFilter: { kind: 'filter', include: ['delivered'], exclude: [] },
     });
 
     const database = await getDatabase();
