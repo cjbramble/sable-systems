@@ -8,7 +8,7 @@ import {
   createIncidentTitle,
   type SupportIncident,
 } from '../lib/support-incidents.ts';
-import type { SupportReply } from '../lib/chat-request.ts';
+import type { SupportCommand, SupportReply } from '../lib/chat-request.ts';
 
 export class IncidentAccessDeniedError extends Error {
   constructor() {
@@ -42,10 +42,20 @@ export class SupportMessageIdConflictError extends Error {
   }
 }
 
+export class SupportRevisionConflictError extends Error {
+  constructor() {
+    super(
+      'This conversation changed. Reload it before sending your message again.',
+    );
+    this.name = 'SupportRevisionConflictError';
+  }
+}
+
 type IncidentMessageRow = {
   incident_id: string;
   title: string;
   incident_updated_at: string;
+  revision: number;
   message_id: string | null;
   role: 'user' | 'assistant' | null;
   content: string | null;
@@ -57,7 +67,7 @@ export async function listSupportIncidents(
   user: AuthenticatedUser,
 ): Promise<SupportIncident[]> {
   const rows = await db
-    .prepare(`SELECT i.incident_id, i.title,
+    .prepare(`SELECT i.incident_id, i.title, i.revision,
       i.updated_at AS incident_updated_at, m.message_id, m.role, m.content,
       m.created_at AS message_created_at
       FROM support_incidents i
@@ -72,6 +82,7 @@ export async function listSupportIncidents(
       id: row.incident_id,
       title: row.title,
       updatedAt: row.incident_updated_at,
+      revision: row.revision,
       messages: [],
     };
     if (row.message_id && row.role && row.content && row.message_created_at) {
@@ -111,6 +122,19 @@ async function assertIncidentWritable(
   const state = await getSupportIncidentState(db, user, incidentId);
   if (state === 'forbidden') throw new IncidentAccessDeniedError();
   if (state === 'deleted') throw new IncidentDeletedError();
+}
+
+export async function getSupportIncidentRevision(
+  db: D1Database,
+  user: AuthenticatedUser,
+  incidentId: string,
+): Promise<number> {
+  const incident = await db
+    .prepare(`SELECT revision FROM support_incidents
+    WHERE incident_id = ? AND user_id = ?`)
+    .bind(incidentId, user.userId)
+    .first<{ revision: number }>();
+  return incident?.revision ?? 0;
 }
 
 export async function hasSupportMessageIdConflict(
@@ -197,12 +221,14 @@ type SavedSupportExchange = {
   customerCreatedAt: string;
   assistantCreatedAt: string | null;
   incidentUpdatedAt: string;
+  revision: number | null;
 };
 
 export function supportReply(exchange: SavedSupportExchange): SupportReply {
   if (
     exchange.assistantMessage === null ||
-    exchange.assistantCreatedAt === null
+    exchange.assistantCreatedAt === null ||
+    exchange.revision === null
   )
     throw new Error('The saved support reply is incomplete.');
   return {
@@ -210,6 +236,7 @@ export function supportReply(exchange: SavedSupportExchange): SupportReply {
     customerCreatedAt: exchange.customerCreatedAt,
     assistantCreatedAt: exchange.assistantCreatedAt,
     incidentUpdatedAt: exchange.incidentUpdatedAt,
+    revision: exchange.revision,
   };
 }
 
@@ -225,7 +252,8 @@ export async function getSavedSupportExchange(
         assistant.content AS assistantMessage,
         customer.created_at AS customerCreatedAt,
         assistant.created_at AS assistantCreatedAt,
-        i.updated_at AS incidentUpdatedAt
+        i.updated_at AS incidentUpdatedAt,
+        assistant.revision AS revision
       FROM support_incidents i
       JOIN support_messages customer ON customer.incident_id = i.incident_id
       LEFT JOIN support_messages assistant ON assistant.incident_id = i.incident_id
@@ -237,6 +265,41 @@ export async function getSavedSupportExchange(
     .first<SavedSupportExchange>();
 }
 
+// Validate before inference and return the saved receipt for an exact retry.
+// A matching retry may win between the first receipt read and revision check.
+export async function checkSupportCommand(
+  db: D1Database,
+  user: AuthenticatedUser,
+  command: SupportCommand,
+): Promise<SupportReply | null> {
+  const { incidentId, messageId, message, expectedRevision } = command;
+  const readReplay = async () => {
+    await assertIncidentWritable(db, user, incidentId);
+    if (await hasSupportMessageIdConflict(db, incidentId, messageId))
+      throw new SupportMessageIdConflictError();
+    const saved = await getSavedSupportExchange(
+      db,
+      user,
+      incidentId,
+      messageId,
+    );
+    if (saved && saved.customerMessage !== message)
+      throw new SupportMessageTextConflictError();
+    return saved?.assistantMessage != null ? supportReply(saved) : null;
+  };
+  const replay = await readReplay();
+  if (replay) return replay;
+  if (
+    (await getSupportIncidentRevision(db, user, incidentId)) !==
+    expectedRevision
+  ) {
+    const winner = await readReplay();
+    if (winner) return winner;
+    throw new SupportRevisionConflictError();
+  }
+  return null;
+}
+
 export async function saveSupportExchange(
   db: D1Database,
   user: AuthenticatedUser,
@@ -244,6 +307,7 @@ export async function saveSupportExchange(
   messageId: string,
   customerMessage: string,
   assistantMessage: string,
+  expectedRevision: number,
 ): Promise<SupportReply> {
   await assertIncidentWritable(db, user, incidentId);
 
@@ -255,7 +319,8 @@ export async function saveSupportExchange(
       .prepare(`INSERT INTO support_incidents (
         incident_id, user_id, title, created_at, updated_at
       ) SELECT ?, ?, ?, ?, ?
-      WHERE NOT EXISTS (SELECT 1 FROM support_incident_deletions WHERE incident_id = ?)
+      WHERE ? = 0
+        AND NOT EXISTS (SELECT 1 FROM support_incident_deletions WHERE incident_id = ?)
         AND NOT EXISTS (SELECT 1 FROM support_messages WHERE message_id IN (?, ?))
       ON CONFLICT(incident_id) DO NOTHING`)
       .bind(
@@ -264,6 +329,7 @@ export async function saveSupportExchange(
         createIncidentTitle(customerMessage),
         now,
         now,
+        expectedRevision,
         incidentId,
         messageId,
         `AST-${messageId}`,
@@ -272,39 +338,43 @@ export async function saveSupportExchange(
     // claimed it as a customer ID after preflight. Do not leave half an exchange.
     db
       .prepare(`INSERT OR IGNORE INTO support_messages (
-        message_id, incident_id, sequence_number, role, content, created_at
-      ) SELECT ?, ?, COALESCE(MAX(sequence_number), 0) + 1, 'user', ?, ?
+        message_id, incident_id, sequence_number, role, content, created_at, revision
+      ) SELECT ?, ?, COALESCE(MAX(sequence_number), 0) + 1, 'user', ?, ?, ? + 1
         FROM support_messages WHERE incident_id = ?
         HAVING NOT EXISTS (SELECT 1 FROM support_messages WHERE message_id = ?)
-          AND EXISTS (SELECT 1 FROM support_incidents WHERE incident_id = ? AND user_id = ?)`)
+          AND EXISTS (SELECT 1 FROM support_incidents WHERE incident_id = ? AND user_id = ? AND revision = ?)`)
       .bind(
         messageId,
         incidentId,
         customerMessage,
         now,
+        expectedRevision,
         incidentId,
         `AST-${messageId}`,
         incidentId,
         user.userId,
+        expectedRevision,
       ),
     // Anchor replies to the persisted customer message, including on retries
     // that recover a missing reply earlier in the conversation.
     db
       .prepare(`INSERT OR IGNORE INTO support_messages (
-        message_id, incident_id, sequence_number, role, content, created_at
-      ) SELECT ?, incident_id, sequence_number + 1, 'assistant', ?, ?
+        message_id, incident_id, sequence_number, role, content, created_at, revision
+      ) SELECT ?, incident_id, sequence_number + 1, 'assistant', ?, ?, ? + 1
         FROM support_messages
         WHERE message_id = ? AND incident_id = ? AND role = 'user' AND content = ?
-          AND EXISTS (SELECT 1 FROM support_incidents WHERE incident_id = ? AND user_id = ?)`)
+          AND EXISTS (SELECT 1 FROM support_incidents WHERE incident_id = ? AND user_id = ? AND revision = ?)`)
       .bind(
         `AST-${messageId}`,
         assistantMessage,
         now,
+        expectedRevision,
         messageId,
         incidentId,
         customerMessage,
         incidentId,
         user.userId,
+        expectedRevision,
       ),
     // changes() refers to the preceding assistant insert in this transaction.
     // Replays must not touch metadata. Compare parsed times: historical ISO
@@ -316,6 +386,7 @@ export async function saveSupportExchange(
         )
         UPDATE support_incidents
         SET title = CASE WHEN title = 'New service incident' THEN ? ELSE title END,
+          revision = revision + 1,
           updated_at = CASE
             WHEN julianday(updated_at) < (SELECT julianday(created_at) FROM latest_activity)
             THEN (SELECT created_at FROM latest_activity) ELSE updated_at END
@@ -340,6 +411,11 @@ export async function saveSupportExchange(
   if (!saved || saved.assistantMessage === null) {
     if (await hasSupportMessageIdConflict(db, incidentId, messageId))
       throw new SupportMessageIdConflictError();
+    if (
+      (await getSupportIncidentRevision(db, user, incidentId)) !==
+      expectedRevision
+    )
+      throw new SupportRevisionConflictError();
     throw new Error(
       'The support exchange was not saved as a complete matching pair.',
     );

@@ -269,7 +269,27 @@ const additions11 = [
 ) STRICT`,
 ];
 
-export type HistoricalSchemaVersion = '6' | '7' | '8' | '9' | '10' | '11';
+// Frozen addition from 1df5ed6 (schema 12).
+const additions12 = [
+  `CREATE TABLE IF NOT EXISTS checkout_commands (
+  command_id TEXT PRIMARY KEY,
+  order_id TEXT UNIQUE REFERENCES orders(order_id) ON DELETE CASCADE,
+  intent_json TEXT NOT NULL CHECK (json_valid(intent_json)),
+  status INTEGER NOT NULL CHECK (status IN (201, 409, 422)),
+  response_json TEXT NOT NULL CHECK (json_valid(response_json)),
+  CHECK ((status = 201 AND order_id IS NOT NULL)
+    OR (status IN (409, 422) AND order_id IS NULL))
+) STRICT`,
+];
+
+export type HistoricalSchemaVersion =
+  | '6'
+  | '7'
+  | '8'
+  | '9'
+  | '10'
+  | '11'
+  | '12';
 
 export function historicalSchemaStatements(version: HistoricalSchemaVersion) {
   return [
@@ -283,5 +303,6 @@ export function historicalSchemaStatements(version: HistoricalSchemaVersion) {
     ...(Number(version) >= 9 ? additions9 : []),
     ...(Number(version) >= 10 ? replacements10 : []),
     ...(Number(version) >= 11 ? additions11 : []),
+    ...(Number(version) >= 12 ? additions12 : []),
   ];
 }

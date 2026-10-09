@@ -50,6 +50,7 @@ test('deletion during inference prevents resurrection and rejects stale retries'
     'MSG-LIFECYCLE-DELETE-SETUP',
     'Hello.',
     'How can I help?',
+    0,
   );
   const hold = gate();
   const fetchMock = vi
@@ -63,6 +64,7 @@ test('deletion during inference prevents resurrection and rejects stale retries'
     });
   const pending = POST(
     session.request({
+      expectedRevision: 1,
       incidentId,
       messageId,
       message: prompt,
@@ -90,6 +92,7 @@ test('deletion during inference prevents resurrection and rejects stale retries'
     for (const retryId of [messageId, 'MSG-LIFECYCLE-NEW-RETRY']) {
       const retry = await POST(
         session.request({
+          expectedRevision: 1,
           incidentId,
           messageId: retryId,
           message: prompt,
@@ -134,6 +137,7 @@ for (const duplicate of [false, true]) {
       'MSG-LIFECYCLE-TIMESTAMP-SETUP',
       'Hello.',
       'How can I help?',
+      0,
     );
     const hold = gate();
     const originalBatch = database.batch.bind(database);
@@ -156,7 +160,9 @@ for (const duplicate of [false, true]) {
       firstId,
       'Help with a shipment.',
       'First generated reply.',
+      1,
     );
+    const outcome = pending.catch((error: unknown) => error);
     try {
       await hold.arrived.promise;
       expect(hold.timedOut).toBe(false);
@@ -168,18 +174,26 @@ for (const duplicate of [false, true]) {
         secondId,
         'Help with a shipment.',
         'Second generated reply.',
+        1,
       );
       expect(winner.incidentUpdatedAt).toBe(later);
       hold.released.resolve();
-      const delayed = await pending;
-      expect(delayed.incidentUpdatedAt).toBe(later);
-      const rows = (await supportApi.messages(incidentId)).results;
-      expect(rows).toHaveLength(duplicate ? 4 : 6);
-      expect(rows.some((row) => row.created_at === later)).toBe(true);
       if (duplicate) {
-        expect(delayed.message).toBe('Second generated reply.');
-        expect(delayed.customerCreatedAt).toBe(later);
+        expect(await outcome).toEqual(winner);
+      } else {
+        expect(await outcome).toMatchObject({
+          name: 'SupportRevisionConflictError',
+        });
       }
+      expect(await supportApi.findIncident(incidentId)).toMatchObject({
+        updated_at: later,
+        revision: 2,
+      });
+      const rows = (await supportApi.messages(incidentId)).results;
+      expect(rows).toHaveLength(4);
+      expect(rows.some((row) => row.created_at === later)).toBe(true);
+      expect(winner.message).toBe('Second generated reply.');
+      expect(winner.customerCreatedAt).toBe(later);
       expect(hold.timedOut).toBe(false);
     } finally {
       hold.close();
@@ -205,6 +219,7 @@ for (const existing of [false, true]) {
         'MSG-LIFECYCLE-SETUP',
         'Hello.',
         'How can I help?',
+        0,
       );
     const hold = gate();
     const originalBatch = database.batch.bind(database);
@@ -222,6 +237,7 @@ for (const existing of [false, true]) {
       'MSG-LIFECYCLE-COMMIT',
       'Shipment help.',
       'Please provide the shipment.',
+      existing ? 1 : 0,
     );
     const outcome = pending.catch((error: unknown) => error);
     try {
@@ -265,6 +281,7 @@ test('a later duplicate leaves activity and title unchanged', async ({
       'MSG-LIFECYCLE-DUPLICATE',
       'Hello.',
       'First reply.',
+      0,
     );
     const before = await supportApi.findIncident(incidentId);
     vi.setSystemTime('2030-01-01T00:00:02.000Z');
@@ -276,6 +293,7 @@ test('a later duplicate leaves activity and title unchanged', async ({
         'MSG-LIFECYCLE-DUPLICATE',
         'Hello.',
         'Duplicate reply.',
+        0,
       ),
     ).toEqual(saved);
     expect(await supportApi.findIncident(incidentId)).toEqual(before);
@@ -292,7 +310,9 @@ test('recovering an incomplete exchange advances activity across legacy timestam
   await supportApi.trackTemporaryIncident(incidentId, calderPikeUser);
   await database.batch([
     database
-      .prepare('INSERT INTO support_incidents VALUES (?, ?, ?, ?, ?)')
+      .prepare(
+        'INSERT INTO support_incidents (incident_id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      )
       .bind(
         incidentId,
         calderPikeUser.userId,
@@ -301,7 +321,9 @@ test('recovering an incomplete exchange advances activity across legacy timestam
         '2030-01-01T00:00:00Z',
       ),
     database
-      .prepare('INSERT INTO support_messages VALUES (?, ?, 1, ?, ?, ?)')
+      .prepare(
+        'INSERT INTO support_messages (message_id, incident_id, sequence_number, role, content, created_at) VALUES (?, ?, 1, ?, ?, ?)',
+      )
       .bind(
         'MSG-LIFECYCLE-RECOVER',
         incidentId,
@@ -320,6 +342,7 @@ test('recovering an incomplete exchange advances activity across legacy timestam
       'MSG-LIFECYCLE-RECOVER',
       'Shipment help.',
       'Please provide the shipment.',
+      0,
     );
     expect(result.incidentUpdatedAt).toBe('2030-01-01T00:00:00.100Z');
     expect(result.customerCreatedAt).toBe('2030-01-01T00:00:00Z');
@@ -349,6 +372,7 @@ test('foreign users cannot delete, claim, or inspect owned and deleted identitie
     'MSG-LIFECYCLE-OWNER',
     'Hello.',
     'Hi.',
+    0,
   );
   const before = await supportApi.findIncident(incidentId);
   expect(
@@ -378,11 +402,13 @@ test('foreign users cannot delete, claim, or inspect owned and deleted identitie
       'MSG-LIFECYCLE-FOREIGN',
       'Hello.',
       'Hi.',
+      0,
     ),
   ).rejects.toMatchObject({ name: 'IncidentAccessDeniedError' });
   const session = await supportApi.session(foreign);
   const response = await POST(
     session.request({
+      expectedRevision: 0,
       incidentId,
       messageId: 'MSG-LIFECYCLE-FOREIGN',
       message: 'Hello.',
@@ -405,6 +431,7 @@ test('a failed content deletion rolls back its marker and remains writable', asy
     'MSG-LIFECYCLE-ROLLBACK',
     'Hello.',
     'Hi.',
+    0,
   );
   const before = await supportApi.findIncident(incidentId);
   const messages = await supportApi.messages(incidentId);
@@ -445,7 +472,9 @@ test('history sorts legacy and current timestamp formats chronologically', async
   ]) {
     await supportApi.trackTemporaryIncident(id, calderPikeUser);
     await database
-      .prepare('INSERT INTO support_incidents VALUES (?, ?, ?, ?, ?)')
+      .prepare(
+        'INSERT INTO support_incidents (incident_id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      )
       .bind(id, calderPikeUser.userId, id, time, time)
       .run();
   }
@@ -489,6 +518,7 @@ test('deletion before reading the saved winner returns the deleted outcome', asy
         'MSG-LIFECYCLE-READ-WINNER',
         'Shipment help.',
         'Which shipment?',
+        0,
       ),
     ).rejects.toMatchObject({ name: 'IncidentDeletedError' });
     expect(await supportApi.findIncident(incidentId)).toBeNull();

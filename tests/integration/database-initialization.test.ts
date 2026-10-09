@@ -1,7 +1,11 @@
 import { describe, expect } from 'vitest';
 
 import { schemaStatements, SCHEMA_VERSION, SEED_VERSION } from '@/db/schema';
-import { deleteSupportIncident, getSupportIncidentState } from '@/db/incidents';
+import {
+  deleteSupportIncident,
+  getSupportIncidentState,
+  saveSupportExchange,
+} from '@/db/incidents';
 import { buildSeedStatements } from '@/db/seed';
 import { placeChargeAccountOrder } from '@/db/shop';
 import { checkoutCommand } from '../fixtures/checkout';
@@ -24,6 +28,93 @@ async function expectStartupFailure(
 }
 
 describe('database initialization', () => {
+  test('adds conversation revisions atomically to schema 12 and preserves historical replies across restart', async ({
+    initialization,
+  }) => {
+    const { database, getDatabase, restart } = initialization;
+    await seedHistoricalDatabase(database, '12');
+    await addUserRecords(database);
+    await database
+      .prepare(`INSERT INTO support_messages
+      (message_id, incident_id, sequence_number, role, content, created_at)
+      VALUES ('AST-INIT-MESSAGE', 'INIT-INCIDENT', 2, 'assistant',
+        'Keep this reply', '2026-09-11T12:00:00Z')`)
+      .run();
+    await database
+      .prepare(
+        "INSERT INTO metadata VALUES ('support_incidents_seed_version', '1')",
+      )
+      .run();
+    const before = await databaseSnapshot(database);
+    await database
+      .prepare(`CREATE TRIGGER fail_revision_upgrade BEFORE UPDATE ON metadata
+      WHEN NEW.key = 'schema_version' AND NEW.value = '13'
+      BEGIN SELECT RAISE(ABORT, 'revision upgrade interrupted'); END`)
+      .run();
+    try {
+      await expectStartupFailure(getDatabase(), /revision upgrade interrupted/);
+      expect((await databaseSnapshot(database)).tables).toEqual(before.tables);
+      for (const table of ['support_incidents', 'support_messages'])
+        expect(
+          (
+            await database
+              .prepare(`PRAGMA table_info(${table})`)
+              .all<{ name: string }>()
+          ).results.some(({ name }) => name === 'revision'),
+        ).toBe(false);
+    } finally {
+      await database.prepare('DROP TRIGGER fail_revision_upgrade').run();
+    }
+    await getDatabase();
+    const migrated = await databaseSnapshot(database);
+    for (const table of ['support_incidents', 'support_messages']) {
+      expect(before.tables[table].length).toBeGreaterThan(0);
+      expect(migrated.tables[table]).toEqual(
+        before.tables[table].map((row) => ({
+          ...(row as object),
+          revision: 0,
+        })),
+      );
+    }
+    const receipt = await saveSupportExchange(
+      database,
+      calderPikeUser,
+      'INIT-INCIDENT',
+      'MSG-MIGRATED-REVISION',
+      'A new question.',
+      'A new answer.',
+      0,
+    );
+    expect(receipt.revision).toBe(1);
+    const saved = await databaseSnapshot(database);
+    await (
+      await restart()
+    )();
+    expect(
+      await saveSupportExchange(
+        database,
+        calderPikeUser,
+        'INIT-INCIDENT',
+        'MSG-MIGRATED-REVISION',
+        'A new question.',
+        'A different generated answer.',
+        0,
+      ),
+    ).toEqual(receipt);
+    expect(
+      await saveSupportExchange(
+        database,
+        calderPikeUser,
+        'INIT-INCIDENT',
+        'INIT-MESSAGE',
+        'Keep this message',
+        'Do not replace history',
+        0,
+      ),
+    ).toMatchObject({ message: 'Keep this reply', revision: 0 });
+    expect(await databaseSnapshot(database)).toEqual(saved);
+  });
+
   test('adds durable checkout commands atomically to schema 11 and replays after restart', async ({
     initialization,
   }) => {
@@ -37,7 +128,7 @@ describe('database initialization', () => {
     const before = await databaseSnapshot(database);
     await database
       .prepare(`CREATE TRIGGER fail_checkout_upgrade BEFORE UPDATE ON metadata
-      WHEN NEW.key = 'schema_version' AND NEW.value = '12'
+      WHEN NEW.key = 'schema_version' AND NEW.value = '${SCHEMA_VERSION}'
       BEGIN SELECT RAISE(ABORT, 'checkout upgrade interrupted'); END`)
       .run();
     try {
@@ -57,7 +148,11 @@ describe('database initialization', () => {
     const after = await databaseSnapshot(database);
     for (const [table, rows] of Object.entries(before.tables))
       if (table !== 'metadata')
-        expect(after.tables[table], table).toEqual(rows);
+        expect(after.tables[table], table).toEqual(
+          ['support_incidents', 'support_messages'].includes(table)
+            ? rows.map((row) => ({ ...(row as object), revision: 0 }))
+            : rows,
+        );
     expect(after.tables.checkout_commands).toEqual([]);
     const input = checkoutCommand('RECOVERY-MIGRATION');
     const user = await loadActiveUserFixture(database, 'USR-MCS-001');
@@ -154,7 +249,7 @@ describe('database initialization', () => {
     },
   );
 
-  test.for(['6', '7', '8', '9', '10', '11'] as const)(
+  test.for(['6', '7', '8', '9', '10', '11', '12'] as const)(
     'upgrades historical schema %s without reseeding or losing records',
     async (version, { initialization }) => {
       const { database, getDatabase, restart } = initialization;
@@ -177,7 +272,11 @@ describe('database initialization', () => {
       const after = await databaseSnapshot(database);
       for (const [table, rows] of Object.entries(before.tables)) {
         if (table !== 'metadata')
-          expect(after.tables[table], table).toEqual(rows);
+          expect(after.tables[table], table).toEqual(
+            ['support_incidents', 'support_messages'].includes(table)
+              ? rows.map((row) => ({ ...(row as object), revision: 0 }))
+              : rows,
+          );
       }
       expect(
         await database

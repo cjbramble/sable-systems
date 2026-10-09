@@ -29,6 +29,7 @@ const SUPPORTED_SCHEMA_VERSIONS = new Set([
   '9',
   '10',
   '11',
+  '12',
   SCHEMA_VERSION,
 ]);
 let initialization: Promise<D1Database> | null = null;
@@ -75,6 +76,20 @@ async function initializeDatabase() {
     schemaBatch.push(
       ...orderLineMigrationStatements.map((sql) => db.prepare(sql)),
     );
+  for (const table of ['support_incidents', 'support_messages']) {
+    const columns = await db
+      .prepare(`PRAGMA table_info(${table})`)
+      .all<{ name: string }>();
+    // Missing tables are created above with revisions already present.
+    if (
+      columns.results.length &&
+      !columns.results.some(({ name }) => name === 'revision')
+    )
+      schemaBatch.push(
+        db.prepare(`ALTER TABLE ${table}
+        ADD COLUMN revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0)`),
+      );
+  }
   if (state.kind === 'ready' && state.schemaVersion !== SCHEMA_VERSION)
     schemaBatch.push(
       db

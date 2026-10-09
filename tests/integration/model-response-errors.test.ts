@@ -65,6 +65,7 @@ describe('model response failures', () => {
 
       const response = await POST(
         session.request({
+          expectedRevision: 0,
           incidentId,
           messageId: `MSG-${id}`,
           message: 'Help with a shipment.',
@@ -162,6 +163,7 @@ describe('model response failures', () => {
 
       const response = await POST(
         session.request({
+          expectedRevision: 0,
           incidentId,
           messageId: `MSG-${id}`,
           message: 'Help with a shipment.',

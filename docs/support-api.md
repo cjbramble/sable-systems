@@ -7,28 +7,47 @@ Send only the current customer message:
 {
   "incidentId": "INC-your-conversation-id",
   "messageId": "your-message-id",
-  "message": "Trace order SBL-2022-000118."
+  "message": "Trace order SBL-2022-000118.",
+  "expectedRevision": 0
 }
 ```
 
-Provide both IDs to save an exchange. Incident IDs start with `INC-`, followed by
+Provide both IDs and `expectedRevision` to save an exchange. Incident IDs start with `INC-`, followed by
 6–100 letters, digits, or hyphens. Message IDs contain 6–120 letters, digits, or
-hyphens. Omit both IDs for a reply without persistence. The server builds model
+hyphens. The revision is a nonnegative safe integer: use 0 for a new conversation,
+or the revision loaded with that incident from `GET /api/incidents`. Omit IDs and
+revision for a reply without persistence. The server builds model
 context from authorized saved history; clients cannot supply earlier turns.
 
 The former `messages` array is no longer accepted (HTTP 400). Migrate callers to
-`message`, using the current customer text and preserving both IDs for retries.
+`message` and `expectedRevision`, preserving the entire command for retries.
 
-Saved replies contain `message`, `customerCreatedAt`, `assistantCreatedAt`, and
+Saved replies contain `message`, `revision`, `customerCreatedAt`, `assistantCreatedAt`, and
 `incidentUpdatedAt`. Timestamps are ISO instants. Replies without persistence
 contain only `message`. Errors contain `error`; a deleted incident additionally
 returns `code: "incident_deleted"` with HTTP 410.
 
-Retry an uncertain saved exchange with the same IDs and text. Exact retries return
+Retry an uncertain saved exchange with the same IDs, text, and expected revision. Exact retries return
 the saved reply without another model call. Reusing a message ID for different
 text returns HTTP 409. A deliberate new message needs a new ID, even if its text
-matches an earlier message. Distinct concurrent messages currently save in
-completion order and may have been generated from the same earlier history.
+matches an earlier message.
+
+Each saved exchange advances the incident revision once. Distinct messages using
+the same revision compete at save time: only one can succeed; the other receives
+HTTP 409 with `code: "incident_changed"`. A revision already stale at receipt is
+rejected before model generation or quota consumption. A conflict during generation
+discards that generated reply without saving either message.
+
+On `incident_changed`, reload the incident, preserve the rejected text, and let the
+customer review the updated conversation before explicitly sending with a new
+message ID and the refreshed revision. The support page provides this reload flow;
+it never resends automatically. An ordinary unchanged retry cannot resolve this
+conflict.
+
+A replay returns the original reply's revision even if later exchanges exist.
+Clients must not treat that receipt as proof they have loaded later history.
+Existing records start at revision 0 after the schema upgrade. Recovering a missing
+historical assistant reply advances the revision; replaying a complete pair does not.
 
 | Limit                                             | Maximum                 | Failure  |
 | ------------------------------------------------- | ----------------------- | -------- |

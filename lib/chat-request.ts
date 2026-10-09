@@ -7,6 +7,7 @@ export type SupportCommand = {
   incidentId: string;
   messageId: string;
   message: string;
+  expectedRevision: number;
 };
 
 // Omitting both IDs requests a reply without persisting a conversation.
@@ -16,11 +17,13 @@ export type SupportRequest =
       message: string;
       incidentId?: never;
       messageId?: never;
+      expectedRevision?: never;
     };
 
 export type SupportResponse = { message: string };
 
 export type SupportReply = SupportResponse & {
+  revision: number;
   customerCreatedAt: string;
   assistantCreatedAt: string;
   incidentUpdatedAt: string;
@@ -28,7 +31,7 @@ export type SupportReply = SupportResponse & {
 
 export type SupportFailure = {
   error: string;
-  code?: 'incident_deleted';
+  code?: 'incident_deleted' | 'incident_changed';
 };
 
 export function parseIncidentId(value: unknown): string | null {
@@ -52,13 +55,20 @@ export function parseSupportRequest(value: unknown): SupportRequest | null {
   const message = candidate.message.trim();
   if (!message || message.length > MAX_CHAT_MESSAGE_LENGTH) return null;
   if (candidate.incidentId === undefined && candidate.messageId === undefined)
-    return { message };
+    return candidate.expectedRevision === undefined ? { message } : null;
   const incidentId = parseIncidentId(candidate.incidentId);
   const messageId = parseMessageId(candidate.messageId);
-  return incidentId && messageId ? { incidentId, messageId, message } : null;
+  const { expectedRevision } = candidate;
+  return incidentId && messageId && isSupportRevision(expectedRevision)
+    ? { incidentId, messageId, message, expectedRevision }
+    : null;
 }
 
-function isTimestamp(value: unknown): value is string {
+export function isSupportRevision(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+export function isSupportTimestamp(value: unknown): value is string {
   return (
     typeof value === 'string' &&
     /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(
@@ -70,18 +80,30 @@ function isTimestamp(value: unknown): value is string {
 
 export function parseSupportReply(value: unknown): SupportReply | null {
   if (!value || typeof value !== 'object') return null;
-  const { message, customerCreatedAt, assistantCreatedAt, incidentUpdatedAt } =
-    value as Record<string, unknown>;
+  const {
+    message,
+    customerCreatedAt,
+    assistantCreatedAt,
+    incidentUpdatedAt,
+    revision,
+  } = value as Record<string, unknown>;
   // Historical replies remain readable even when they exceed today's output limit.
   if (
     typeof message !== 'string' ||
     !message.trim() ||
-    !isTimestamp(customerCreatedAt) ||
-    !isTimestamp(assistantCreatedAt) ||
-    !isTimestamp(incidentUpdatedAt)
+    !isSupportTimestamp(customerCreatedAt) ||
+    !isSupportTimestamp(assistantCreatedAt) ||
+    !isSupportTimestamp(incidentUpdatedAt) ||
+    !isSupportRevision(revision)
   )
     return null;
-  return { message, customerCreatedAt, assistantCreatedAt, incidentUpdatedAt };
+  return {
+    message,
+    customerCreatedAt,
+    assistantCreatedAt,
+    incidentUpdatedAt,
+    revision,
+  };
 }
 
 export function parseSupportFailure(value: unknown): SupportFailure | null {
@@ -90,5 +112,7 @@ export function parseSupportFailure(value: unknown): SupportFailure | null {
   if (typeof error !== 'string' || !error.trim() || error.length > 1000)
     return null;
   if (code === undefined) return { error };
-  return code === 'incident_deleted' ? { error, code } : null;
+  return code === 'incident_deleted' || code === 'incident_changed'
+    ? { error, code }
+    : null;
 }

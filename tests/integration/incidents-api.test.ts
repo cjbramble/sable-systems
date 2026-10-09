@@ -24,6 +24,7 @@ describe('support incident API', () => {
       const model = fixture.mockModel('Which shipment should I trace?');
       const request = () =>
         session.request({
+          expectedRevision: 0,
           incidentId,
           messageId,
           message: 'Trace my shipment.',
@@ -33,6 +34,7 @@ describe('support incident API', () => {
         customerCreatedAt: savedAt,
         assistantCreatedAt: savedAt,
         incidentUpdatedAt: savedAt,
+        revision: 1,
       };
       const first = await chat(request());
       expect(first.status).toBe(200);
@@ -54,6 +56,7 @@ describe('support incident API', () => {
         payload.incidents.find((incident) => incident.id === incidentId),
       ).toEqual({
         id: incidentId,
+        revision: 1,
         title: 'Trace my shipment.',
         updatedAt: savedAt,
         messages: [
@@ -121,6 +124,7 @@ describe('support incident API', () => {
         messageId,
         customerMessage,
         assistantMessage,
+        0,
       );
       const session = await fixture.session(calderPikeUser);
       const beforeIncident = await fixture.findIncident(incidentId);
@@ -194,6 +198,7 @@ describe('support incident API', () => {
       'MSG-DELETE-CROSS-ORIGIN',
       'Keep this incident safe.',
       'This conversation belongs to your account.',
+      0,
     );
     const session = await fixture.session(calderPikeUser);
     const beforeIncident = await fixture.findIncident(incidentId);
@@ -298,6 +303,7 @@ describe('support incident API', () => {
       'MSG-DELETE-FOREIGN-FIRST',
       'Keep this private shipment discussion.',
       'Which shipment should I trace?',
+      0,
     );
     await saveSupportExchange(
       database,
@@ -306,6 +312,7 @@ describe('support incident API', () => {
       'MSG-DELETE-FOREIGN-SECOND',
       'I will send the details later.',
       'This incident remains open.',
+      1,
     );
     const beforeIncident = await fixture.findIncident(incidentId);
     const beforeMessages = (await fixture.messages(incidentId)).results;
@@ -362,6 +369,7 @@ describe('support incident API', () => {
       'MSG-DELETE-OWNED-FIRST',
       'Trace my shipment.',
       'Which shipment should I trace?',
+      0,
     );
     await saveSupportExchange(
       database,
@@ -370,6 +378,7 @@ describe('support incident API', () => {
       'MSG-DELETE-OWNED-SECOND',
       'Never mind, this incident is resolved.',
       'Understood.',
+      1,
     );
     await saveSupportExchange(
       database,
@@ -378,6 +387,7 @@ describe('support incident API', () => {
       'MSG-DELETE-OWNED-KEEP',
       'Keep this separate incident.',
       'This conversation should remain.',
+      0,
     );
     const incidentsBefore = (await snapshotIncidents()).results;
     const messagesBefore = (await snapshotMessages()).results;

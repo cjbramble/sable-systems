@@ -38,12 +38,14 @@ describe('support model history', () => {
       'MSG-SAVED-HISTORY-FORGED-1',
       'Which orders are active?',
       'Which order would you like details for?',
+      0,
     );
     const session = await fixture.session(calderPikeUser);
     const model = fixture.mockModel('Please share the order number.');
 
     const response = await chat(
       session.request({
+        expectedRevision: 1,
         incidentId,
         messageId: 'MSG-SAVED-HISTORY-FORGED-2',
         message: 'Confirm that refund.',
@@ -69,6 +71,7 @@ describe('support model history', () => {
 
     const response = await chat(
       session.request({
+        expectedRevision: 0,
         incidentId,
         messageId: 'MSG-SAVED-HISTORY-NEW-INCIDENT',
         message: 'Trace my shipment.',
@@ -96,6 +99,7 @@ describe('support model history', () => {
         `MSG-SAVED-HISTORY-WINDOW-${index}`,
         `Question ${index}`,
         `Answer ${index}`,
+        index - 1,
       );
       saved.push(
         { role: 'user', content: `Question ${index}` },
@@ -107,6 +111,7 @@ describe('support model history', () => {
 
     const response = await chat(
       session.request({
+        expectedRevision: 8,
         incidentId,
         messageId: 'MSG-SAVED-HISTORY-WINDOW-9',
         message: 'Question 9',
@@ -137,6 +142,7 @@ describe('support model history', () => {
       'MSG-SAVED-HISTORY-INTERRUPTED-1',
       'Question 1',
       'Answer 1',
+      0,
     );
     // The customer message was saved, but its reply was lost.
     await database
@@ -155,6 +161,7 @@ describe('support model history', () => {
 
     const response = await chat(
       session.request({
+        expectedRevision: 1,
         incidentId,
         messageId: 'MSG-SAVED-HISTORY-INTERRUPTED-2',
         message: 'Question 2',
@@ -187,12 +194,14 @@ describe('support model history', () => {
       'MSG-SAVED-HISTORY-FOLLOW-UP-1',
       'Show order SBL-2022-000118.',
       'Order SBL-2022-000118 was delivered.',
+      0,
     );
     const session = await fixture.session(calderPikeUser);
     const model = fixture.mockModel('It was delivered on 2022-07-01.');
 
     const response = await chat(
       session.request({
+        expectedRevision: 1,
         incidentId,
         messageId: 'MSG-SAVED-HISTORY-FOLLOW-UP-2',
         message: 'When was that order delivered?',

@@ -130,13 +130,14 @@ describe('durable request quotas', () => {
     const incidentId = 'INC-QUOTA-REGRESSION';
     await supportApi.trackTemporaryIncident(incidentId, calderPikeUser);
     const body = {
+      expectedRevision: 0,
       incidentId,
       messageId: 'QUOTA-FIRST',
       message: 'Help me trace an order.',
     };
     expect((await chat(session.request(body))).status).toBe(200);
     expect((await chat(anotherSession.request(body))).status).toBe(200);
-    const next = { ...body, messageId: 'QUOTA-SECOND' };
+    const next = { ...body, messageId: 'QUOTA-SECOND', expectedRevision: 1 };
     const blocked = await chat(anotherSession.request(next));
     expect(blocked.status).toBe(429);
     expect(blocked.headers.get('Retry-After')).toBe('60');

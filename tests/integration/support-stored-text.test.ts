@@ -47,6 +47,7 @@ describe('stored customer text in support records', () => {
 
       const response = await chat(
         session.request({
+          expectedRevision: 0,
           incidentId,
           messageId: 'MSG-STORED-TEXT-DESTINATION',
           message: `Show order ${orderId}.`,
@@ -109,6 +110,7 @@ describe('stored customer text in support records', () => {
     const model = fixture.mockModel('This model reply must not be used.');
     const request = () =>
       session.request({
+        expectedRevision: 0,
         incidentId,
         messageId,
         message: 'List my support incidents.',

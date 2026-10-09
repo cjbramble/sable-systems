@@ -46,10 +46,12 @@ test('accepts a current-message command after a long saved reply and replays its
     'MSG-LONG-HISTORY-ORIGINAL',
     'Help with a shipment.',
     'Historical reply. '.repeat(350),
+    0,
   );
   const session = await supportApi.session(calderPikeUser);
   const model = supportApi.mockModel('Which shipment do you need?');
   const command = {
+    expectedRevision: 1,
     incidentId,
     messageId: 'MSG-LONG-HISTORY-NEXT',
     message: 'Trace a shipment.',

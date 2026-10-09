@@ -75,11 +75,13 @@ describe('support response fixes through the authenticated API', () => {
                 `MSG-RESPONSE-FIX-HISTORY-${sample}`,
                 'Show the total for SBL-2026-000417.',
                 'Order SBL-2026-000417 has a total of $78,320.00.',
+                0,
               );
             const session = await fixture.session(calderPikeUser);
             const started = performance.now();
             const response = await chat(
               session.request({
+                expectedRevision: scenario.name === 'topic switch' ? 1 : 0,
                 incidentId,
                 messageId: `MSG-RESPONSE-FIX-${scenario.name === 'topic switch' ? 'TOPIC' : 'RETURN'}-${sample}`,
                 message: scenario.question,

@@ -66,6 +66,7 @@ describe('compound support questions', () => {
 
     const response = await chat(
       session.request({
+        expectedRevision: 0,
         incidentId,
         messageId: 'MSG-COMPOUND-QUESTION',
         message: 'Show order SBL-2022-000118 and order SBL-2099-000001.',

@@ -33,6 +33,7 @@ test('sends only the current message after loading a long saved reply', async ({
     incidentId,
     messageId: expect.any(String),
     message: question,
+    expectedRevision: 0,
   });
   await expect(supportPage.requestError).toHaveCount(0);
   await expect(supportPage.messages.filter({ hasText: reply })).toHaveCount(1);

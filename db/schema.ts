@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = '12';
+export const SCHEMA_VERSION = '13';
 export const SEED_VERSION = 'sable-distribution-2026-09-02-v7';
 
 export const METADATA_TABLE_SQL = `CREATE TABLE IF NOT EXISTS metadata (
@@ -56,7 +56,8 @@ export const SUPPORT_INCIDENTS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS support_i
   user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
   title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 120),
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0)
 ) STRICT`;
 
 // Retain only identity, even after an account is removed, so stale requests
@@ -73,6 +74,7 @@ export const SUPPORT_MESSAGES_TABLE_SQL = `CREATE TABLE IF NOT EXISTS support_me
   role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
   content TEXT NOT NULL CHECK (length(content) BETWEEN 1 AND 8000),
   created_at TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
   UNIQUE (incident_id, sequence_number)
 ) STRICT`;
 
