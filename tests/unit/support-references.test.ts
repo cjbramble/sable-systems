@@ -109,3 +109,62 @@ describe('support reference parsing', () => {
     ]);
   });
 });
+
+describe('reference labels on response evidence candidates', () => {
+  const candidates = new Set([
+    'SBL-MISSING-X',
+    'SBL-RPC-12',
+    'SHP-2099-900001',
+  ]);
+
+  it.each([
+    [
+      'Shipment SBL-MISSING-X was not found.',
+      'shipment',
+      'unresolved',
+      'SBL-MISSING-X',
+    ],
+    [
+      'Return SBL-MISSING-X was not found.',
+      'return',
+      'return_id',
+      'SBL-MISSING-X',
+    ],
+    ['Shipment: **sbl-rpc-12**.', 'shipment', 'unresolved', 'SBL-RPC-12'],
+    ['Return SHP-2099-900001.', 'return', 'return_id', 'SHP-2099-900001'],
+    [
+      'Please provide return ID SBL-MISSING-X.',
+      'return',
+      'return_id',
+      'SBL-MISSING-X',
+    ],
+    [
+      'Return SBL-MISSING-X to be processed tomorrow.',
+      'return',
+      'return_id',
+      'SBL-MISSING-X',
+    ],
+  ])(
+    'preserves the claimed namespace in %s',
+    (message, kind, namespace, identifier) => {
+      expect(
+        parseSupportReferences(message, candidates).occurrences.map(
+          ({ reference }) => reference,
+        ),
+      ).toEqual([{ kind, namespace, identifier }]);
+    },
+  );
+
+  it.each([
+    'Shipment: in-transit.',
+    'Return: No return recorded.',
+    'Can I return 8 units?',
+    'The item SBL-MISSING-X was not found.',
+    'To return SBL-RPC-12, please provide your order ID.',
+    'If you want to return SBL-MISSING-X, please verify its item number.',
+    'Please return SBL-RPC-12 to the warehouse.',
+    'You can return SBL-RPC-12 in its original packaging.',
+  ])('does not label ordinary prose or item echoes: %s', (message) => {
+    expect(parseSupportReferences(message, candidates).occurrences).toEqual([]);
+  });
+});

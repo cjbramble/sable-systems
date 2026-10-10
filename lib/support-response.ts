@@ -168,8 +168,9 @@ export function hasGroundedSupportIdentifiers(
   const evidence = identifierEvidence(context);
   const { identifiers, orderIds, customerPos, unavailableReferences } =
     evidence;
+  const { occurrences } = parseSupportReferences(content, identifiers);
   return (
-    parseSupportReferences(content).occurrences.every(({ reference }) => {
+    occurrences.every(({ reference }) => {
       const { identifier, namespace } = reference;
       if (
         unavailableReferences.some(

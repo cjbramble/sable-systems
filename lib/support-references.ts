@@ -54,6 +54,7 @@ const FIELD_WORD =
 // resembling an order, shipment, or return must never change namespace later.
 export function parseSupportReferences(
   message: string,
+  candidateIdentifiers?: ReadonlySet<string>,
 ): ParsedSupportReferences {
   const occurrences: ReferenceOccurrence[] = [];
   const quantities = parseQuantityOccurrences(message);
@@ -81,13 +82,33 @@ export function parseSupportReferences(
     // Preserve the existing minimum for generic order references. Short
     // quantities such as "order 8 units" must stay available to catalog parsing.
     if (name.startsWith('order') && !explicitId && token.length < 4) continue;
+    // Response validation supplies candidate tokens, including unknown items.
+    // Keep their labels even when the token has another record's prefix; the
+    // validator must check the claimed namespace rather than a bare item echo.
+    // Request parsing still permits product questions such as 'return SBL-RPC-12'.
+    // A generic 'return' can also be a verb. Preserve clear action phrasing
+    // without weakening explicit return labels or native return-ID recognition.
+    const returnAction =
+      name === 'return' &&
+      /\b(?:to|please|you|we|they|can|could|should|would|will|may|must|do)(?:\s+not)?\s+$/i.test(
+        message.slice(0, label.index),
+      );
+    const candidate =
+      !returnAction &&
+      (candidateIdentifiers?.has(token.toUpperCase()) ?? false);
     if (
       !explicitId &&
+      !candidate &&
       name.startsWith('shipment') &&
       !SHIPMENT_REFERENCE.test(token)
     )
       continue;
-    if (!explicitId && name.startsWith('return') && !RETURN_ID.test(token))
+    if (
+      !explicitId &&
+      !candidate &&
+      name.startsWith('return') &&
+      !RETURN_ID.test(token)
+    )
       continue;
     const start = label.index + label[0].length + prefix.length;
     const end = start + token.length;

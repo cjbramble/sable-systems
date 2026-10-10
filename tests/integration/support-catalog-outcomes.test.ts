@@ -203,9 +203,17 @@ describe('unknown items retain requested identity without verifying records', ()
 
   test.for([
     ['Item SBL-MISSING-X was not found.', 200],
+    [
+      'If you want to return SBL-MISSING-X, please verify its item number.',
+      200,
+    ],
     ['Order ID: SBL-MISSING-X was not found.', 502],
     ['Tracking reference: SBL-MISSING-X was not found.', 502],
     ['Return ID: SBL-MISSING-X was not found.', 502],
+    ['Shipment SBL-MISSING-X was not found.', 502],
+    ['Return SBL-MISSING-X was not found.', 502],
+    ['Shipment: **sbl-missing-x** was not found.', 502],
+    ['Return `SBL-MISSING-X` was not found.', 502],
   ] as const)(
     'validates namespace in saved unknown-item replies: %s',
     async ([reply, status], { supportApi }) => {
