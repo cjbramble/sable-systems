@@ -1,6 +1,13 @@
 import type { AuthenticatedUser } from './auth';
 import { listSupportIncidents } from './incidents';
 import { AS_OF_DATE } from './seed';
+import { lookupSupportOrder } from './support-orders';
+import {
+  renderOrderOutcome,
+  type OrderLookupOutcome,
+  type SupportContextPart,
+  type SupportContextResult,
+} from '@/lib/support-outcomes';
 import type { ChatHistoryMessage } from '@/lib/chat-history';
 import type { AccountSummary } from '@/lib/contracts';
 import { formatCurrency } from '@/lib/format';
@@ -106,10 +113,6 @@ const CLARIFICATION_REFERENCES = {
   record: 'order, shipment, or return reference, or item number',
 };
 
-export type SupportContextResult =
-  | { kind: 'records'; records: string }
-  | { kind: 'clarification'; message: string };
-
 type Clarification = Extract<SupportContextResult, { kind: 'clarification' }>;
 
 const QUANTITY_CLARIFICATIONS = {
@@ -137,25 +140,40 @@ export async function buildSupportContext(
   user: AuthenticatedUser,
 ): Promise<SupportContextResult> {
   const intents = classifySupportQueries(messages);
-  const parts: string[] = [];
+  const parts: SupportContextPart[] = [];
+  const rendered: string[] = [];
   for (const [index, intent] of intents.entries()) {
     const context = await authorizedContextForIntent(db, intent, user);
     // Resolve ambiguity before any compound facts are sent to the model.
-    if (typeof context !== 'string') return context;
-    if (intents.length === 1) return { kind: 'records', records: context };
-    const records = context
+    if (typeof context !== 'string' && context.kind === 'clarification')
+      return context;
+    if (typeof context !== 'string' && context.outcome === 'ambiguous')
+      return {
+        kind: 'clarification',
+        message: `Please specify whether ${context.reference.identifier} is an order ID or a customer PO number.`,
+      };
+    const part: SupportContextPart =
+      typeof context === 'string'
+        ? { kind: 'legacy', records: context }
+        : context;
+    parts.push(part);
+    const text =
+      part.kind === 'order' ? renderOrderOutcome(part) : part.records;
+    if (intents.length === 1) return { kind: 'records', records: text, parts };
+    const records = text
       .replace(/^<authorized_records>\n/, '')
       .replace(/\n<\/authorized_records>$/, '');
-    parts.push(
+    rendered.push(
       `Part ${index + 1} of ${intents.length}: ${compoundPartLabel(intent)}\n${records}`,
     );
   }
   return {
     kind: 'records',
+    parts,
     records: `<authorized_records>
 The customer asked about ${intents.length} things in one message. Answer each part from its own records.
 
-${parts.join('\n\n')}
+${rendered.join('\n\n')}
 </authorized_records>`,
   };
 }
@@ -177,7 +195,7 @@ async function authorizedContextForIntent(
   db: D1Database,
   intent: SupportQueryIntent,
   user: AuthenticatedUser,
-): Promise<string | Clarification> {
+): Promise<string | Clarification | OrderLookupOutcome> {
   if (intent.kind === 'orders' && intent.statusFilter?.kind === 'clarification')
     return {
       kind: 'clarification',
@@ -221,7 +239,7 @@ No catalog item matching ${unknown.join(', ')} was found. Ask the customer to ve
         message: `Please specify ${intent.reason === 'multiple_targets' ? 'which' : 'the'} ${intent.entity} you mean by its ${CLARIFICATION_REFERENCES[intent.entity]}.`,
       };
     case 'order':
-      return orderContext(db, intent, user);
+      return lookupSupportOrder(db, intent, user);
     case 'shipment':
       return shipmentContext(db, intent, user);
     case 'return':
@@ -303,89 +321,6 @@ Records retrieved at: ${summary.retrievedAt}
 Seed baseline date: ${summary.seedAsOfDate}. Stored order statuses do not automatically advance with time.
 Authorized order count: ${summary.totalOrders}; active: ${summary.activeOrders}; scheduled: ${summary.scheduledOrders}.
 No specific order or item was identified in the request. Ask for a SABLE order ID, account PO number, or item number when account-specific facts are required.
-</authorized_records>`;
-}
-
-async function orderContext(
-  db: D1Database,
-  reference: Extract<SupportRecordReference, { kind: 'order' }>,
-  user: AuthenticatedUser,
-): Promise<string | Clarification> {
-  const { identifier, namespace } = reference;
-  const predicate =
-    namespace === 'order_id'
-      ? 'o.order_id = ?'
-      : namespace === 'customer_po'
-        ? 'o.customer_po_number = ?'
-        : '(o.order_id = ? OR o.customer_po_number = ?)';
-  const matches = await db
-    .prepare(`SELECT o.order_id, o.customer_po_number, o.created_on,
-      o.requested_ship_date, o.status, o.currency, o.order_total_cents,
-      o.shipping_region, o.placed_by_user_id, u.display_name AS placed_by_name
-      FROM orders o
-      JOIN users u ON u.user_id = o.placed_by_user_id
-      WHERE o.customer_id = ? AND ${predicate} LIMIT 2`)
-    .bind(
-      user.distributorId,
-      identifier,
-      ...(namespace === 'unresolved' ? [identifier] : []),
-    )
-    .all<Record<string, string | number>>();
-  if (matches.results.length > 1)
-    return {
-      kind: 'clarification',
-      message: `Please specify whether ${identifier} is an order ID or a customer PO number.`,
-    };
-  const order = matches.results[0];
-
-  if (!order) {
-    return `<authorized_records>
-No order matching ${identifier} is available within ${user.distributorDisplayName}'s authorization scope. Do not confirm or deny whether it belongs to another customer.
-</authorized_records>`;
-  }
-
-  const items = await db
-    .prepare(`SELECT line_number, item_number, product_name_snapshot, unit_price_cents,
-      ordered_quantity, allocated_quantity, shipped_quantity, cancelled_quantity
-      FROM order_items WHERE order_id = ? ORDER BY line_number`)
-    .bind(order.order_id)
-    .all<Record<string, string | number>>();
-  const shipments = await db
-    .prepare(`SELECT shipment_id, status, carrier_name, tracking_reference, shipped_on,
-      estimated_delivery_date, delivered_on
-      FROM shipments WHERE order_id = ? ORDER BY shipment_id`)
-    .bind(order.order_id)
-    .all<Record<string, string | number | null>>();
-  const events = await db
-    .prepare(`SELECT occurred_at, event_type, customer_safe_description
-      FROM order_events WHERE order_id = ? ORDER BY occurred_at DESC LIMIT 4`)
-    .bind(order.order_id)
-    .all<Record<string, string>>();
-  const returnRow = await db
-    .prepare(`SELECT return_id, status, reason_code, requested_on, authorized_on, received_on
-      FROM returns WHERE order_id = ? ORDER BY requested_on DESC LIMIT 1`)
-    .bind(order.order_id)
-    .first<Record<string, string | null>>();
-  const charge = await db
-    .prepare(`SELECT status, amount_cents, currency, authorization_code,
-      authorized_at FROM account_charges WHERE order_id = ?`)
-    .bind(order.order_id)
-    .first<Record<string, string | number>>();
-
-  return `<authorized_records>
-Authorization: ${user.distributorDisplayName} (${user.distributorId}) only.
-Order: ${order.order_id}; customer PO: ${order.customer_po_number}; status: ${order.status}.
-Placed by: ${order.placed_by_name} (${order.placed_by_user_id}).
-Created: ${order.created_on}; requested ship date: ${order.requested_ship_date}; destination: ${order.shipping_region}.
-Order total: ${formatCurrency(Number(order.order_total_cents), String(order.currency))}.
-Lines:
-${items.results.map((item) => `- ${item.item_number} ${item.product_name_snapshot}: ordered ${item.ordered_quantity}, allocated ${item.allocated_quantity}, shipped ${item.shipped_quantity}, cancelled ${item.cancelled_quantity}; price ${formatCurrency(Number(item.unit_price_cents), String(order.currency))} per unit.`).join('\n')}
-Shipments:
-${shipments.results.length ? shipments.results.map((shipment) => `- ${shipment.shipment_id}: ${shipment.status}; ${shipment.carrier_name}; tracking ${shipment.tracking_reference}; shipped ${shipment.shipped_on ?? 'not yet'}; estimated delivery ${shipment.estimated_delivery_date ?? 'not assigned'}; delivered ${shipment.delivered_on ?? 'not yet'}.`).join('\n') : '- No shipment record yet.'}
-Recent customer-safe events:
-${events.results.map((event) => `- ${event.occurred_at}: ${event.customer_safe_description}`).join('\n')}
-Return: ${returnRow ? `${returnRow.return_id}, ${returnRow.status}, reason ${returnRow.reason_code}, requested ${returnRow.requested_on}.` : 'No return recorded.'}
-Charge account: ${charge ? `${charge.status}; ${formatCurrency(Number(charge.amount_cents), String(charge.currency))}; authorization ${charge.authorization_code}; ${charge.authorized_at}.` : 'No charge-account authorization recorded.'}
 </authorized_records>`;
 }
 

@@ -158,7 +158,7 @@ export async function POST(request: Request) {
     const context = await buildSupportContext(db, history, user);
     if (context.kind === 'clarification') return await reply(context.message);
     const authorizedContext = context.records;
-    const unavailable = unavailableRecordReply(authorizedContext);
+    const unavailable = unavailableRecordReply(context);
     if (unavailable) return await reply(unavailable);
     const retryAfter = await consumeRequestQuota(
       db,
@@ -260,7 +260,7 @@ export async function POST(request: Request) {
         );
       }
 
-      if (!hasGroundedSupportIdentifiers(content, authorizedContext)) {
+      if (!hasGroundedSupportIdentifiers(content, context)) {
         return unsavedResponse(
           {
             error:
