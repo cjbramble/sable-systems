@@ -1,4 +1,8 @@
 import {
+  renderOrderSearchOutcome,
+  type OrderSearchOutcome,
+} from './support-order-search-outcomes';
+import {
   renderProductOutcome,
   type ProductLookupOutcome,
 } from './support-product-outcomes';
@@ -138,12 +142,13 @@ export type RecordLookupOutcome =
   | ShipmentLookupOutcome
   | ReturnLookupOutcome;
 
-// Search and account lookups still use the text adapter until their remaining
-// Phase 5D migrations.
+// Account, summary and incident history still use the text adapter until their
+// remaining Phase 5D migrations.
 export type SupportContextPart =
   | Exclude<RecordLookupOutcome, { outcome: 'ambiguous' }>
   | ProductLookupOutcome
   | CatalogLookupOutcome
+  | OrderSearchOutcome
   | { kind: 'legacy'; records: string };
 
 export type SupportRecordsContext = {
@@ -160,6 +165,8 @@ export function renderSupportContextPart(part: SupportContextPart): string {
   switch (part.kind) {
     case 'legacy':
       return part.records;
+    case 'order_search':
+      return renderOrderSearchOutcome(part);
     case 'products':
       return renderProductOutcome(part);
     case 'catalog_category':
