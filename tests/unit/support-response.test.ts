@@ -133,42 +133,71 @@ describe('support response identifier validation', () => {
 
 describe('unavailable record replies', () => {
   const scope = "within Calder Pike Distribution's authorization scope.";
-  it.each([
-    [
-      'order',
-      'SBL-2027-500023',
-      'Please verify the order ID or provide an account PO number.',
-    ],
-    [
-      'shipment',
-      'SHP-2099-000001',
-      'Please verify the shipment ID or tracking reference.',
-    ],
-    ['return', 'RTN-2099-000001', 'Please verify the return ID.'],
-  ])(
-    'answers a missing %s without mentioning other accounts',
-    (kind, id, next) => {
-      const context = `<authorized_records>
-No ${kind} matching ${id} is available ${scope} Do not confirm or deny whether it belongs to another customer.
-</authorized_records>`;
-      const reply = unavailableRecordReply(context);
-      expect(reply).toBe(`I cannot locate ${id} ${scope} ${next}`);
+  const targets = [
+    {
+      kind: 'order',
+      reference: {
+        kind: 'order',
+        namespace: 'order_id',
+        identifier: 'SBL-2027-500023',
+      },
+      next: 'verify the order ID or provide an account PO number',
+    },
+    {
+      kind: 'shipment',
+      reference: {
+        kind: 'shipment',
+        namespace: 'shipment_id',
+        identifier: 'SHP-2099-000001',
+      },
+      next: 'verify the shipment ID or tracking reference',
+    },
+    {
+      kind: 'return',
+      reference: {
+        kind: 'return',
+        namespace: 'return_id',
+        identifier: 'RTN-2099-000001',
+      },
+      next: 'verify the return ID',
+    },
+  ] as const;
+  it.each(targets)(
+    'answers a missing $kind without mentioning other accounts',
+    (target) => {
+      const reply = unavailableRecordReply({
+        kind: 'records',
+        records: '',
+        parts: [
+          {
+            ...target,
+            outcome: 'unavailable',
+            scope: {
+              customerId: 'WHS-0427',
+              displayName: 'Calder Pike Distribution',
+            },
+          },
+        ],
+      });
+      expect(reply).toBe(
+        `I cannot locate ${target.reference.identifier} ${scope} Please ${target.next}.`,
+      );
       expect(reply).not.toMatch(/another|other|different/i);
     },
   );
 
-  it('leaves found records and other no-match contexts to the model', () => {
-    expect(unavailableRecordReply(context)).toBeNull();
+  it.each([
+    context,
+    'Order search for status delivered: 0 matching orders.',
+    'No catalog item matching SBL-XYZ was found.',
+    'No order matching SBL-2099-000001 is available within your authorization scope.',
+  ])('does not infer a missing record from legacy text: %s', (records) => {
     expect(
-      unavailableRecordReply(`<authorized_records>
-Order search for status delivered: 0 matching orders.
-- No matching orders.
-</authorized_records>`),
-    ).toBeNull();
-    expect(
-      unavailableRecordReply(`<authorized_records>
-No catalog item matching SBL-XYZ was found. Ask the customer to verify the complete item number.
-</authorized_records>`),
+      unavailableRecordReply({
+        kind: 'records',
+        records,
+        parts: [{ kind: 'legacy', records }],
+      }),
     ).toBeNull();
   });
 });
