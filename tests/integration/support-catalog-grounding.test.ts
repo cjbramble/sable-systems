@@ -229,6 +229,7 @@ describe('support catalog grounding', () => {
 
     expect(context).toBe(`<authorized_records>
 Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
+Catalog status: active; eligible for new orders, subject to quantity and stock requirements.
 Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
 Available to promise: 312. Inbound: 0. Expected restock: none scheduled.
 Inventory retrieved at: 2026-09-12T15:00:00.000Z. Latest inventory record update: 2026-09-02T09:00:00Z.
@@ -296,6 +297,7 @@ Quarantined units are excluded from availability. Do not reveal other distributo
 
     expect(context).toBe(`<authorized_records>
 Product: SBL-CSR-R2 — Coldstart Rack Controller R2; category Compute.
+Catalog status: active; eligible for new orders, subject to quantity and stock requirements.
 Wholesale price: $2,250.00 per controller; case pack 4; standard lead time 90 days.
 Available to promise: 0. Inbound: 48. Expected restock: 2026-12-03.
 Inventory retrieved at: 2026-09-12T15:00:00.000Z. Latest inventory record update: 2026-09-02T09:00:00Z.
@@ -369,6 +371,7 @@ Quarantined units are excluded from availability. Do not reveal other distributo
 
     expect(context).toBe(`<authorized_records>
 Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
+Catalog status: active; eligible for new orders, subject to quantity and stock requirements.
 Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
 Requested quantity 320: valid case-pack multiple; exceeds current available-to-promise stock by 8.
 Stock shortfall for requested quantity 320: 8 units (320 requested; 312 available). Case-pack adjustment distance is not a stock shortfall.
@@ -427,6 +430,7 @@ Quarantined units are excluded from availability. Do not reveal other distributo
 
     expect(context).toBe(`<authorized_records>
 Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
+Catalog status: active; eligible for new orders, subject to quantity and stock requirements.
 Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
 Requested quantity 310: not a multiple of case pack 8; currently within available-to-promise stock.
 Stock shortfall for requested quantity 310: 0 units (310 requested; 312 available). Case-pack adjustment distance is not a stock shortfall.
@@ -743,6 +747,7 @@ Quarantined units are excluded from availability. Do not reveal other distributo
 
     expect(context).toBe(`<authorized_records>
 Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
+Catalog status: active; eligible for new orders, subject to quantity and stock requirements.
 Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
 Available to promise: 312. Inbound: 0. Expected restock: none scheduled.
 Inventory retrieved at: 2026-09-12T15:00:00.000Z. Latest inventory record update: 2026-09-02T09:00:00Z.
@@ -820,6 +825,7 @@ Fulfillment locations (each figure is part of the 312 total available to promise
 
     expect(context).toBe(`<authorized_records>
 Product: SBL-PAL-1Y — Palisade Endpoint License, Annual; category Software.
+Catalog status: active; eligible for new orders, subject to quantity and stock requirements.
 Wholesale price: $390.00 per seat; minimum block 25.
 Requested quantity 50: valid minimum-block multiple.
 This is a digitally allocated license and does not have a physical stock balance.
@@ -873,6 +879,7 @@ This is a digitally allocated license and does not have a physical stock balance
 
     expect(context).toBe(`<authorized_records>
 Product: SBL-PAL-1Y — Palisade Endpoint License, Annual; category Software.
+Catalog status: active; eligible for new orders, subject to quantity and stock requirements.
 Wholesale price: $390.00 per seat; minimum block 25.
 Requested quantity 60: must be adjusted to a multiple of 25.
 This is a digitally allocated license and does not have a physical stock balance.
@@ -1183,11 +1190,13 @@ Ask which item the customer wants if a specific availability decision is require
 
     expect(context).toBe(`<authorized_records>
 Product: SBL-NV-16T — Nightvault 16 TB Solid-State Array; category Compute.
+Catalog status: active; eligible for new orders, subject to quantity and stock requirements.
 Wholesale price: $1,940.00 per array; case pack 4; standard lead time 35 days.
 Available to promise: 96. Inbound: 0. Expected restock: none scheduled.
 Inventory retrieved at: 2026-09-12T15:00:00.000Z. Latest inventory record update: 2026-09-02T09:00:00Z.
 Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.
 Product: SBL-RPC-12 — Redline Power Cell R12; category Power.
+Catalog status: active; eligible for new orders, subject to quantity and stock requirements.
 Wholesale price: $680.00 per cell; case pack 8; standard lead time 18 days.
 Available to promise: 312. Inbound: 0. Expected restock: none scheduled.
 Inventory retrieved at: 2026-09-12T15:00:00.000Z. Latest inventory record update: 2026-09-02T09:00:00Z.
