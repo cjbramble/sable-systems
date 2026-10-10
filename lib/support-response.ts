@@ -140,6 +140,10 @@ function identifierEvidence(
       evidence.unavailableReferences.push(...legacy.unavailableReferences);
       for (const id of legacy.identifiers) evidence.legacyIdentifiers.add(id);
       evidence.legacyReferences.push(...legacy.legacyReferences);
+    } else if (part.kind === 'unknown_products') {
+      // Missing items are echo allowances, not identities in any record namespace.
+      for (const itemNumber of part.requestedItemNumbers)
+        evidence.identifiers.add(itemNumber.toUpperCase());
     } else if (part.outcome === 'unavailable') {
       // Echoing the requested reference does not verify a record's existence.
       evidence.unavailableReferences.push(part.reference);
@@ -164,8 +168,9 @@ export function hasGroundedSupportIdentifiers(
   const evidence = identifierEvidence(context);
   const { identifiers, orderIds, customerPos, unavailableReferences } =
     evidence;
+  const { occurrences } = parseSupportReferences(content, identifiers);
   return (
-    parseSupportReferences(content).occurrences.every(({ reference }) => {
+    occurrences.every(({ reference }) => {
       const { identifier, namespace } = reference;
       if (
         unavailableReferences.some(
@@ -229,7 +234,12 @@ export function unavailableRecordReply(
 ): string | null {
   if (context.parts.length !== 1) return null;
   const part = context.parts[0];
-  if (part.kind === 'legacy' || part.outcome !== 'unavailable') return null;
+  if (
+    part.kind === 'legacy' ||
+    part.kind === 'unknown_products' ||
+    part.outcome !== 'unavailable'
+  )
+    return null;
   return `I cannot locate ${part.reference.identifier} within ${part.scope.displayName}'s authorization scope. Please ${UNAVAILABLE_RECORD_NEXT_STEP[part.kind]}.`;
 }
 

@@ -43,8 +43,13 @@ Product facts distinguish catalog eligibility from stock and quantity constraint
 Any retirement marker excludes new orders, matching checkout policy. Retired products
 remain available for historical questions, but remaining stock does not permit new
 orders and support does not suggest order quantity adjustments for them.
-Search, catalog aggregates, unknown-item, and account lookups currently use a text
-adapter; their typed migration is planned.
+Category listings and physical low-stock advisories also retain typed facts and
+canonical item numbers. Unknown-item outcomes keep requested item numbers separate
+from verified identities: replies can echo them as items, but cannot reuse them as
+order, shipment, or return references. These outcomes still use model replies.
+Search and account lookups currently use a text adapter; their typed migration is planned.
+Request coverage improvements, including retaining known items alongside unknown ones,
+are also planned.
 
 Quantity lookups accept whole numbers from 1 through 999,999, with optional comma
 grouping such as `1,000`. Attach each quantity to its product, or use shared wording
