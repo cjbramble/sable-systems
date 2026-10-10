@@ -2,6 +2,8 @@ import type { AuthenticatedUser } from './auth';
 import { listSupportIncidents } from './incidents';
 import { AS_OF_DATE } from './seed';
 import { lookupSupportOrder } from './support-orders';
+import { lookupSupportOrderSearch } from './support-order-search';
+import type { OrderSearchOutcome } from '@/lib/support-order-search-outcomes';
 import { lookupSupportShipment } from './support-shipments';
 import { lookupSupportReturn } from './support-returns';
 import {
@@ -23,10 +25,6 @@ import {
 import type { ChatHistoryMessage } from '@/lib/chat-history';
 import type { AccountSummary } from '@/lib/contracts';
 import { formatCurrency } from '@/lib/format';
-import {
-  matchingOrderStatuses,
-  type SupportOrderStatusFilter,
-} from '@/lib/support-order-status';
 import {
   bindProductQuantities,
   type ProductMention,
@@ -199,6 +197,7 @@ async function authorizedContextForIntent(
   | string
   | Clarification
   | RecordLookupOutcome
+  | OrderSearchOutcome
   | ProductLookupOutcome
   | CatalogLookupOutcome
 > {
@@ -253,16 +252,21 @@ async function authorizedContextForIntent(
     case 'return':
       return lookupSupportReturn(db, intent, user);
     case 'orders': {
-      return orderSearchContext(
-        db,
-        user,
-        intent.statusFilter?.kind === 'filter'
-          ? intent.statusFilter
+      const product = products[0];
+      return lookupSupportOrderSearch(db, user, {
+        statusFilter:
+          intent.statusFilter?.kind === 'filter'
+            ? intent.statusFilter
+            : undefined,
+        year: intent.year,
+        yearField: intent.yearField,
+        product: product
+          ? {
+              item_number: product.item_number,
+              product_name: product.product_name,
+            }
           : undefined,
-        intent.year,
-        intent.yearField,
-        products[0],
-      );
+      });
     }
     case 'incidents':
       return incidentHistoryContext(db, user);
@@ -329,81 +333,6 @@ Records retrieved at: ${summary.retrievedAt}
 Seed baseline date: ${summary.seedAsOfDate}. Stored order statuses do not automatically advance with time.
 Authorized order count: ${summary.totalOrders}; active: ${summary.activeOrders}; scheduled: ${summary.scheduledOrders}.
 No specific order or item was identified in the request. Ask for a SABLE order ID, account PO number, or item number when account-specific facts are required.
-</authorized_records>`;
-}
-
-async function orderSearchContext(
-  db: D1Database,
-  user: AuthenticatedUser,
-  statusFilter?: Extract<SupportOrderStatusFilter, { kind: 'filter' }>,
-  year?: number,
-  yearField?: 'created' | 'requested',
-  product?: SupportProductRow,
-) {
-  const clauses = ['o.customer_id = ?'];
-  const params: unknown[] = [user.distributorId];
-  if (statusFilter) {
-    const statuses = matchingOrderStatuses(statusFilter);
-    clauses.push(
-      statuses.length
-        ? `o.status IN (${statuses.map(() => '?').join(', ')})`
-        : '0 = 1',
-    );
-    params.push(...statuses);
-  }
-  if (year) {
-    const column =
-      yearField === 'requested' ? 'o.requested_ship_date' : 'o.created_on';
-    clauses.push(`${column} >= ? AND ${column} < ?`);
-    params.push(`${year}-01-01`, `${year + 1}-01-01`);
-  }
-  if (product) {
-    clauses.push(`EXISTS (
-      SELECT 1 FROM order_items oi
-      WHERE oi.order_id = o.order_id AND oi.item_number = ?
-    )`);
-    params.push(product.item_number);
-  }
-  const where = clauses.join(' AND ');
-  const [countResult, rowResult] = await db.batch([
-    // Report every match so count questions are not answered from listed rows.
-    db
-      .prepare(`SELECT COUNT(*) AS total FROM orders o WHERE ${where}`)
-      .bind(...params),
-    db
-      .prepare(`SELECT o.order_id, o.customer_po_number, o.created_on,
-      o.requested_ship_date, o.status, o.order_total_cents, o.currency
-      FROM orders o
-      WHERE ${where}
-      ORDER BY o.created_on DESC, o.order_id DESC LIMIT 6`)
-      .bind(...params),
-  ]);
-  const total = Number(
-    (countResult.results[0] as { total: number } | undefined)?.total ?? 0,
-  );
-  const rows = rowResult as D1Result<Record<string, string | number>>;
-  const included = statusFilter?.include.map((status) =>
-    status.replaceAll('_', ' '),
-  );
-  const excluded = statusFilter?.exclude.map((status) =>
-    status.replaceAll('_', ' '),
-  );
-  const criteria = [
-    included?.length ? `status ${included.join(' or ')}` : null,
-    excluded?.length
-      ? `excluding ${excluded.length === 1 ? 'status' : 'statuses'} ${excluded.join(' and ')}`
-      : null,
-    year
-      ? `${yearField === 'requested' ? 'requested' : 'created'} in ${year}`
-      : null,
-    product
-      ? `containing product ${product.product_name} (${product.item_number})`
-      : null,
-  ].filter(Boolean);
-  return `<authorized_records>
-Authorization: ${user.distributorDisplayName} (${user.distributorId}) only.
-Order search${criteria.length ? ` for ${criteria.join(', ')}` : ''}: ${total} matching ${total === 1 ? 'order' : 'orders'}${total === 0 ? '.' : rows.results.length < total ? `; listing the ${rows.results.length} most recent.` : `; listing all ${total}.`}
-${rows.results.map((row) => `- ${row.order_id} / ${row.customer_po_number}: ${row.status}; created ${row.created_on}; requested ${row.requested_ship_date}; ${formatCurrency(Number(row.order_total_cents), String(row.currency))}.`).join('\n') || '- No matching orders.'}
 </authorized_records>`;
 }
 

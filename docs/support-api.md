@@ -47,7 +47,11 @@ Category listings and physical low-stock advisories also retain typed facts and
 canonical item numbers. Unknown-item outcomes keep requested item numbers separate
 from verified identities: replies can echo them as items, but cannot reuse them as
 order, shipment, or return references. These outcomes still use model replies.
-Search and account lookups currently use a text adapter; their typed migration is planned.
+Order searches retain typed criteria, scoped total counts and up to six listed
+orders. Only listed order IDs/POs and the matched product filter verify identifiers;
+product and account display names do not. Count and preview queries run together.
+Account, summary, and incident-history lookups currently use a text adapter; their
+typed migration is planned.
 Request coverage improvements, including retaining known items alongside unknown ones,
 are also planned.
 
