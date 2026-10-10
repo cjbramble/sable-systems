@@ -2,9 +2,11 @@ import type { AuthenticatedUser } from './auth';
 import { listSupportIncidents } from './incidents';
 import { AS_OF_DATE } from './seed';
 import { lookupSupportOrder } from './support-orders';
+import { lookupSupportShipment } from './support-shipments';
+import { lookupSupportReturn } from './support-returns';
 import {
-  renderOrderOutcome,
-  type OrderLookupOutcome,
+  renderRecordOutcome,
+  type RecordLookupOutcome,
   type SupportContextPart,
   type SupportContextResult,
 } from '@/lib/support-outcomes';
@@ -20,10 +22,7 @@ import {
   type ProductMention,
   type QuantityOccurrence,
 } from '@/lib/support-quantities';
-import {
-  itemReferences,
-  type SupportRecordReference,
-} from '@/lib/support-references';
+import { itemReferences } from '@/lib/support-references';
 import {
   classifySupportQueries,
   type SupportQueryIntent,
@@ -150,7 +149,12 @@ export async function buildSupportContext(
     if (typeof context !== 'string' && context.outcome === 'ambiguous')
       return {
         kind: 'clarification',
-        message: `Please specify whether ${context.reference.identifier} is an order ID or a customer PO number.`,
+        message:
+          context.kind === 'order'
+            ? `Please specify whether ${context.reference.identifier} is an order ID or a customer PO number.`
+            : context.reference.namespace === 'tracking_reference'
+              ? `Please specify a shipment ID for tracking reference ${context.reference.identifier}.`
+              : `Please specify whether ${context.reference.identifier} is a shipment ID or a tracking reference.`,
       };
     const part: SupportContextPart =
       typeof context === 'string'
@@ -158,7 +162,7 @@ export async function buildSupportContext(
         : context;
     parts.push(part);
     const text =
-      part.kind === 'order' ? renderOrderOutcome(part) : part.records;
+      part.kind === 'legacy' ? part.records : renderRecordOutcome(part);
     if (intents.length === 1) return { kind: 'records', records: text, parts };
     const records = text
       .replace(/^<authorized_records>\n/, '')
@@ -195,7 +199,7 @@ async function authorizedContextForIntent(
   db: D1Database,
   intent: SupportQueryIntent,
   user: AuthenticatedUser,
-): Promise<string | Clarification | OrderLookupOutcome> {
+): Promise<string | Clarification | RecordLookupOutcome> {
   if (intent.kind === 'orders' && intent.statusFilter?.kind === 'clarification')
     return {
       kind: 'clarification',
@@ -241,9 +245,9 @@ No catalog item matching ${unknown.join(', ')} was found. Ask the customer to ve
     case 'order':
       return lookupSupportOrder(db, intent, user);
     case 'shipment':
-      return shipmentContext(db, intent, user);
+      return lookupSupportShipment(db, intent, user);
     case 'return':
-      return returnContext(db, intent.identifier, user);
+      return lookupSupportReturn(db, intent, user);
     case 'orders': {
       return orderSearchContext(
         db,
@@ -321,91 +325,6 @@ Records retrieved at: ${summary.retrievedAt}
 Seed baseline date: ${summary.seedAsOfDate}. Stored order statuses do not automatically advance with time.
 Authorized order count: ${summary.totalOrders}; active: ${summary.activeOrders}; scheduled: ${summary.scheduledOrders}.
 No specific order or item was identified in the request. Ask for a SABLE order ID, account PO number, or item number when account-specific facts are required.
-</authorized_records>`;
-}
-
-async function shipmentContext(
-  db: D1Database,
-  reference: Extract<SupportRecordReference, { kind: 'shipment' }>,
-  user: AuthenticatedUser,
-): Promise<string | Clarification> {
-  const { identifier, namespace } = reference;
-  const predicate =
-    namespace === 'shipment_id'
-      ? 's.shipment_id = ?'
-      : namespace === 'tracking_reference'
-        ? 's.tracking_reference = ?'
-        : '(s.shipment_id = ? OR s.tracking_reference = ?)';
-  const matches = await db
-    .prepare(`SELECT s.shipment_id, s.status, s.carrier_name,
-      s.tracking_reference, s.shipped_on, s.estimated_delivery_date,
-      s.delivered_on, o.order_id, o.customer_po_number
-      FROM shipments s
-      JOIN orders o ON o.order_id = s.order_id
-      WHERE o.customer_id = ?
-        AND ${predicate} LIMIT 2`)
-    .bind(
-      user.distributorId,
-      identifier,
-      ...(namespace === 'unresolved' ? [identifier] : []),
-    )
-    .all<Record<string, string | null>>();
-  if (matches.results.length > 1)
-    return {
-      kind: 'clarification',
-      message:
-        namespace === 'tracking_reference'
-          ? `Please specify a shipment ID for tracking reference ${identifier}.`
-          : `Please specify whether ${identifier} is a shipment ID or a tracking reference.`,
-    };
-  const shipment = matches.results[0];
-  if (!shipment)
-    return `<authorized_records>
-No shipment matching ${identifier} is available within ${user.distributorDisplayName}'s authorization scope. Do not confirm or deny whether it belongs to another customer.
-</authorized_records>`;
-
-  return `<authorized_records>
-Authorization: ${user.distributorDisplayName} (${user.distributorId}) only.
-Shipment: ${shipment.shipment_id}; status: ${shipment.status}; carrier: ${shipment.carrier_name}; tracking: ${shipment.tracking_reference}.
-Order: ${shipment.order_id}; customer PO: ${shipment.customer_po_number}.
-Shipped: ${shipment.shipped_on ?? 'not yet'}; estimated delivery: ${shipment.estimated_delivery_date ?? 'not assigned'}; delivered: ${shipment.delivered_on ?? 'not yet'}.
-</authorized_records>`;
-}
-
-async function returnContext(
-  db: D1Database,
-  identifier: string,
-  user: AuthenticatedUser,
-) {
-  const returnRow = await db
-    .prepare(`SELECT r.return_id, r.status, r.reason_code, r.requested_on,
-      r.authorized_on, r.received_on, o.order_id, o.customer_po_number
-      FROM returns r
-      JOIN orders o ON o.order_id = r.order_id
-      WHERE o.customer_id = ? AND r.return_id = ?`)
-    .bind(user.distributorId, identifier)
-    .first<Record<string, string | null>>();
-  if (!returnRow)
-    return `<authorized_records>
-No return matching ${identifier} is available within ${user.distributorDisplayName}'s authorization scope. Do not confirm or deny whether it belongs to another customer.
-</authorized_records>`;
-
-  const items = await db
-    .prepare(`SELECT ri.line_number, ri.return_quantity, ri.disposition,
-      oi.item_number, oi.product_name_snapshot
-      FROM return_items ri
-      JOIN order_items oi
-        ON oi.order_id = ri.order_id AND oi.line_number = ri.line_number
-      WHERE ri.return_id = ? AND ri.order_id = ? ORDER BY ri.line_number`)
-    .bind(identifier, returnRow.order_id)
-    .all<Record<string, string | number>>();
-  return `<authorized_records>
-Authorization: ${user.distributorDisplayName} (${user.distributorId}) only.
-Return: ${returnRow.return_id}; status: ${returnRow.status}; reason: ${returnRow.reason_code}.
-Order: \`${returnRow.order_id}\`; customer PO: \`${returnRow.customer_po_number}\`.
-Requested: ${returnRow.requested_on}; authorized: ${returnRow.authorized_on ?? 'not yet'}; received: ${returnRow.received_on ?? 'not yet'}.
-Items:
-${items.results.map((item) => `- ${item.item_number} ${item.product_name_snapshot}: quantity ${item.return_quantity}; disposition ${item.disposition}.`).join('\n') || '- No return lines recorded.'}
 </authorized_records>`;
 }
 

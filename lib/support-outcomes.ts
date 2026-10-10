@@ -3,6 +3,14 @@ import { formatCurrency } from './format.ts';
 import type { SupportRecordReference } from './support-references.ts';
 
 export type OrderReference = Extract<SupportRecordReference, { kind: 'order' }>;
+export type ShipmentReference = Extract<
+  SupportRecordReference,
+  { kind: 'shipment' }
+>;
+export type ReturnReference = Extract<
+  SupportRecordReference,
+  { kind: 'return' }
+>;
 
 export type SupportOrderFacts = {
   order: {
@@ -70,24 +78,62 @@ export type VerifiedSupportReference = {
   identifier: string;
 };
 
-export type OrderLookupOutcome = {
-  kind: 'order';
-  reference: OrderReference;
+export type SupportShipmentFacts = {
+  shipment: SupportOrderFacts['shipments'][number] & {
+    order_id: string;
+    customer_po_number: string;
+  };
+};
+
+export type SupportReturnFacts = {
+  return: NonNullable<SupportOrderFacts['return']> & {
+    order_id: string;
+    customer_po_number: string;
+  };
+  items: {
+    line_number: number;
+    return_quantity: number;
+    disposition: string;
+    item_number: string;
+    product_name_snapshot: string;
+  }[];
+};
+
+type LookupOutcome<Reference extends SupportRecordReference, Facts> = {
+  kind: Reference['kind'];
+  reference: Reference;
   scope: { customerId: string; displayName: string };
 } & (
   | {
       outcome: 'found';
-      facts: SupportOrderFacts;
+      facts: Facts;
       verifiedReferences: VerifiedSupportReference[];
     }
   | { outcome: 'unavailable' }
   | { outcome: 'ambiguous' }
 );
 
-// Only untouched lookup kinds may use the text adapter. Remove in Phase 5D
-// when those lookups also carry facts and verified references explicitly.
+export type OrderLookupOutcome = LookupOutcome<
+  OrderReference,
+  SupportOrderFacts
+>;
+export type ShipmentLookupOutcome = LookupOutcome<
+  ShipmentReference,
+  SupportShipmentFacts
+>;
+export type ReturnLookupOutcome = Exclude<
+  LookupOutcome<ReturnReference, SupportReturnFacts>,
+  { outcome: 'ambiguous' }
+>;
+export type RecordLookupOutcome =
+  | OrderLookupOutcome
+  | ShipmentLookupOutcome
+  | ReturnLookupOutcome;
+
+// Search, catalog and account lookups still use the text adapter until their
+// remaining Phase 5D migrations. Explicit record lookups never use this path.
 export type SupportContextPart =
-  | Exclude<OrderLookupOutcome, { outcome: 'ambiguous' }>
+  | Exclude<RecordLookupOutcome, { outcome: 'ambiguous' }>
   | { kind: 'legacy'; records: string };
 
 export type SupportRecordsContext = {
@@ -100,14 +146,35 @@ export type SupportContextResult =
   | SupportRecordsContext
   | { kind: 'clarification'; message: string };
 
-export function renderOrderOutcome(
-  result: Exclude<OrderLookupOutcome, { outcome: 'ambiguous' }>,
+export function renderRecordOutcome(
+  result: Exclude<RecordLookupOutcome, { outcome: 'ambiguous' }>,
 ): string {
   const { scope } = result;
   if (result.outcome === 'unavailable')
     return `<authorized_records>
-No order matching ${result.reference.identifier} is available within ${scope.displayName}'s authorization scope. Do not confirm or deny whether it belongs to another customer.
+No ${result.kind} matching ${result.reference.identifier} is available within ${scope.displayName}'s authorization scope. Do not confirm or deny whether it belongs to another customer.
 </authorized_records>`;
+
+  if (result.kind === 'shipment') {
+    const { shipment } = result.facts;
+    return `<authorized_records>
+Authorization: ${scope.displayName} (${scope.customerId}) only.
+Shipment: ${shipment.shipment_id}; status: ${shipment.status}; carrier: ${shipment.carrier_name}; tracking: ${shipment.tracking_reference}.
+Order: ${shipment.order_id}; customer PO: ${shipment.customer_po_number}.
+Shipped: ${shipment.shipped_on ?? 'not yet'}; estimated delivery: ${shipment.estimated_delivery_date ?? 'not assigned'}; delivered: ${shipment.delivered_on ?? 'not yet'}.
+</authorized_records>`;
+  }
+  if (result.kind === 'return') {
+    const { return: returnRow, items } = result.facts;
+    return `<authorized_records>
+Authorization: ${scope.displayName} (${scope.customerId}) only.
+Return: ${returnRow.return_id}; status: ${returnRow.status}; reason: ${returnRow.reason_code}.
+Order: \`${returnRow.order_id}\`; customer PO: \`${returnRow.customer_po_number}\`.
+Requested: ${returnRow.requested_on}; authorized: ${returnRow.authorized_on ?? 'not yet'}; received: ${returnRow.received_on ?? 'not yet'}.
+Items:
+${items.map((item) => `- ${item.item_number} ${item.product_name_snapshot}: quantity ${item.return_quantity}; disposition ${item.disposition}.`).join('\n') || '- No return lines recorded.'}
+</authorized_records>`;
+  }
 
   const {
     order,

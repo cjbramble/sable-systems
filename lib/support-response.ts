@@ -3,7 +3,6 @@ import {
   type SupportRecordReference,
 } from './support-references.ts';
 import type {
-  OrderReference,
   SupportRecordsContext,
   VerifiedSupportReference,
 } from './support-outcomes.ts';
@@ -86,15 +85,15 @@ type IdentifierEvidence = {
   identifiers: Set<string>;
   orderIds: Set<string>;
   customerPos: Set<string>;
-  unavailableOrders: OrderReference[];
+  unavailableReferences: SupportRecordReference[];
   verifiedReferences: VerifiedSupportReference[];
   legacyIdentifiers: Set<string>;
   legacyReferences: SupportRecordReference[];
-  hasTypedOrders: boolean;
+  hasTypedRecords: boolean;
 };
 
 // Compatibility for untouched record kinds and string callers only. Remove in
-// Phase 5D. Never feed rendered typed-order parts into this prose adapter.
+// Phase 5D. Never feed rendered typed-record parts into this prose adapter.
 function legacyIdentifierEvidence(records: string): IdentifierEvidence {
   const identifiers = new Set(
     Array.from(records.matchAll(SUPPORT_IDENTIFIER_PATTERN), ([id]) =>
@@ -104,10 +103,10 @@ function legacyIdentifierEvidence(records: string): IdentifierEvidence {
   return {
     identifiers,
     legacyIdentifiers: identifiers,
-    hasTypedOrders: false,
+    hasTypedRecords: false,
     verifiedReferences: [],
     ...legacyRecordFields(records),
-    unavailableOrders: Array.from(
+    unavailableReferences: Array.from(
       records.matchAll(/^No order matching ([A-Z0-9-]+) is available\b/gm),
       ([, identifier]) => ({
         kind: 'order',
@@ -126,11 +125,11 @@ function identifierEvidence(
     identifiers: new Set(),
     orderIds: new Set(),
     customerPos: new Set(),
-    unavailableOrders: [],
+    unavailableReferences: [],
     verifiedReferences: [],
     legacyIdentifiers: new Set(),
     legacyReferences: [],
-    hasTypedOrders: context.parts.some((part) => part.kind === 'order'),
+    hasTypedRecords: context.parts.some((part) => part.kind !== 'legacy'),
   };
   for (const part of context.parts) {
     if (part.kind === 'legacy') {
@@ -138,12 +137,12 @@ function identifierEvidence(
       for (const id of legacy.identifiers) evidence.identifiers.add(id);
       for (const id of legacy.orderIds) evidence.orderIds.add(id);
       for (const id of legacy.customerPos) evidence.customerPos.add(id);
-      evidence.unavailableOrders.push(...legacy.unavailableOrders);
+      evidence.unavailableReferences.push(...legacy.unavailableReferences);
       for (const id of legacy.identifiers) evidence.legacyIdentifiers.add(id);
       evidence.legacyReferences.push(...legacy.legacyReferences);
     } else if (part.outcome === 'unavailable') {
       // Echoing the requested reference does not verify a record's existence.
-      evidence.unavailableOrders.push(part.reference);
+      evidence.unavailableReferences.push(part.reference);
       evidence.identifiers.add(part.reference.identifier.toUpperCase());
     } else {
       evidence.verifiedReferences.push(...part.verifiedReferences);
@@ -163,13 +162,25 @@ export function hasGroundedSupportIdentifiers(
   context: string | SupportRecordsContext,
 ): boolean {
   const evidence = identifierEvidence(context);
-  const { identifiers, orderIds, customerPos, unavailableOrders } = evidence;
+  const { identifiers, orderIds, customerPos, unavailableReferences } =
+    evidence;
   return (
     parseSupportReferences(content).occurrences.every(({ reference }) => {
       const { identifier, namespace } = reference;
+      if (
+        unavailableReferences.some(
+          (requested) =>
+            requested.kind === reference.kind &&
+            requested.identifier === identifier &&
+            (requested.namespace === 'unresolved' ||
+              namespace === 'unresolved' ||
+              requested.namespace === namespace),
+        )
+      )
+        return true;
       if (reference.kind !== 'order') {
-        if (!evidence.hasTypedOrders) return true;
-        // A requested order/PO cannot authorize a shipment or return. Legacy
+        if (!evidence.hasTypedRecords) return true;
+        // Requested references cannot authorize a different kind of record. Legacy
         // parts retain their own evidence until their migration in Phase 5D.
         return (
           evidence.legacyIdentifiers.has(identifier) ||
@@ -191,22 +202,12 @@ export function hasGroundedSupportIdentifiers(
           )
         );
       }
-      if (
-        unavailableOrders.some(
-          (requested) =>
-            requested.identifier === identifier &&
-            (requested.namespace === 'unresolved' ||
-              namespace === 'unresolved' ||
-              requested.namespace === namespace),
-        )
-      )
-        return true;
       if (namespace === 'order_id') return orderIds.has(identifier);
       if (namespace === 'customer_po') return customerPos.has(identifier);
       return (
         orderIds.has(identifier) ||
         customerPos.has(identifier) ||
-        identifiers.has(identifier)
+        evidence.legacyIdentifiers.has(identifier)
       );
     }) &&
     Array.from(content.matchAll(SUPPORT_IDENTIFIER_PATTERN), ([id]) =>
@@ -215,8 +216,6 @@ export function hasGroundedSupportIdentifiers(
   );
 }
 
-const UNAVAILABLE_RECORD =
-  /^<authorized_records>\nNo (order|shipment|return) matching ([A-Z0-9-]+) is available within (.+)'s authorization scope\./;
 const UNAVAILABLE_RECORD_NEXT_STEP = {
   order: 'verify the order ID or provide an account PO number',
   shipment: 'verify the shipment ID or tracking reference',
@@ -226,26 +225,12 @@ const UNAVAILABLE_RECORD_NEXT_STEP = {
 // A lookup with no authorized match is answered by the server with the fixed
 // scope sentence, so the reply cannot hint at other accounts or their records.
 export function unavailableRecordReply(
-  context: string | SupportRecordsContext,
+  context: SupportRecordsContext,
 ): string | null {
-  if (typeof context !== 'string') {
-    if (context.parts.length !== 1) return null;
-    const part = context.parts[0];
-    if (part.kind === 'order')
-      return part.outcome === 'unavailable'
-        ? `I cannot locate ${part.reference.identifier} within ${part.scope.displayName}'s authorization scope. Please ${UNAVAILABLE_RECORD_NEXT_STEP.order}.`
-        : null;
-    // Legacy shipment/return missing replies migrate with their facts in 5D.
-    return unavailableRecordReply(part.records);
-  }
-  const match = UNAVAILABLE_RECORD.exec(context);
-  if (!match) return null;
-  const [, kind, identifier, distributor] = match;
-  const nextStep =
-    UNAVAILABLE_RECORD_NEXT_STEP[
-      kind as keyof typeof UNAVAILABLE_RECORD_NEXT_STEP
-    ];
-  return `I cannot locate ${identifier} within ${distributor}'s authorization scope. Please ${nextStep}.`;
+  if (context.parts.length !== 1) return null;
+  const part = context.parts[0];
+  if (part.kind === 'legacy' || part.outcome !== 'unavailable') return null;
+  return `I cannot locate ${part.reference.identifier} within ${part.scope.displayName}'s authorization scope. Please ${UNAVAILABLE_RECORD_NEXT_STEP[part.kind]}.`;
 }
 
 const SABLE_RESOURCE_WORD =
