@@ -1,4 +1,11 @@
-import type { ProductLookupOutcome } from './support-product-outcomes';
+import {
+  renderProductOutcome,
+  type ProductLookupOutcome,
+} from './support-product-outcomes';
+import {
+  renderCatalogOutcome,
+  type CatalogLookupOutcome,
+} from './support-catalog-outcomes';
 import type { OrderStatus } from './contracts.ts';
 import { formatCurrency } from './format.ts';
 import type { SupportRecordReference } from './support-references.ts';
@@ -131,11 +138,12 @@ export type RecordLookupOutcome =
   | ShipmentLookupOutcome
   | ReturnLookupOutcome;
 
-// Search, catalog aggregates and account lookups still use the text adapter
-// until their remaining Phase 5D migrations.
+// Search and account lookups still use the text adapter until their remaining
+// Phase 5D migrations.
 export type SupportContextPart =
   | Exclude<RecordLookupOutcome, { outcome: 'ambiguous' }>
   | ProductLookupOutcome
+  | CatalogLookupOutcome
   | { kind: 'legacy'; records: string };
 
 export type SupportRecordsContext = {
@@ -148,7 +156,24 @@ export type SupportContextResult =
   | SupportRecordsContext
   | { kind: 'clarification'; message: string };
 
-export function renderRecordOutcome(
+export function renderSupportContextPart(part: SupportContextPart): string {
+  switch (part.kind) {
+    case 'legacy':
+      return part.records;
+    case 'products':
+      return renderProductOutcome(part);
+    case 'catalog_category':
+    case 'inventory_advisories':
+    case 'unknown_products':
+      return renderCatalogOutcome(part);
+    case 'order':
+    case 'shipment':
+    case 'return':
+      return renderRecordOutcome(part);
+  }
+}
+
+function renderRecordOutcome(
   result: Exclude<RecordLookupOutcome, { outcome: 'ambiguous' }>,
 ): string {
   const { scope } = result;

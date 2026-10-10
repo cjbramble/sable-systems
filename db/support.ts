@@ -8,12 +8,14 @@ import {
   lookupSupportProducts,
   type SupportProductRow,
 } from './support-products';
+import type { ProductLookupOutcome } from '@/lib/support-product-outcomes';
+import type { CatalogLookupOutcome } from '@/lib/support-catalog-outcomes';
 import {
-  renderProductOutcome,
-  type ProductLookupOutcome,
-} from '@/lib/support-product-outcomes';
+  lookupSupportCategory,
+  lookupSupportInventoryAdvisories,
+} from './support-catalog';
 import {
-  renderRecordOutcome,
+  renderSupportContextPart,
   type RecordLookupOutcome,
   type SupportContextPart,
   type SupportContextResult,
@@ -156,12 +158,7 @@ export async function buildSupportContext(
         ? { kind: 'legacy', records: context }
         : context;
     parts.push(part);
-    const text =
-      part.kind === 'legacy'
-        ? part.records
-        : part.kind === 'products'
-          ? renderProductOutcome(part)
-          : renderRecordOutcome(part);
+    const text = renderSupportContextPart(part);
     if (intents.length === 1) return { kind: 'records', records: text, parts };
     const records = text
       .replace(/^<authorized_records>\n/, '')
@@ -199,7 +196,11 @@ async function authorizedContextForIntent(
   intent: SupportQueryIntent,
   user: AuthenticatedUser,
 ): Promise<
-  string | Clarification | RecordLookupOutcome | ProductLookupOutcome
+  | string
+  | Clarification
+  | RecordLookupOutcome
+  | ProductLookupOutcome
+  | CatalogLookupOutcome
 > {
   if (intent.kind === 'orders' && intent.statusFilter?.kind === 'clarification')
     return {
@@ -232,9 +233,11 @@ async function authorizedContextForIntent(
           !products.some((product) => product.item_number === reference),
       );
       if (unknown.length)
-        return `<authorized_records>
-No catalog item matching ${unknown.join(', ')} was found. Ask the customer to verify the complete item number. Do not substitute a similarly numbered product or infer its stock or price.
-</authorized_records>`;
+        return {
+          kind: 'unknown_products',
+          outcome: 'unavailable',
+          requestedItemNumbers: unknown,
+        };
     }
   }
   switch (intent.kind) {
@@ -297,8 +300,8 @@ No catalog item matching ${unknown.join(', ')} was found. Ask the customer to ve
           intent.includeLocations,
         );
       }
-      if (intent.category) return categoryInventoryContext(db, intent.category);
-      return inventoryAlertContext(db);
+      if (intent.category) return lookupSupportCategory(db, intent.category);
+      return lookupSupportInventoryAdvisories(db);
     }
     case 'summary': {
       if (products.length > 0)
@@ -528,43 +531,4 @@ async function matchProducts(
   // Full names and item numbers outrank generic terms such as "controller".
   // Preserve alphabetical order within each tier and include each product once.
   return { products: [...explicitMatches, ...keywordMatches], mentions };
-}
-
-async function categoryInventoryContext(db: D1Database, category: string) {
-  const rows = await db
-    .prepare(`SELECT p.item_number, p.product_name, p.fulfillment_type,
-      p.unit_price_cents, p.unit_label, p.case_pack, p.lead_time_days,
-      CASE WHEN p.fulfillment_type = 'license' THEN NULL
-        ELSE COALESCE(SUM(i.on_hand_quantity - i.reserved_quantity - i.quarantined_quantity), 0)
-      END AS available,
-      COALESCE(SUM(i.inbound_quantity), 0) AS inbound
-      FROM products p
-      LEFT JOIN inventory_balances i ON i.item_number = p.item_number
-      WHERE p.active_to IS NULL AND p.category = ?
-      GROUP BY p.item_number ORDER BY p.product_name LIMIT 12`)
-    .bind(category)
-    .all<Record<string, string | number | null>>();
-  return `<authorized_records>
-Active ${category} catalog retrieved at ${new Date().toISOString()}:
-${rows.results.map((row) => `- ${row.item_number} ${row.product_name}: ${formatCurrency(Number(row.unit_price_cents), 'USD')} per ${row.unit_label}; pack ${row.case_pack}; lead ${row.lead_time_days} days; ${row.fulfillment_type === 'license' ? 'digital allocation' : `${row.available} available, ${row.inbound} inbound`}.`).join('\n') || '- No active products in this category.'}
-</authorized_records>`;
-}
-
-async function inventoryAlertContext(db: D1Database) {
-  const rows = await db
-    .prepare(`SELECT p.item_number, p.product_name, p.case_pack,
-      SUM(i.on_hand_quantity - i.reserved_quantity - i.quarantined_quantity) AS available,
-      SUM(i.inbound_quantity) AS inbound,
-      MIN(i.expected_restock_date) AS restock
-      FROM products p JOIN inventory_balances i ON i.item_number = p.item_number
-      WHERE p.active_to IS NULL
-      GROUP BY p.item_number, p.product_name, p.case_pack
-      HAVING available <= p.case_pack * 8
-      ORDER BY available, p.item_number LIMIT 6`)
-    .all<Record<string, string | number | null>>();
-  return `<authorized_records>
-Current SABLE physical inventory advisories retrieved at ${new Date().toISOString()}:
-${rows.results.map((row) => `- ${row.item_number} ${row.product_name}: ${row.available} available; ${row.inbound} inbound; restock ${row.restock ?? 'not scheduled'}.`).join('\n')}
-Ask which item the customer wants if a specific availability decision is required.
-</authorized_records>`;
 }
