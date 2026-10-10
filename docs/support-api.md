@@ -37,7 +37,14 @@ parts. References mentioned only in an order's destination, product snapshots, o
 event descriptions do not become verified identities. The same applies to shipment
 carrier names, return reasons, and returned product snapshots. An unavailable reference
 may be echoed in its requested namespace without establishing that a record exists.
-Search, catalog, and account lookups currently use a text adapter; their typed migration is planned.
+Individual product lookups and comparisons also retain typed facts and canonical
+item numbers; product and fulfillment-location names do not verify identifiers.
+Product facts distinguish catalog eligibility from stock and quantity constraints.
+Any retirement marker excludes new orders, matching checkout policy. Retired products
+remain available for historical questions, but remaining stock does not permit new
+orders and support does not suggest order quantity adjustments for them.
+Search, catalog aggregates, unknown-item, and account lookups currently use a text
+adapter; their typed migration is planned.
 
 Quantity lookups accept whole numbers from 1 through 999,999, with optional comma
 grouping such as `1,000`. Attach each quantity to its product, or use shared wording

@@ -1,3 +1,4 @@
+import type { ProductLookupOutcome } from './support-product-outcomes';
 import type { OrderStatus } from './contracts.ts';
 import { formatCurrency } from './format.ts';
 import type { SupportRecordReference } from './support-references.ts';
@@ -130,10 +131,11 @@ export type RecordLookupOutcome =
   | ShipmentLookupOutcome
   | ReturnLookupOutcome;
 
-// Search, catalog and account lookups still use the text adapter until their
-// remaining Phase 5D migrations. Explicit record lookups never use this path.
+// Search, catalog aggregates and account lookups still use the text adapter
+// until their remaining Phase 5D migrations.
 export type SupportContextPart =
   | Exclude<RecordLookupOutcome, { outcome: 'ambiguous' }>
+  | ProductLookupOutcome
   | { kind: 'legacy'; records: string };
 
 export type SupportRecordsContext = {

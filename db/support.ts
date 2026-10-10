@@ -5,6 +5,14 @@ import { lookupSupportOrder } from './support-orders';
 import { lookupSupportShipment } from './support-shipments';
 import { lookupSupportReturn } from './support-returns';
 import {
+  lookupSupportProducts,
+  type SupportProductRow,
+} from './support-products';
+import {
+  renderProductOutcome,
+  type ProductLookupOutcome,
+} from '@/lib/support-product-outcomes';
+import {
   renderRecordOutcome,
   type RecordLookupOutcome,
   type SupportContextPart,
@@ -27,19 +35,6 @@ import {
   classifySupportQueries,
   type SupportQueryIntent,
 } from '@/lib/support-query';
-
-type ProductRow = {
-  item_number: string;
-  product_name: string;
-  category: string;
-  fulfillment_type: string;
-  unit_price_cents: number;
-  unit_label: string;
-  case_pack: number;
-  lead_time_days: number;
-  active_to: string | null;
-  search_terms: string;
-};
 
 export async function getAccountSummary(
   db: D1Database,
@@ -162,7 +157,11 @@ export async function buildSupportContext(
         : context;
     parts.push(part);
     const text =
-      part.kind === 'legacy' ? part.records : renderRecordOutcome(part);
+      part.kind === 'legacy'
+        ? part.records
+        : part.kind === 'products'
+          ? renderProductOutcome(part)
+          : renderRecordOutcome(part);
     if (intents.length === 1) return { kind: 'records', records: text, parts };
     const records = text
       .replace(/^<authorized_records>\n/, '')
@@ -199,7 +198,9 @@ async function authorizedContextForIntent(
   db: D1Database,
   intent: SupportQueryIntent,
   user: AuthenticatedUser,
-): Promise<string | Clarification | RecordLookupOutcome> {
+): Promise<
+  string | Clarification | RecordLookupOutcome | ProductLookupOutcome
+> {
   if (intent.kind === 'orders' && intent.statusFilter?.kind === 'clarification')
     return {
       kind: 'clarification',
@@ -287,7 +288,7 @@ No catalog item matching ${unknown.join(', ')} was found. Ask the customer to ve
           intent.compare || intent.quantities.length > 0
             ? products.slice(0, 3)
             : products.slice(0, 1);
-        return productComparisonContext(
+        return lookupSupportProducts(
           db,
           selected.map((product) => ({
             product,
@@ -301,7 +302,7 @@ No catalog item matching ${unknown.join(', ')} was found. Ask the customer to ve
     }
     case 'summary': {
       if (products.length > 0)
-        return productComparisonContext(db, [{ product: products[0] }]);
+        return lookupSupportProducts(db, [{ product: products[0] }]);
       return summaryContext(db, user);
     }
   }
@@ -334,7 +335,7 @@ async function orderSearchContext(
   statusFilter?: Extract<SupportOrderStatusFilter, { kind: 'filter' }>,
   year?: number,
   yearField?: 'created' | 'requested',
-  product?: ProductRow,
+  product?: SupportProductRow,
 ) {
   const clauses = ['o.customer_id = ?'];
   const params: unknown[] = [user.distributorId];
@@ -457,9 +458,11 @@ async function matchProducts(
   quantities: QuantityOccurrence[] = [],
 ) {
   const rows = await db
-    .prepare('SELECT * FROM products ORDER BY product_name')
-    .all<ProductRow>();
-  const explicitMatches: ProductRow[] = [];
+    .prepare(`SELECT item_number, product_name, category, fulfillment_type,
+      unit_price_cents, unit_label, case_pack, lead_time_days, active_to,
+      search_terms FROM products ORDER BY product_name`)
+    .all<SupportProductRow>();
+  const explicitMatches: SupportProductRow[] = [];
   const references = new Set(itemReferences(message));
   const mentions: ProductMention[] = [];
   for (const product of rows.results) {
@@ -509,7 +512,7 @@ async function matchProducts(
   const keywordMessage = keywordCharacters.join('');
   // Check aliases after collecting all explicit references, regardless of row
   // order. Separately mentioned aliases remain available for mixed comparisons.
-  const keywordMatches: ProductRow[] = [];
+  const keywordMatches: SupportProductRow[] = [];
   for (const product of rows.results) {
     const aliases = product.search_terms
       .split(',')
@@ -525,155 +528,6 @@ async function matchProducts(
   // Full names and item numbers outrank generic terms such as "controller".
   // Preserve alphabetical order within each tier and include each product once.
   return { products: [...explicitMatches, ...keywordMatches], mentions };
-}
-
-async function productComparisonContext(
-  db: D1Database,
-  products: { product: ProductRow; quantity?: number }[],
-  includeLocations = false,
-) {
-  const records = await Promise.all(
-    products.map(({ product, quantity }) =>
-      productContext(db, product, quantity, includeLocations),
-    ),
-  );
-  return `<authorized_records>
-${records.join('\n')}
-</authorized_records>`;
-}
-
-async function productContext(
-  db: D1Database,
-  product: ProductRow,
-  quantity?: number,
-  includeLocations = false,
-) {
-  if (product.fulfillment_type === 'license') {
-    const quantityNote =
-      quantity !== undefined
-        ? `Requested quantity ${quantity}: ${quantity % product.case_pack === 0 ? 'valid minimum-block multiple' : `must be adjusted to a multiple of ${product.case_pack}`}.
-`
-        : '';
-    return `Product: ${product.item_number} — ${product.product_name}; category ${product.category}.
-Wholesale price: ${formatCurrency(product.unit_price_cents)} per ${product.unit_label}; minimum block ${product.case_pack}.
-${quantityNote}This is a digitally allocated license and does not have a physical stock balance.`;
-  }
-  const inventory = await db
-    .prepare(`SELECT
-      SUM(on_hand_quantity) AS on_hand,
-      SUM(reserved_quantity) AS reserved,
-      SUM(quarantined_quantity) AS quarantined,
-      SUM(inbound_quantity) AS inbound,
-      MIN(expected_restock_date) AS expected_restock_date,
-      MAX(updated_at) AS updated_at
-      FROM inventory_balances WHERE item_number = ?`)
-    .bind(product.item_number)
-    .first<Record<string, number | string | null>>();
-  const available =
-    Number(inventory?.on_hand ?? 0) -
-    Number(inventory?.reserved ?? 0) -
-    Number(inventory?.quarantined ?? 0);
-  const invalidCasePack =
-    quantity !== undefined && quantity % product.case_pack !== 0;
-  // Compare the original request to usable stock, not to an adjusted case-pack
-  // quantity. Surplus stock is not a negative shortage or an adjustment gap.
-  const requestedShortfall =
-    quantity === undefined ? undefined : Math.max(0, quantity - available);
-  const quantityNote =
-    quantity !== undefined
-      ? `Requested quantity ${quantity}: ${invalidCasePack ? `not a multiple of case pack ${product.case_pack}` : 'valid case-pack multiple'}; ${available >= quantity ? 'currently within available-to-promise stock' : `exceeds current available-to-promise stock by ${requestedShortfall}`}.
-`
-      : '';
-  const shortfallNote =
-    quantity !== undefined
-      ? `Stock shortfall for requested quantity ${quantity}: ${requestedShortfall} units (${quantity} requested; ${available} available). Case-pack adjustment distance is not a stock shortfall.\n`
-      : '';
-  const orderingRestriction = invalidCasePack
-    ? `Ordering restriction: quantity ${quantity} cannot be ordered or fulfilled as requested. It must be adjusted to a full case-pack multiple of ${product.case_pack}; sufficient stock does not waive this rule. Do not offer partial-unit or broken-case exceptions to this ordering restriction.\n`
-    : '';
-  const adjustmentNote = invalidCasePack
-    ? casePackAdjustmentContext(quantity, product.case_pack, available)
-    : '';
-  let locationNote = '';
-  if (includeLocations) {
-    const locations = await db
-      .prepare(`SELECT l.location_name, l.service_region,
-        i.on_hand_quantity - i.reserved_quantity - i.quarantined_quantity AS available,
-        i.inbound_quantity, i.expected_restock_date
-        FROM inventory_balances i
-        JOIN fulfillment_locations l ON l.location_id = i.location_id
-        WHERE i.item_number = ? ORDER BY available DESC, l.location_name`)
-      .bind(product.item_number)
-      .all<Record<string, string | number | null>>();
-    // Per-location figures are parts of the total; a customer asking about
-    // "this warehouse" without naming one must still get the total.
-    locationNote = `\nFulfillment locations (each figure is part of the ${available} total available to promise; give the total unless the customer names a specific location):\n${locations.results.map((location) => `- ${location.location_name} (${location.service_region}): ${location.available} available; ${location.inbound_quantity} inbound; restock ${location.expected_restock_date ?? 'not scheduled'}.`).join('\n') || '- No physical fulfillment locations recorded.'}`;
-  }
-  return `Product: ${product.item_number} — ${product.product_name}; category ${product.category}.
-Wholesale price: ${formatCurrency(product.unit_price_cents)} per ${product.unit_label}; case pack ${product.case_pack}; standard lead time ${product.lead_time_days} days.
-${quantityNote}${shortfallNote}${orderingRestriction}${adjustmentNote}Available to promise: ${available}. Inbound: ${inventory?.inbound ?? 0}. Expected restock: ${inventory?.expected_restock_date ?? 'none scheduled'}.
-Inventory retrieved at: ${new Date().toISOString()}. Latest inventory record update: ${inventory?.updated_at ?? 'not recorded'}.
-Quarantined units are excluded from availability. Do not reveal other distributors' reservations or orders.${locationNote}`;
-}
-
-function casePackAdjustmentContext(
-  requested: number,
-  casePack: number,
-  available: number,
-) {
-  // Compute from the matched product, not from model-generated arithmetic.
-  // Zero is not an orderable alternative when the request is below one case.
-  const alternatives = [
-    {
-      quantity: Math.floor(requested / casePack) * casePack,
-      label: 'Lower',
-      direction: 'below',
-    },
-    {
-      quantity: Math.ceil(requested / casePack) * casePack,
-      label: 'Higher',
-      direction: 'above',
-    },
-  ]
-    .filter(({ quantity }) => quantity > 0)
-    .map((alternative) => ({
-      ...alternative,
-      cases: alternative.quantity / casePack,
-      distance: Math.abs(alternative.quantity - requested),
-    }));
-  const nearestDistance = Math.min(
-    ...alternatives.map(({ distance }) => distance),
-  );
-  const nearest = alternatives.filter(
-    ({ distance }) => distance === nearestDistance,
-  );
-  // There are at most two adjacent multiples. Explicitly distinguish a
-  // farther alternative from the nearest choice so a list heading cannot
-  // imply they are tied. Stock availability does not change this comparison.
-  const farther = alternatives.find(
-    ({ distance }) => distance > nearestDistance,
-  );
-  const nearestLabel =
-    nearest.length === 1
-      ? `Only ${nearest[0].quantity} units is nearest.`
-      : `${nearest.map(({ quantity }) => quantity).join(' and ')} units are equally nearest. Both may appear in a "Nearest quantities" list.`;
-  const alternativeLabel = farther
-    ? ` ${farther.quantity} units is a valid alternative, not a nearest quantity. If listing both, label the list "Valid alternatives", not "Nearest quantities".`
-    : '';
-  const descriptions = alternatives.map(
-    ({ quantity, label, direction, cases, distance }) => {
-      const availability =
-        quantity <= available
-          ? 'within current available-to-promise stock'
-          : `exceeds current available-to-promise stock by ${quantity - available} units`;
-      return `${label} valid quantity: ${quantity} units (${cases} ${cases === 1 ? 'case' : 'cases'}), ${distance} ${distance === 1 ? 'unit' : 'units'} ${direction} requested quantity ${requested}; ${availability}.`;
-    },
-  );
-  descriptions.push(
-    `${nearest.length === 1 ? 'Nearest valid quantity' : 'Equally nearest valid quantities'}: ${nearest.map(({ quantity }) => quantity).join(' or ')} units (${nearestDistance} ${nearestDistance === 1 ? 'unit' : 'units'} from requested quantity ${requested}). Nearest means smallest absolute quantity difference, not rounding down or a guarantee of stock availability.`,
-    `Response labeling: ${nearestLabel}${alternativeLabel}`,
-  );
-  return descriptions.join('\n') + '\n';
 }
 
 async function categoryInventoryContext(db: D1Database, category: string) {
