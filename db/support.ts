@@ -1,6 +1,14 @@
+import {
+  lookupSupportAccount,
+  lookupSupportSummary,
+  lookupSupportIncidentHistory,
+} from './support-account';
+import type {
+  AccountLookupOutcome,
+  SummaryLookupOutcome,
+  IncidentHistoryOutcome,
+} from '@/lib/support-account-outcomes';
 import type { AuthenticatedUser } from './auth';
-import { listSupportIncidents } from './incidents';
-import { AS_OF_DATE } from './seed';
 import { lookupSupportOrder } from './support-orders';
 import { lookupSupportOrderSearch } from './support-order-search';
 import type { OrderSearchOutcome } from '@/lib/support-order-search-outcomes';
@@ -23,8 +31,6 @@ import {
   type SupportContextResult,
 } from '@/lib/support-outcomes';
 import type { ChatHistoryMessage } from '@/lib/chat-history';
-import type { AccountSummary } from '@/lib/contracts';
-import { formatCurrency } from '@/lib/format';
 import {
   bindProductQuantities,
   type ProductMention,
@@ -35,52 +41,6 @@ import {
   classifySupportQueries,
   type SupportQueryIntent,
 } from '@/lib/support-query';
-
-export async function getAccountSummary(
-  db: D1Database,
-  user: AuthenticatedUser,
-): Promise<AccountSummary> {
-  const orderCounts = await db
-    .prepare(`SELECT
-      COUNT(*) AS total_orders,
-      SUM(CASE WHEN status NOT IN ('delivered', 'cancelled', 'scheduled') THEN 1 ELSE 0 END) AS active_orders,
-      SUM(CASE WHEN status = 'scheduled' THEN 1 ELSE 0 END) AS scheduled_orders
-      FROM orders WHERE customer_id = ?`)
-    .bind(user.distributorId)
-    .first<{
-      total_orders: number;
-      active_orders: number;
-      scheduled_orders: number;
-    }>();
-  const alerts = await db
-    .prepare(`SELECT COUNT(*) AS alert_count FROM (
-      SELECT p.item_number
-      FROM products p
-      JOIN inventory_balances i ON i.item_number = p.item_number
-      WHERE p.fulfillment_type = 'physical' AND p.active_to IS NULL
-      GROUP BY p.item_number
-      HAVING SUM(i.on_hand_quantity - i.reserved_quantity - i.quarantined_quantity) <= p.case_pack * 8
-    )`)
-    .first<{ alert_count: number }>();
-
-  return {
-    customerId: user.distributorId,
-    displayName: user.distributorDisplayName,
-    accountTier: user.accountTier,
-    userId: user.userId,
-    userDisplayName: user.userDisplayName,
-    userRole: user.role,
-    paymentTerms: user.paymentTerms,
-    currency: user.currency,
-    region: user.region,
-    totalOrders: Number(orderCounts?.total_orders ?? 0),
-    activeOrders: Number(orderCounts?.active_orders ?? 0),
-    scheduledOrders: Number(orderCounts?.scheduled_orders ?? 0),
-    inventoryAlerts: Number(alerts?.alert_count ?? 0),
-    seedAsOfDate: AS_OF_DATE,
-    retrievedAt: new Date().toISOString(),
-  };
-}
 
 const REFERENCE_NAMESPACE_LABELS = {
   order_id: 'order ID',
@@ -139,9 +99,8 @@ export async function buildSupportContext(
   for (const [index, intent] of intents.entries()) {
     const context = await authorizedContextForIntent(db, intent, user);
     // Resolve ambiguity before any compound facts are sent to the model.
-    if (typeof context !== 'string' && context.kind === 'clarification')
-      return context;
-    if (typeof context !== 'string' && context.outcome === 'ambiguous')
+    if (context.kind === 'clarification') return context;
+    if (context.outcome === 'ambiguous')
       return {
         kind: 'clarification',
         message:
@@ -151,12 +110,8 @@ export async function buildSupportContext(
               ? `Please specify a shipment ID for tracking reference ${context.reference.identifier}.`
               : `Please specify whether ${context.reference.identifier} is a shipment ID or a tracking reference.`,
       };
-    const part: SupportContextPart =
-      typeof context === 'string'
-        ? { kind: 'legacy', records: context }
-        : context;
-    parts.push(part);
-    const text = renderSupportContextPart(part);
+    parts.push(context);
+    const text = renderSupportContextPart(context);
     if (intents.length === 1) return { kind: 'records', records: text, parts };
     const records = text
       .replace(/^<authorized_records>\n/, '')
@@ -194,7 +149,9 @@ async function authorizedContextForIntent(
   intent: SupportQueryIntent,
   user: AuthenticatedUser,
 ): Promise<
-  | string
+  | AccountLookupOutcome
+  | SummaryLookupOutcome
+  | IncidentHistoryOutcome
   | Clarification
   | RecordLookupOutcome
   | OrderSearchOutcome
@@ -269,9 +226,9 @@ async function authorizedContextForIntent(
       });
     }
     case 'incidents':
-      return incidentHistoryContext(db, user);
+      return lookupSupportIncidentHistory(db, user);
     case 'account':
-      return accountContext(db, user, intent.includeCharges);
+      return lookupSupportAccount(db, user, intent.includeCharges);
     case 'catalog': {
       let quantities = new Map<string, number>();
       if (intent.quantities.length) {
@@ -310,57 +267,9 @@ async function authorizedContextForIntent(
     case 'summary': {
       if (products.length > 0)
         return lookupSupportProducts(db, [{ product: products[0] }]);
-      return summaryContext(db, user);
+      return lookupSupportSummary(db, user);
     }
   }
-}
-
-async function incidentHistoryContext(db: D1Database, user: AuthenticatedUser) {
-  const incidents = (await listSupportIncidents(db, user)).slice(0, 8);
-  return `<authorized_records>
-Support incidents for authenticated user ${user.userDisplayName} (${user.userId}); showing up to 8 most recent.
-${incidents.map((incident) => `- ${incident.id}: ${incident.title}; updated ${incident.updatedAt}; ${incident.messages.length} messages.`).join('\n') || '- No support incidents recorded.'}
-Do not reveal incidents belonging to other users or distributors.
-</authorized_records>`;
-}
-
-async function summaryContext(db: D1Database, user: AuthenticatedUser) {
-  const summary = await getAccountSummary(db, user);
-  return `<authorized_records>
-Account: ${summary.displayName} (${summary.customerId}), ${summary.accountTier}
-Authenticated user: ${summary.userDisplayName} (${summary.userId}), role ${summary.userRole}.
-Records retrieved at: ${summary.retrievedAt}
-Seed baseline date: ${summary.seedAsOfDate}. Stored order statuses do not automatically advance with time.
-Authorized order count: ${summary.totalOrders}; active: ${summary.activeOrders}; scheduled: ${summary.scheduledOrders}.
-No specific order or item was identified in the request. Ask for a SABLE order ID, account PO number, or item number when account-specific facts are required.
-</authorized_records>`;
-}
-
-async function accountContext(
-  db: D1Database,
-  user: AuthenticatedUser,
-  includeCharges: boolean,
-) {
-  const summary = await getAccountSummary(db, user);
-  const charges = includeCharges
-    ? await db
-        .prepare(`SELECT c.order_id, c.status, c.amount_cents, c.currency,
-          c.authorization_code, c.authorized_at
-          FROM account_charges c
-          JOIN orders o ON o.order_id = c.order_id
-          WHERE o.customer_id = ?
-          ORDER BY c.authorized_at DESC LIMIT 8`)
-        .bind(user.distributorId)
-        .all<Record<string, string | number>>()
-    : { results: [] };
-  return `<authorized_records>
-Authorization: ${summary.displayName} (${summary.customerId}) only.
-Account tier: ${summary.accountTier}; payment terms: ${summary.paymentTerms}; currency: ${summary.currency}; region: ${summary.region}.
-Authenticated user: ${summary.userDisplayName} (${summary.userId}); role: ${summary.userRole}.
-Orders: ${summary.totalOrders} total; ${summary.activeOrders} active; ${summary.scheduledOrders} scheduled.
-Recent charge-account authorizations:
-${charges.results.map((charge) => `- ${charge.order_id}: ${charge.status}; ${formatCurrency(Number(charge.amount_cents), String(charge.currency))}; authorization ${charge.authorization_code}; ${charge.authorized_at}.`).join('\n') || '- No charge-account authorizations recorded.'}
-</authorized_records>`;
 }
 
 function productMentions(

@@ -1,6 +1,6 @@
 import { getAuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
-import { getAccountSummary } from '@/db/support';
+import { getAccountSummary } from '@/db/account';
 
 export const dynamic = 'force-dynamic';
 
