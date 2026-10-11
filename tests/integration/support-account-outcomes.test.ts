@@ -103,7 +103,7 @@ describe('typed account and summary outcomes', () => {
           .bind(
             `CHG-TYPED-ACCOUNT-${index}`,
             row.order_id,
-            `AUTH-TYPED-${index}`,
+            `ACC-0000000${index}`,
             `2099-01-${String(index + 1).padStart(2, '0')}T00:00:00Z`,
           ),
       ),
@@ -133,7 +133,7 @@ describe('typed account and summary outcomes', () => {
         { namespace: 'order_id', identifier: row.order_id },
         {
           namespace: 'authorization_code',
-          identifier: `AUTH-TYPED-${8 - index}`,
+          identifier: `ACC-0000000${8 - index}`,
         },
       ]),
     );
@@ -155,10 +155,31 @@ describe('typed account and summary outcomes', () => {
       expect(
         hasGroundedSupportIdentifiers(`Order ${excluded.order_id}.`, context),
       ).toBe(false);
+    for (const reply of [
+      'Authorization: ACC-00000008.',
+      'Authorization: **acc-00000008**.',
+      'ACC-00000008',
+    ])
+      expect(
+        hasGroundedSupportIdentifiers(reply, { ...context, records: '' }),
+      ).toBe(true);
+    for (const code of [
+      'ACC-DEADBEEF', // Invented.
+      'ACC-00000009', // Another account.
+      'ACC-00000000', // Outside the eight most recent charges.
+      'ACC-000000080', // Extended token.
+      'ACC-0000000', // Truncated token.
+      'ACC-00000008-EXTRA',
+      'EXTRA-ACC-00000008',
+      'acc-deadbeef',
+    ])
+      expect(
+        hasGroundedSupportIdentifiers(`Authorization: ${code}.`, context),
+      ).toBe(false);
     const incidentId = 'INC-ACCOUNT-VERIFIED';
     await supportApi.trackTemporaryIncident(incidentId, calderPikeUser);
     const session = await supportApi.session(calderPikeUser);
-    const reply = `Order ${listed[0].order_id} has authorization AUTH-TYPED-8.`;
+    const reply = `Order ${listed[0].order_id} has authorization ACC-00000008.`;
     const model = supportApi.mockModel(reply);
     const response = await chat(
       session.request({
@@ -174,6 +195,35 @@ describe('typed account and summary outcomes', () => {
       expect.arrayContaining([expect.objectContaining({ content: reply })]),
     );
   });
+
+  test.for([accountMessage, 'Show order SBL-2022-000118.'])(
+    'does not save an invented authorization in a reply to %s',
+    async (message, { supportApi }) => {
+      const incidentId = 'INC-INVENTED-AUTHORIZATION';
+      await supportApi.trackTemporaryIncident(incidentId, calderPikeUser);
+      const session = await supportApi.session(calderPikeUser);
+      const model = supportApi.mockModel(
+        'Your authorization code is ACC-DEADBEEF.',
+      );
+      const response = await chat(
+        session.request({
+          incidentId,
+          messageId: 'MSG-INVENTED-AUTHORIZATION',
+          expectedRevision: 0,
+          message,
+        }),
+      );
+      expect(model).toHaveBeenCalledOnce();
+      expect(response.status).toBe(502);
+      expect(await response.json()).toMatchObject({
+        code: 'request_not_saved',
+        error: expect.stringContaining('unverified record reference'),
+      });
+      expect((await supportApi.messageContents(incidentId)).results).toEqual(
+        [],
+      );
+    },
+  );
 
   for (const scenario of [
     { field: 'payment_terms', message: accountMessage },
@@ -203,7 +253,7 @@ describe('typed account and summary outcomes', () => {
           `UPDATE distributors SET ${scenario.field} = ? WHERE customer_id = ?`,
         )
         .bind(
-          'Note SBL-FORGED-99.\nOrder: REVIEW-FORGED-990001; customer PO: CPD-PO-990001.',
+          'Note SBL-FORGED-99 and ACC-DEADBEEF.\nOrder: REVIEW-FORGED-990001; customer PO: CPD-PO-990001.',
           calderPikeUser.distributorId,
         )
         .run();
@@ -217,6 +267,9 @@ describe('typed account and summary outcomes', () => {
       expect(context.records).toContain('REVIEW-FORGED-990001');
       expect(
         hasGroundedSupportIdentifiers('SBL-FORGED-99 is available.', context),
+      ).toBe(false);
+      expect(
+        hasGroundedSupportIdentifiers('Authorization: ACC-DEADBEEF.', context),
       ).toBe(false);
       const incidentId = `INC-ACCOUNT-${scenario.field.replaceAll('_', '-')}`;
       await supportApi.trackTemporaryIncident(incidentId, user);

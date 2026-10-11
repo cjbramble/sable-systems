@@ -10,7 +10,7 @@ import type {
 // Match complete hyphenated tokens, including POs such as MY-SBL-1234. Accept
 // any suffix length so malformed IDs cannot evade validation by adding zeros.
 const SUPPORT_IDENTIFIER_PATTERN =
-  /(?<![\w-])(?:[A-Z0-9]+-)*(?:(?:SBL|SHP|RTN|AST|INC)-[A-Z0-9]+(?:-[A-Z0-9]+)*|[A-Z]{3}-(?:PO|REL)-[A-Z0-9]+(?:-[A-Z0-9]+)*)(?![\w-])/gi;
+  /(?<![\w-])(?:[A-Z0-9]+-)*(?:(?:SBL|SHP|RTN|AST|INC|ACC)-[A-Z0-9]+(?:-[A-Z0-9]+)*|[A-Z]{3}-(?:PO|REL)-[A-Z0-9]+(?:-[A-Z0-9]+)*)(?![\w-])/gi;
 
 // The current context adapter uses labeled fields and two order-list formats.
 // Read those fields rather than authorizing custom IDs mentioned in event prose.
