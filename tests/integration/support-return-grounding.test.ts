@@ -1,7 +1,8 @@
+import { requireSupportRecords } from '../assertions/support-context';
 import { describe, expect, it } from 'vitest';
 
 import { getDatabase } from '@/db/database';
-import { buildAuthorizedContext } from '@/db/support';
+import { buildSupportContext } from '@/db/support';
 import { classifySupportQuery } from '@/lib/support-query';
 import { calderPikeUser } from '../fixtures/users';
 
@@ -53,10 +54,8 @@ describe('support return grounding', () => {
       product_name_snapshot: 'Dermal Maintenance Kit A9',
     });
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>
@@ -94,10 +93,8 @@ Items:
 
     expect(returnRecord).toBeNull();
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>

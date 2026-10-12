@@ -1,7 +1,8 @@
+import { requireSupportRecords } from '../assertions/support-context';
 import { describe, expect, it } from 'vitest';
 
 import { getDatabase } from '@/db/database';
-import { buildAuthorizedContext } from '@/db/support';
+import { buildSupportContext } from '@/db/support';
 import { classifySupportQuery } from '@/lib/support-query';
 import { calderPikeUser } from '../fixtures/users';
 
@@ -57,10 +58,8 @@ describe('support account grounding', () => {
     });
     expect(charges.results).toEqual([]);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>

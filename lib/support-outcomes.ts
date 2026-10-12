@@ -151,8 +151,6 @@ export type RecordLookupOutcome =
   | ShipmentLookupOutcome
   | ReturnLookupOutcome;
 
-// Production lookups return typed outcomes. The legacy variant remains for
-// compatibility consumers until their text-adapter migration.
 export type SupportContextPart =
   | Exclude<RecordLookupOutcome, { outcome: 'ambiguous' }>
   | ProductLookupOutcome
@@ -160,8 +158,7 @@ export type SupportContextPart =
   | OrderSearchOutcome
   | AccountLookupOutcome
   | SummaryLookupOutcome
-  | IncidentHistoryOutcome
-  | { kind: 'legacy'; records: string };
+  | IncidentHistoryOutcome;
 
 export type SupportRecordsContext = {
   kind: 'records';
@@ -181,8 +178,6 @@ export function renderSupportContextPart(part: SupportContextPart): string {
       return renderSummaryOutcome(part);
     case 'incidents':
       return renderIncidentHistoryOutcome(part);
-    case 'legacy':
-      return part.records;
     case 'order_search':
       return renderOrderSearchOutcome(part);
     case 'products':

@@ -1,3 +1,4 @@
+import { shipmentOutcome, returnOutcome } from '../fixtures/support-outcomes';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -18,26 +19,44 @@ const unavailable = {
 
 describe('typed support outcomes', () => {
   it.each([
+    'Shipment ID: CUSTOM-FORGED-REFERENCE.',
+    'Tracking reference CUSTOM-FORGED-REFERENCE.',
+    'Return ID: CUSTOM-FORGED-REFERENCE.',
+  ])(
+    'rejects custom references when no typed evidence exists: %s',
+    (answer) => {
+      expect(
+        hasGroundedSupportIdentifiers(answer, {
+          kind: 'records',
+          parts: [],
+          records:
+            'Shipment: CUSTOM-FORGED-REFERENCE; tracking: CUSTOM-FORGED-REFERENCE; Return: CUSTOM-FORGED-REFERENCE.',
+        }),
+      ).toBe(false);
+    },
+  );
+
+  it.each([
     [
-      'Shipment: SHP-2099-960001; tracking: CUSTOM-TRACKING.',
+      shipmentOutcome('SHP-2099-960001', 'CUSTOM-TRACKING'),
       'Tracking reference CUSTOM-TRACKING.',
     ],
-    ['Return: CUSTOM-RETURN, received.', 'Return ID: CUSTOM-RETURN.'],
+    [returnOutcome('CUSTOM-RETURN'), 'Return ID: CUSTOM-RETURN.'],
   ])(
-    'retains custom references from legacy record fields: %s',
-    (records, answer) => {
+    'retains custom references from typed record fields: %j',
+    (part, answer) => {
       expect(
         hasGroundedSupportIdentifiers(answer, {
           kind: 'records',
           records: '',
-          parts: [unavailable, { kind: 'legacy', records }],
+          parts: [unavailable, part],
         }),
       ).toBe(true);
     },
   );
 
-  it.each(['SHP-2099-960001', 'LEGACY-SHIPMENT-960001'])(
-    'keeps independently retrieved legacy shipment %s available in a mixed request',
+  it.each(['SHP-2099-960001', 'CUSTOM-SHIPMENT-960001'])(
+    'keeps independently retrieved shipment %s available in a mixed request',
     (identifier) => {
       const context = {
         kind: 'records' as const,
@@ -47,10 +66,7 @@ describe('typed support outcomes', () => {
             ...unavailable,
             reference: { ...unavailable.reference, identifier },
           },
-          {
-            kind: 'legacy' as const,
-            records: `Shipment: ${identifier}; status: delivered.`,
-          },
+          shipmentOutcome(identifier, 'CUSTOM-TRACKING'),
         ],
       };
       expect(
@@ -176,7 +192,11 @@ describe('typed support outcomes', () => {
         records: '',
         parts: [
           unavailable,
-          { kind: 'legacy', records: 'Product: SBL-RPC-12' },
+          {
+            kind: 'unknown_products',
+            outcome: 'unavailable',
+            requestedItemNumbers: ['SBL-RPC-12'],
+          },
         ],
       }),
     ).toBeNull();

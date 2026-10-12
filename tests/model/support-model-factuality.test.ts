@@ -1,9 +1,10 @@
+import { requireSupportRecords } from '../assertions/support-context';
 import { expectFiveNormalGenerationSamples } from '../fixtures/model-sampling';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
-import { buildAuthorizedContext } from '@/db/support';
+import { buildSupportContext } from '@/db/support';
 import type { ChatHistoryMessage } from '@/lib/chat-history';
 import {
   hasGroundedSupportIdentifiers,
@@ -36,11 +37,10 @@ async function askSupportModel(
   user: AuthenticatedUser = calderPikeUser,
 ) {
   const database = await getDatabase();
-  const authorizedContext = await buildAuthorizedContext(
-    database,
-    messages,
-    user,
+  const context = requireSupportRecords(
+    await buildSupportContext(database, messages, user),
   );
+  const authorizedContext = context.records;
   const [modelUrl, modelRequest] = createSupportModelRequest({
     distributorName: user.distributorDisplayName,
     distributorId: user.distributorId,
@@ -57,6 +57,7 @@ async function askSupportModel(
   expect(response.ok).toBe(true);
   const answer = extractSupportModelContent(await response.json());
   expect(answer).not.toBeNull();
+  expect(hasGroundedSupportIdentifiers(answer ?? '', context)).toBe(true);
 
   return { answer: answer ?? '', authorizedContext, database };
 }
@@ -155,9 +156,6 @@ describe('support model factuality', () => {
             /SBL-2026-000417|78,320|partially[_ -]shipped|\$\s*\d/,
           );
         }
-        expect(hasGroundedSupportIdentifiers(answer, authorizedContext)).toBe(
-          true,
-        );
       }
     } finally {
       await database
@@ -211,9 +209,6 @@ describe('support model factuality', () => {
           /\bSBL-RPC-12(?![\w-])|\b(?:312|680)\b|\$\s*\d/,
         );
       }
-      expect(hasGroundedSupportIdentifiers(answer, authorizedContext)).toBe(
-        true,
-      );
     }
   }, 120_000);
   it('uses only authorized identifiers, amounts, and dates for an exact order', async () => {
@@ -724,11 +719,10 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
       const messages: ChatHistoryMessage[] = [
         { role: 'user', content: casePackQuestion },
       ];
-      const authorizedContext = await buildAuthorizedContext(
-        database,
-        messages,
-        calderPikeUser,
+      const context = requireSupportRecords(
+        await buildSupportContext(database, messages, calderPikeUser),
       );
+      const authorizedContext = context.records;
       expect(authorizedContext).toContain(
         'Requested quantity 310: not a multiple of case pack 8; currently within available-to-promise stock.',
       );
@@ -738,7 +732,10 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
         messages,
         authorizedContext,
         logPrefix: 'Case-pack',
-        checkResponse: expectCasePackResponse,
+        checkResponse: (answer, records) => {
+          expect(hasGroundedSupportIdentifiers(answer, context)).toBe(true);
+          expectCasePackResponse(answer, records);
+        },
       });
     },
   );
@@ -1028,18 +1025,20 @@ No order matching ${unknownOrderId} is available within Calder Pike Distribution
       const messages: ChatHistoryMessage[] = [
         { role: 'user', content: overlappingComparisonQuestion },
       ];
-      const authorizedContext = await buildAuthorizedContext(
-        database,
-        messages,
-        calderPikeUser,
+      const context = requireSupportRecords(
+        await buildSupportContext(database, messages, calderPikeUser),
       );
+      const authorizedContext = context.records;
       expectOverlappingComparisonContext(authorizedContext);
 
       await expectFiveNormalGenerationSamples({
         messages,
         authorizedContext,
         logPrefix: 'Comparison',
-        checkResponse: expectOverlappingComparisonResponse,
+        checkResponse: (answer, records) => {
+          expect(hasGroundedSupportIdentifiers(answer, context)).toBe(true);
+          expectOverlappingComparisonResponse(answer, records);
+        },
       });
     },
   );

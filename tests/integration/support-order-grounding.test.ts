@@ -1,7 +1,8 @@
+import { requireSupportRecords } from '../assertions/support-context';
 import { describe, expect, it } from 'vitest';
 
 import { getDatabase } from '@/db/database';
-import { buildAuthorizedContext } from '@/db/support';
+import { buildSupportContext } from '@/db/support';
 import { classifySupportQuery } from '@/lib/support-query';
 import { parseCheckoutInput } from '@/lib/checkout';
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
@@ -23,15 +24,17 @@ async function countCalderPikeOrders(
 
 describe('support order grounding', () => {
   it('supplies the same historical delivery date in shipment and event records', async () => {
-    const context = await buildAuthorizedContext(
-      await getDatabase(),
-      [
-        {
-          role: 'user',
-          content: 'Show the delivery timeline for order SBL-2022-000118.',
-        },
-      ],
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(
+        await getDatabase(),
+        [
+          {
+            role: 'user',
+            content: 'Show the delivery timeline for order SBL-2022-000118.',
+          },
+        ],
+        calderPikeUser,
+      ),
     );
 
     expect(context).toContain('requested ship date: 2022-06-27;');
@@ -78,39 +81,47 @@ describe('support order grounding', () => {
         .prepare('UPDATE orders SET customer_po_number = ? WHERE order_id = ?')
         .bind(reference, orderId)
         .run();
-      const canonical = await buildAuthorizedContext(
-        database,
-        [{ role: 'user', content: `Show ${orderId}.` }],
-        calderPikeUser,
+      const { records: canonical } = requireSupportRecords(
+        await buildSupportContext(
+          database,
+          [{ role: 'user', content: `Show ${orderId}.` }],
+          calderPikeUser,
+        ),
       );
       for (const content of [
         `Find order ${reference}.`,
         `What is the status of customer PO ${reference.toLowerCase()}?`,
       ]) {
-        const context = await buildAuthorizedContext(
-          database,
-          [{ role: 'user', content }],
-          calderPikeUser,
+        const { records: context } = requireSupportRecords(
+          await buildSupportContext(
+            database,
+            [{ role: 'user', content }],
+            calderPikeUser,
+          ),
         );
         expect(context).toBe(canonical);
         expect(context).toContain(
           `Order: ${orderId}; customer PO: ${reference}; status: partially_shipped.`,
         );
         expect(context).toContain('Order total: $78,320.00.');
-        const foreign = await buildAuthorizedContext(
-          database,
-          [{ role: 'user', content }],
-          meridian,
+        const { records: foreign } = requireSupportRecords(
+          await buildSupportContext(
+            database,
+            [{ role: 'user', content }],
+            meridian,
+          ),
         );
         expect(foreign).toContain(
           `No order matching ${reference} is available within Meridian Civic Supply's authorization scope.`,
         );
         expect(foreign).not.toMatch(/SBL-2026-000417|78,320|partially_shipped/);
       }
-      const unknown = await buildAuthorizedContext(
-        database,
-        [{ role: 'user', content: 'Find PO REVIEW-UNKNOWN-PO.' }],
-        calderPikeUser,
+      const { records: unknown } = requireSupportRecords(
+        await buildSupportContext(
+          database,
+          [{ role: 'user', content: 'Find PO REVIEW-UNKNOWN-PO.' }],
+          calderPikeUser,
+        ),
       );
       expect(unknown).toContain(
         'No order matching REVIEW-UNKNOWN-PO is available within',
@@ -138,10 +149,8 @@ describe('support order grounding', () => {
     });
 
     const database = await getDatabase();
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toContain(
@@ -180,15 +189,15 @@ describe('support order grounding', () => {
     });
 
     const database = await getDatabase();
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
-    const orderNumberContext = await buildAuthorizedContext(
-      database,
-      [{ role: 'user', content: 'What is the status of SBL-2026-000417?' }],
-      calderPikeUser,
+    const { records: orderNumberContext } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        [{ role: 'user', content: 'What is the status of SBL-2026-000417?' }],
+        calderPikeUser,
+      ),
     );
 
     expect(context).toBe(orderNumberContext);
@@ -223,15 +232,19 @@ describe('support order grounding', () => {
     const meridianUser = await loadActiveUserFixture(database, 'USR-MCS-001');
     expect(meridianUser.distributorId).toBe('WHS-1098');
 
-    const calderContext = await buildAuthorizedContext(
-      database,
-      [{ role: 'user', content: 'Show order SBL-2026-000417.' }],
-      calderPikeUser,
+    const { records: calderContext } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        [{ role: 'user', content: 'Show order SBL-2026-000417.' }],
+        calderPikeUser,
+      ),
     );
-    const meridianContext = await buildAuthorizedContext(
-      database,
-      [{ role: 'user', content: `Show order ${externalOrderId}.` }],
-      meridianUser,
+    const { records: meridianContext } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        [{ role: 'user', content: `Show order ${externalOrderId}.` }],
+        meridianUser,
+      ),
     );
     expect(calderContext).toContain('Order: SBL-2026-000417;');
     expect(calderContext).toContain('Order total: $78,320.00.');
@@ -256,15 +269,11 @@ describe('support order grounding', () => {
       const messages = [
         { role: 'user' as const, content: `Show customer PO ${sharedPO}.` },
       ];
-      const calderResult = await buildAuthorizedContext(
-        database,
-        messages,
-        calderPikeUser,
+      const { records: calderResult } = requireSupportRecords(
+        await buildSupportContext(database, messages, calderPikeUser),
       );
-      const meridianResult = await buildAuthorizedContext(
-        database,
-        messages,
-        meridianUser,
+      const { records: meridianResult } = requireSupportRecords(
+        await buildSupportContext(database, messages, meridianUser),
       );
       expect(calderResult).toBe(calderContext);
       expect(meridianResult).toBe(
@@ -332,10 +341,8 @@ describe('support order grounding', () => {
       },
     ]);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toContain(
@@ -394,10 +401,8 @@ describe('support order grounding', () => {
       },
     ]);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toContain(
@@ -431,15 +436,17 @@ describe('support order grounding', () => {
       customer_po_number: 'MCS-PO-500000',
     });
 
-    const context = await buildAuthorizedContext(
-      database,
-      [
-        {
-          role: 'user',
-          content: 'Show me order SBL-2021-500000.',
-        },
-      ],
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        [
+          {
+            role: 'user',
+            content: 'Show me order SBL-2021-500000.',
+          },
+        ],
+        calderPikeUser,
+      ),
     );
 
     expect(context).toBe(`<authorized_records>
@@ -479,10 +486,8 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     });
     expect(externalOrder?.customer_id).not.toBe(calderPikeUser.distributorId);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>
@@ -534,10 +539,8 @@ No order matching MCS-PO-500000 is available within Calder Pike Distribution's a
     expect(externalOrder.customer_id).not.toBe(calderPikeUser.distributorId);
     expect(externalOrder.order_total_cents).toBeGreaterThan(0);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>
@@ -594,10 +597,8 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
       ),
     ).toBe(true);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
     const contextOrderIds = context.match(/\bSBL-\d{4}-\d{6}\b/g) ?? [];
 
@@ -672,10 +673,8 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
       ),
     ).toBe(true);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
     const contextOrderIds = context.match(/\bSBL-\d{4}-\d{6}\b/g) ?? [];
 
@@ -743,10 +742,8 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
       ),
     ).toBe(true);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
     const contextOrderIds = context.match(/\bSBL-\d{4}-\d{6}\b/g) ?? [];
 
@@ -787,10 +784,8 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     );
     expect(total).toBeGreaterThan(6);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
     expect(context).toContain(
       `Order search for status delivered: ${total} matching orders; listing the 6 most recent.`,
@@ -809,10 +804,12 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     expect(total).toBeGreaterThan(0);
     expect(total).toBeLessThanOrEqual(6);
 
-    const context = await buildAuthorizedContext(
-      database,
-      [{ role: 'user', content: 'Show my cancelled orders from 2022.' }],
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        [{ role: 'user', content: 'Show my cancelled orders from 2022.' }],
+        calderPikeUser,
+      ),
     );
     expect(context).toContain(
       `Order search for status cancelled, created in 2022: ${total} matching ${total === 1 ? 'order' : 'orders'}; listing all ${total}.`,

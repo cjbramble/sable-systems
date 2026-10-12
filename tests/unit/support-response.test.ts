@@ -1,4 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import {
+  orderSearchOutcome,
+  shipmentOutcome,
+  returnOutcome,
+  supportRecords,
+} from '../fixtures/support-outcomes';
+import type { SupportRecordsContext } from '@/lib/support-outcomes';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import {
   hasGroundedSupportIdentifiers,
@@ -7,14 +14,42 @@ import {
   unsupportedSableResources,
 } from '@/lib/support-response';
 
-const context = `<authorized_records>
-Return: RTN-2022-000014; order: SBL-2022-000118; customer PO: CPD-PO-220118.
-Item: SBL-DMK-A9; shipment: SHP-2022-000012; tracking: AST-1234567890.
-</authorized_records>`;
+const context = supportRecords([
+  shipmentOutcome('SHP-2022-000012', 'AST-1234567890'),
+  returnOutcome('RTN-2022-000014'),
+  {
+    kind: 'catalog_category',
+    outcome: 'found',
+    category: 'Cybernetics',
+    retrievedAt: '2026-01-01T00:00:00Z',
+    facts: [
+      {
+        item_number: 'SBL-DMK-A9',
+        product_name: 'Fixture product',
+        fulfillment_type: 'physical',
+        unit_price_cents: 100,
+        unit_label: 'unit',
+        case_pack: 1,
+        lead_time_days: 1,
+        available: 8,
+        inbound: 0,
+      },
+    ],
+    verifiedReferences: [
+      { namespace: 'item_number', identifier: 'SBL-DMK-A9' },
+    ],
+  },
+]);
 
 describe('support response identifier validation', () => {
-  const customOrderContext =
-    'Order: REVIEW-CUSTOM-PO; customer PO: SOME-PO; status: delivered.';
+  it('requires typed evidence at the validation boundary', () => {
+    expectTypeOf(hasGroundedSupportIdentifiers)
+      .parameter(1)
+      .toEqualTypeOf<SupportRecordsContext>();
+  });
+  const customOrderContext = supportRecords([
+    orderSearchOutcome('REVIEW-CUSTOM-PO', 'SOME-PO'),
+  ]);
 
   it.each([
     'Order: REVIEW-CUSTOM-PO is delivered.',
@@ -39,10 +74,11 @@ describe('support response identifier validation', () => {
 
   it('does not authorize a custom ID merely mentioned in event prose', () => {
     expect(
-      hasGroundedSupportIdentifiers(
-        'Order ID: OTHER-CUSTOM-ID.',
-        `${customOrderContext}\nRecent customer-safe events:\n- 2026-01-01: Discussed order OTHER-CUSTOM-ID.`,
-      ),
+      hasGroundedSupportIdentifiers('Order ID: OTHER-CUSTOM-ID.', {
+        ...customOrderContext,
+        records:
+          'Recent customer-safe events:\n- 2026-01-01: Discussed order OTHER-CUSTOM-ID.',
+      }),
     ).toBe(false);
   });
 
@@ -58,18 +94,19 @@ describe('support response identifier validation', () => {
     'Order: `REVIEW-CUSTOM-PO`; customer PO: `SOME-PO`.',
     'Order search: 1 matching order; listing all 1.\n- REVIEW-CUSTOM-PO / SOME-PO: delivered; created 2026-01-01; requested 2026-01-01; $1.00.',
     'Recent charge-account authorizations:\n- REVIEW-CUSTOM-PO: authorized; $1.00; authorization AUTH-CUSTOM; 2026-01-01.',
-  ])(
-    'accepts custom IDs from the supported record context formats',
-    (records) => {
-      expect(
-        hasGroundedSupportIdentifiers('Order ID: REVIEW-CUSTOM-PO.', records),
-      ).toBe(true);
-    },
-  );
+  ])('accepts typed custom IDs independently of prompt format', (records) => {
+    expect(
+      hasGroundedSupportIdentifiers('Order ID: REVIEW-CUSTOM-PO.', {
+        ...customOrderContext,
+        records,
+      }),
+    ).toBe(true);
+  });
 
   it('checks custom PO references against complete authorized tokens', () => {
-    const customContext =
-      'Order: SBL-2026-000417; customer PO: REVIEW-CUSTOM-PO; status: confirmed.';
+    const customContext = supportRecords([
+      orderSearchOutcome('SBL-2026-000417', 'REVIEW-CUSTOM-PO'),
+    ]);
     for (const content of [
       'Customer PO: **REVIEW-CUSTOM-PO**.',
       'Purchase order number REVIEW-CUSTOM-PO.',
@@ -85,7 +122,12 @@ describe('support response identifier validation', () => {
       hasGroundedSupportIdentifiers('What is your PO number?', customContext),
     ).toBe(true);
     expect(
-      hasGroundedSupportIdentifiers('PO: ABCD.', 'Customer PO: ABCD-EXTENDED'),
+      hasGroundedSupportIdentifiers(
+        'PO: ABCD.',
+        supportRecords([
+          orderSearchOutcome('SBL-2026-000417', 'ABCD-EXTENDED'),
+        ]),
+      ),
     ).toBe(false);
     expect(hasGroundedSupportIdentifiers('PO: STATUS.', customContext)).toBe(
       false,
@@ -93,13 +135,27 @@ describe('support response identifier validation', () => {
     expect(
       hasGroundedSupportIdentifiers(
         'PO: STATUS.',
-        'Customer PO: STATUS; status: confirmed.',
+        supportRecords([orderSearchOutcome('SBL-2026-000417', 'STATUS')]),
       ),
     ).toBe(true);
     expect(
       hasGroundedSupportIdentifiers(
         'PO: REVIEW-UNKNOWN-PO was not found.',
-        'No order matching REVIEW-UNKNOWN-PO is available within your authorization scope.',
+        supportRecords([
+          {
+            kind: 'order',
+            outcome: 'unavailable',
+            scope: {
+              customerId: 'WHS-0427',
+              displayName: 'Calder Pike Distribution',
+            },
+            reference: {
+              kind: 'order',
+              namespace: 'customer_po',
+              identifier: 'REVIEW-UNKNOWN-PO',
+            },
+          },
+        ]),
       ),
     ).toBe(true);
   });
@@ -187,16 +243,16 @@ describe('unavailable record replies', () => {
   );
 
   it.each([
-    context,
+    'Return: RTN-2022-000014; order: SBL-2022-000118.',
     'Order search for status delivered: 0 matching orders.',
     'No catalog item matching SBL-XYZ was found.',
     'No order matching SBL-2099-000001 is available within your authorization scope.',
-  ])('does not infer a missing record from legacy text: %s', (records) => {
+  ])('does not infer a missing record from prompt text: %s', (records) => {
     expect(
       unavailableRecordReply({
         kind: 'records',
         records,
-        parts: [{ kind: 'legacy', records }],
+        parts: [],
       }),
     ).toBeNull();
   });
