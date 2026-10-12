@@ -123,8 +123,14 @@ const MAX_COMPOUND_REQUESTS = 3;
 const ORDER_SEARCH_REQUEST_SOURCE =
   '(?:(?:(?:can|could|would|will)\\s+you\\s+)?(?:please\\s+)?(?:show|list|find|count)\\b|how many\\b)';
 const ORDER_SEARCH_REQUEST = new RegExp(`^${ORDER_SEARCH_REQUEST_SOURCE}`, 'i');
+const TOPIC_REQUEST_SOURCE =
+  '(?:(?:please\\s+)?(?:what|where|when|how|is|are|tell\\s+me|explain)\\b)';
+const TOPIC_REQUEST = new RegExp(
+  `^(?:${ORDER_SEARCH_REQUEST_SOURCE}|${TOPIC_REQUEST_SOURCE})`,
+  'i',
+);
 const COMPOUND_REQUEST_BOUNDARY = new RegExp(
-  `(?:[;.!?]\\s*|\\b(?:and|also)\\s+)(?=(?:${ORDER_SEARCH_REQUEST_SOURCE}|(?:please\\s+)?(?:orders?|purchases?|releases?|shipments?|returns?|customer\\s+po)\\b))`,
+  `(?:[;.!?]\\s*|\\b(?:and|also)\\s+)(?=(?:${ORDER_SEARCH_REQUEST_SOURCE}|${TOPIC_REQUEST_SOURCE}|(?:my|our)\\s+(?:account|payment|billing)\\b|(?:please\\s+)?(?:orders?|purchases?|releases?|shipments?|returns?|customer\\s+po)\\b))`,
   'gi',
 );
 
@@ -337,8 +343,18 @@ export function classifySupportQuery(
   return intent;
 }
 
-// Explicit records retain appearance order and namespace, including two labels
-// with the same value. The existing three-part retrieval budget stays unchanged.
+// Named record values are already masked. Skip request grammar and record labels
+// to locate the first catalog subject, whether it is a name or an item number.
+function catalogSubjectStart(clause: string): number {
+  const grammar =
+    /^(?:can|could|would|will|you|i|we|please|show|list|find|check|tell|me|what|where|when|how|is|are|the|a|an|of|for|and|also|with|or|compare|versus|vs|order|orders|shipment|shipments|return|returns|customer|po|tracking|id|number|reference)$/i;
+  for (const token of clause.matchAll(/\b[a-z0-9][a-z0-9-]*\b/gi))
+    if (!grammar.test(token[0])) return token.index;
+  return 0;
+}
+
+// Record identity comes from source spans; independent topic requests retain
+// their own position instead of being appended after every named record.
 export function classifySupportQueries(
   messages: ChatHistoryMessage[],
 ): SupportQueryIntent[] {
@@ -347,12 +363,18 @@ export function classifySupportQueries(
   const { occurrences, remainder } = parseSupportReferences(latest);
   const records = uniqueReferences(occurrences);
   if (!records.length) return [primary];
-  const intents: SupportQueryIntent[] = [...records];
-  const rest = classifyCurrentTopic(remainder);
-  if (rest.kind === 'catalog') intents.push(rest);
-  // Split only at a new request or record label. Preserve source spans so a
-  // description of named records cannot become a broad search after masking.
-  // Other continuations stay attached, including unsupported negative clauses.
+  const requests: { intent: SupportQueryIntent; start: number }[] = records.map(
+    (reference) => ({
+      intent: reference,
+      start: occurrences.find(
+        ({ reference: candidate }) => candidate === reference,
+      )!.start,
+    }),
+  );
+  // Keep source spans intact when removing separately owned topics, so product
+  // quantities and reference labels retain their existing interpretation.
+  const catalogCharacters = remainder.split('');
+  let catalogStart: number | undefined;
   const boundaries = Array.from(
     latest.matchAll(COMPOUND_REQUEST_BOUNDARY),
     (match) => ({
@@ -367,23 +389,56 @@ export function classifySupportQueries(
   for (const [index, start] of starts.entries()) {
     const end = ends[index];
     const clause = remainder.slice(start, end).trim();
-    // "Show X and orders ..." shares its request cue. A new sentence must
-    // supply its own; a statement about orders does not request another list.
+    // A coordinated noun phrase can share "show"; a new sentence cannot.
     if (index > 0 && !boundaries[index - 1].coordinated)
       searchRequested = false;
-    if (ORDER_SEARCH_REQUEST.test(clause)) searchRequested = true;
+    if (TOPIC_REQUEST.test(clause))
+      searchRequested = ORDER_SEARCH_REQUEST.test(clause);
+    const hasRecord = occurrences.some(
+      (reference) => reference.start < end && reference.end > start,
+    );
+    // A comparison containing only record labels has no separate catalog target.
     if (
-      !searchRequested ||
-      occurrences.some(
-        (reference) => reference.start < end && reference.end > start,
+      hasRecord &&
+      /^(?:\s|[,.?!;:]|\b(?:compare|with|and|versus|vs|order|shipment|return|customer|po|tracking|id|number|reference)\b)*$/i.test(
+        clause,
       )
-    )
+    ) {
+      catalogCharacters.fill(' ', start, end);
       continue;
+    }
     const request = classifyCurrentTopic(clause);
-    if (request.kind === 'orders' && request.statusFilter)
-      intents.push(request);
+    if (request.kind === 'catalog') {
+      catalogStart ??= start + catalogSubjectStart(remainder.slice(start, end));
+    }
+    // Pronouns and demonstratives keep a follow-up attached to named records;
+    // a separate account request must stand on its own.
+    const recordContinuation =
+      /\b(?:it|its|they|their|them)\b|\b(?:that|this|the|those|these)\s+(?:orders?|shipments?|returns?)\b/i.test(
+        clause,
+      );
+    if (hasRecord || (request.kind === 'account' && recordContinuation))
+      continue;
+    const accountRequested =
+      request.kind === 'account' &&
+      (TOPIC_REQUEST.test(clause) || searchRequested);
+    const ordersRequested =
+      request.kind === 'orders' && searchRequested && request.statusFilter;
+    if (!accountRequested && !ordersRequested) continue;
+    if (
+      !accountRequested ||
+      !requests.some(({ intent }) => intent.kind === 'account')
+    )
+      requests.push({ intent: request, start });
+    catalogCharacters.fill(' ', start, end);
   }
-  return intents.length > 1
-    ? intents.slice(0, MAX_COMPOUND_REQUESTS)
+  const catalog = classifyCurrentTopic(catalogCharacters.join(''));
+  if (catalog.kind === 'catalog')
+    requests.push({ intent: catalog, start: catalogStart ?? 0 });
+  return requests.length > 1
+    ? requests
+        .sort((left, right) => left.start - right.start)
+        .slice(0, MAX_COMPOUND_REQUESTS)
+        .map(({ intent }) => intent)
     : [primary];
 }
