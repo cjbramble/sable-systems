@@ -50,8 +50,15 @@ order, shipment, or return references. These outcomes still use model replies.
 Order searches retain typed criteria, scoped total counts and up to six listed
 orders. Only listed order IDs/POs and the matched product filter verify identifiers;
 product and account display names do not. Count and preview queries run together.
-Account, summary, and incident-history lookups currently use a text adapter; their
-typed migration is planned.
+Account and summary lookups retain typed account facts. Only the order IDs and
+authorization codes from the eight most recent scoped charges verify record
+identifiers; unlisted `ACC-` authorization codes are rejected. Account names,
+payment terms, and other descriptive fields do not verify identifiers.
+Incident-history facts retain up to eight entries for the authenticated user, with
+canonical incident IDs and message counts. Titles do not verify identifiers. Single
+incident-list requests still receive saved, server-built replies without a model
+call. Production lookups all return typed outcomes; the text adapter remains only
+for compatibility consumers pending their migration.
 Request coverage improvements, including retaining known items alongside unknown ones,
 are also planned.
 

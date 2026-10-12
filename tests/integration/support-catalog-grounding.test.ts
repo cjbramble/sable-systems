@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getDatabase } from '@/db/database';
-import { buildAuthorizedContext, getAccountSummary } from '@/db/support';
+import { buildAuthorizedContext } from '@/db/support';
+import { getAccountSummary } from '@/db/account';
 import { classifySupportQuery } from '@/lib/support-query';
 import { calderPikeUser } from '../fixtures/users';
 
