@@ -1,29 +1,18 @@
+import { lookupSupportProductRequest } from './support-product-requests';
 import {
   lookupSupportAccount,
   lookupSupportSummary,
   lookupSupportIncidentHistory,
 } from './support-account';
-import type {
-  AccountLookupOutcome,
-  SummaryLookupOutcome,
-  IncidentHistoryOutcome,
-} from '@/lib/support-account-outcomes';
 import type { AuthenticatedUser } from './auth';
 import { lookupSupportOrder } from './support-orders';
 import { lookupSupportOrderSearch } from './support-order-search';
-import type { OrderSearchOutcome } from '@/lib/support-order-search-outcomes';
 import { lookupSupportShipment } from './support-shipments';
 import { lookupSupportReturn } from './support-returns';
 import {
   lookupSupportProducts,
   type SupportProductRow,
 } from './support-products';
-import type { ProductLookupOutcome } from '@/lib/support-product-outcomes';
-import type { CatalogLookupOutcome } from '@/lib/support-catalog-outcomes';
-import {
-  lookupSupportCategory,
-  lookupSupportInventoryAdvisories,
-} from './support-catalog';
 import {
   renderSupportContextPart,
   type RecordLookupOutcome,
@@ -31,10 +20,9 @@ import {
   type SupportContextResult,
 } from '@/lib/support-outcomes';
 import type { ChatHistoryMessage } from '@/lib/chat-history';
-import {
-  bindProductQuantities,
-  type ProductMention,
-  type QuantityOccurrence,
+import type {
+  ProductMention,
+  QuantityOccurrence,
 } from '@/lib/support-quantities';
 import { itemReferences } from '@/lib/support-references';
 import {
@@ -69,25 +57,8 @@ const CLARIFICATION_REFERENCES = {
 
 type Clarification = Extract<SupportContextResult, { kind: 'clarification' }>;
 
-const QUANTITY_CLARIFICATIONS = {
-  syntax:
-    'Please provide a whole-number quantity of units for each item, using digits with optional comma grouping.',
-  range: 'Please provide a quantity from 1 to 999,999 units for each item.',
-  ambiguous:
-    'Please specify one quantity for each item, or say that the same quantity applies to each item.',
-  missing_target:
-    'Please provide the item number or product name for the requested quantity.',
-};
-
-function quantityClarification(
-  reason: keyof typeof QUANTITY_CLARIFICATIONS,
-): Clarification {
-  return { kind: 'clarification', message: QUANTITY_CLARIFICATIONS[reason] };
-}
-
-// Each part of a compound question is retrieved with the same scoped lookups
-// and combined into one records block, so every part is evidence and a missing
-// record is stated alongside the authorized ones.
+// Each intent uses scoped lookups and can yield several typed outcomes, so
+// known, unknown and omitted product targets remain visible together.
 export async function buildSupportContext(
   db: D1Database,
   messages: ChatHistoryMessage[],
@@ -97,25 +68,38 @@ export async function buildSupportContext(
   const parts: SupportContextPart[] = [];
   const rendered: string[] = [];
   for (const [index, intent] of intents.entries()) {
-    const context = await authorizedContextForIntent(db, intent, user);
-    // Resolve ambiguity before any compound facts are sent to the model.
-    if (context.kind === 'clarification') return context;
-    if (context.outcome === 'ambiguous')
+    const result = await authorizedContextForIntent(db, intent, user);
+    const outcomes = Array.isArray(result) ? result : [result];
+    const group: SupportContextPart[] = [];
+    for (const context of outcomes) {
+      // Resolve ambiguity before any compound facts are sent to the model.
+      if (context.kind === 'clarification') return context;
+      if (context.outcome === 'ambiguous')
+        return {
+          kind: 'clarification',
+          message:
+            context.kind === 'order'
+              ? `Please specify whether ${context.reference.identifier} is an order ID or a customer PO number.`
+              : context.reference.namespace === 'tracking_reference'
+                ? `Please specify a shipment ID for tracking reference ${context.reference.identifier}.`
+                : `Please specify whether ${context.reference.identifier} is a shipment ID or a tracking reference.`,
+        };
+      group.push(context);
+    }
+    parts.push(...group);
+    const records = group
+      .map((part) =>
+        renderSupportContextPart(part)
+          .replace(/^<authorized_records>\n/, '')
+          .replace(/\n<\/authorized_records>$/, ''),
+      )
+      .join('\n\n');
+    if (intents.length === 1)
       return {
-        kind: 'clarification',
-        message:
-          context.kind === 'order'
-            ? `Please specify whether ${context.reference.identifier} is an order ID or a customer PO number.`
-            : context.reference.namespace === 'tracking_reference'
-              ? `Please specify a shipment ID for tracking reference ${context.reference.identifier}.`
-              : `Please specify whether ${context.reference.identifier} is a shipment ID or a tracking reference.`,
+        kind: 'records',
+        records: `<authorized_records>\n${records}\n</authorized_records>`,
+        parts,
       };
-    parts.push(context);
-    const text = renderSupportContextPart(context);
-    if (intents.length === 1) return { kind: 'records', records: text, parts };
-    const records = text
-      .replace(/^<authorized_records>\n/, '')
-      .replace(/\n<\/authorized_records>$/, '');
     rendered.push(
       `Part ${index + 1} of ${intents.length}: ${compoundPartLabel(intent)}\n${records}`,
     );
@@ -136,14 +120,10 @@ async function authorizedContextForIntent(
   intent: SupportQueryIntent,
   user: AuthenticatedUser,
 ): Promise<
-  | AccountLookupOutcome
-  | SummaryLookupOutcome
-  | IncidentHistoryOutcome
   | Clarification
   | RecordLookupOutcome
-  | OrderSearchOutcome
-  | ProductLookupOutcome
-  | CatalogLookupOutcome
+  | SupportContextPart
+  | SupportContextPart[]
 > {
   if (intent.kind === 'orders' && intent.statusFilter?.kind === 'clarification')
     return {
@@ -151,24 +131,16 @@ async function authorizedContextForIntent(
       message:
         'Please clarify which order statuses to include or exclude. For example, ask for orders excluding cancelled and delivered.',
     };
-  if (intent.kind === 'catalog') {
-    for (const { quantity } of intent.quantities)
-      if (quantity.kind === 'invalid')
-        return quantityClarification(quantity.reason);
-  }
-  const { products, mentions } =
+  const matches =
     'message' in intent
       ? await matchProducts(
           db,
           intent.message,
           intent.kind === 'catalog' ? intent.quantities : [],
         )
-      : { products: [], mentions: [] };
-  if (
-    intent.kind === 'catalog' ||
-    intent.kind === 'orders' ||
-    intent.kind === 'summary'
-  ) {
+      : { products: [], explicitProducts: [], mentions: [] };
+  const { products } = matches;
+  if (intent.kind === 'orders' || intent.kind === 'summary') {
     const references = itemReferences(intent.message);
     if (references.length) {
       const unknown = references.filter(
@@ -216,41 +188,8 @@ async function authorizedContextForIntent(
       return lookupSupportIncidentHistory(db, user);
     case 'account':
       return lookupSupportAccount(db, user, intent.includeCharges);
-    case 'catalog': {
-      let quantities = new Map<string, number>();
-      if (intent.quantities.length) {
-        if (products.length > 3)
-          return {
-            kind: 'clarification',
-            message:
-              'Please ask about quantities for up to three items at a time.',
-          };
-        const binding = bindProductQuantities(
-          intent.message,
-          intent.quantities,
-          mentions,
-        );
-        if (binding.kind === 'clarification')
-          return quantityClarification(binding.reason);
-        quantities = binding.quantities;
-      }
-      if (products.length > 0 && (!intent.category || products.length <= 3)) {
-        const selected =
-          intent.compare || intent.quantities.length > 0
-            ? products.slice(0, 3)
-            : products.slice(0, 1);
-        return lookupSupportProducts(
-          db,
-          selected.map((product) => ({
-            product,
-            quantity: quantities.get(product.item_number),
-          })),
-          intent.includeLocations,
-        );
-      }
-      if (intent.category) return lookupSupportCategory(db, intent.category);
-      return lookupSupportInventoryAdvisories(db);
-    }
+    case 'catalog':
+      return lookupSupportProductRequest(db, intent, matches);
     case 'summary': {
       if (products.length > 0)
         return lookupSupportProducts(db, [{ product: products[0] }]);
@@ -326,6 +265,11 @@ async function matchProducts(
       mentions.push(...exact, ...descriptors);
     }
   }
+  for (const reference of references)
+    if (!rows.results.some((product) => product.item_number === reference))
+      mentions.push(
+        ...productMentions(message, reference, reference.toLowerCase(), true),
+      );
   // Mask exact references without shifting the source positions. A word in a
   // full product name must not also identify another product through an alias.
   const keywordCharacters = message.split('');
@@ -355,5 +299,9 @@ async function matchProducts(
   }
   // Full names and item numbers outrank generic terms such as "controller".
   // Preserve alphabetical order within each tier and include each product once.
-  return { products: [...explicitMatches, ...keywordMatches], mentions };
+  return {
+    products: [...explicitMatches, ...keywordMatches],
+    explicitProducts: explicitMatches,
+    mentions,
+  };
 }

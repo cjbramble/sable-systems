@@ -46,13 +46,27 @@ export type UnknownProductsOutcome = {
   requestedItemNumbers: string[];
 };
 
+export type OmittedProductsOutcome = {
+  kind: 'omitted_products';
+  outcome: 'omitted';
+  // Unanswered targets are echo allowances, not missing or verified products.
+  requestedItemNumbers: string[];
+  limit: number;
+};
+
 export type CatalogLookupOutcome =
   | CatalogCategoryOutcome
   | InventoryAdvisoryOutcome
-  | UnknownProductsOutcome;
+  | UnknownProductsOutcome
+  | OmittedProductsOutcome;
 
 export function renderCatalogOutcome(result: CatalogLookupOutcome): string {
   switch (result.kind) {
+    case 'omitted_products':
+      return `<authorized_records>
+Items not answered because of the limit of ${result.limit} items per catalog request: ${result.requestedItemNumbers.join(', ')}.
+Tell the customer these items were omitted and ask them to request them separately. Do not claim they are missing or infer their availability, price, or orderability.
+</authorized_records>`;
     case 'unknown_products':
       return `<authorized_records>
 No catalog item matching ${result.requestedItemNumbers.join(', ')} was found. Ask the customer to verify the complete item number. Do not substitute a similarly numbered product or infer its stock or price.

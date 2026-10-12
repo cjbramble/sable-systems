@@ -60,8 +60,16 @@ incident-list requests still receive saved, server-built replies without a model
 call. All callers use typed outcomes. Identifier validation accepts only those
 outcomes; rendered prompt text cannot supply record identity evidence. Model
 evaluations keep the typed evidence separate from the prompt text as well.
-Request coverage improvements, including retaining known items alongside unknown ones,
-are also planned.
+Catalog requests retain known and unknown item outcomes together in request order.
+Explicit item numbers, full product names and comparisons cover up to three distinct
+targets, counting
+unknown items toward that limit; remaining targets are listed as omitted with a
+request to ask about them separately. Omitted items are not claimed to be missing.
+Unknown and omitted item numbers can be echoed as items, but cannot authorize
+order, shipment, or return references. Quantities stay attached to their own item,
+including when another requested item is unknown; more than three quantified
+targets prompt clarification. Broader compound request ordering, account/order
+coverage, and record-target omission handling remain planned.
 
 Quantity lookups accept whole numbers from 1 through 999,999, with optional comma
 grouping such as `1,000`. Attach each quantity to its product, or use shared wording
