@@ -57,8 +57,9 @@ payment terms, and other descriptive fields do not verify identifiers.
 Incident-history facts retain up to eight entries for the authenticated user, with
 canonical incident IDs and message counts. Titles do not verify identifiers. Single
 incident-list requests still receive saved, server-built replies without a model
-call. Production lookups all return typed outcomes; the text adapter remains only
-for compatibility consumers pending their migration.
+call. All callers use typed outcomes. Identifier validation accepts only those
+outcomes; rendered prompt text cannot supply record identity evidence. Model
+evaluations keep the typed evidence separate from the prompt text as well.
 Request coverage improvements, including retaining known items alongside unknown ones,
 are also planned.
 

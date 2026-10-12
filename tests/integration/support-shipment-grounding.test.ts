@@ -1,7 +1,8 @@
+import { requireSupportRecords } from '../assertions/support-context';
 import { describe, expect, it } from 'vitest';
 
 import { getDatabase } from '@/db/database';
-import { buildAuthorizedContext } from '@/db/support';
+import { buildSupportContext } from '@/db/support';
 import { classifySupportQuery } from '@/lib/support-query';
 import { calderPikeUser } from '../fixtures/users';
 
@@ -46,10 +47,8 @@ describe('support shipment grounding', () => {
       customer_id: 'WHS-0427',
     });
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>
@@ -95,10 +94,8 @@ Shipped: 2026-08-26; estimated delivery: 2026-08-31; delivered: not yet.
       identifier: externalShipment.shipment_id,
     });
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>

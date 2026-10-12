@@ -1,8 +1,9 @@
+import { requireSupportRecords } from '../assertions/support-context';
 import { describe, expect, onTestFinished } from 'vitest';
 
 import { POST as chat } from '@/app/api/chat/route';
 import { saveSupportExchange } from '@/db/incidents';
-import { buildAuthorizedContext, buildSupportContext } from '@/db/support';
+import { buildSupportContext } from '@/db/support';
 import { test } from '../fixtures/support-integration';
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 
@@ -186,10 +187,8 @@ describe('support reference identity', () => {
         '$118,000.00',
       ],
     ]) {
-      const context = await buildAuthorizedContext(
-        database,
-        ask(question),
-        calderPikeUser,
+      const { records: context } = requireSupportRecords(
+        await buildSupportContext(database, ask(question), calderPikeUser),
       );
       expect(context).toContain(`Order: ${expectedId};`);
       expect(context).toContain(`Order total: ${expectedTotal}.`);
@@ -200,19 +199,23 @@ describe('support reference identity', () => {
     database,
   }) => {
     await identityRecords(database);
-    const context = await buildAuthorizedContext(
-      database,
-      ask('Find order ID IDENTITY-FIRST-PO.'),
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        ask('Find order ID IDENTITY-FIRST-PO.'),
+        calderPikeUser,
+      ),
     );
     expect(context).toContain(
       'No order matching IDENTITY-FIRST-PO is available within',
     );
     expect(context).not.toContain('Order total:');
-    const poOnly = await buildAuthorizedContext(
-      database,
-      ask(`Find customer PO ${poOrderId}.`),
-      calderPikeUser,
+    const { records: poOnly } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        ask(`Find customer PO ${poOrderId}.`),
+        calderPikeUser,
+      ),
     );
     expect(poOnly).toContain(
       `No order matching ${poOrderId} is available within`,
@@ -224,33 +227,41 @@ describe('support reference identity', () => {
     database,
   }) => {
     await identityRecords(database);
-    const byId = await buildAuthorizedContext(
-      database,
-      ask(`Show shipment ${shipmentId}.`),
-      calderPikeUser,
+    const { records: byId } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        ask(`Show shipment ${shipmentId}.`),
+        calderPikeUser,
+      ),
     );
-    const byTracking = await buildAuthorizedContext(
-      database,
-      ask(`Show tracking reference ${shipmentId}.`),
-      calderPikeUser,
+    const { records: byTracking } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        ask(`Show tracking reference ${shipmentId}.`),
+        calderPikeUser,
+      ),
     );
     expect(byId).toContain(`Shipment: ${shipmentId};`);
     expect(byId).toContain(`Order: ${orderId};`);
     expect(byTracking).toContain(`Shipment: ${trackingShipmentId};`);
     expect(byTracking).toContain(`Order: ${poOrderId};`);
-    const wrongNamespace = await buildAuthorizedContext(
-      database,
-      ask(`Show shipment ID ${foreignShipmentId}.`),
-      calderPikeUser,
+    const { records: wrongNamespace } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        ask(`Show shipment ID ${foreignShipmentId}.`),
+        calderPikeUser,
+      ),
     );
     expect(wrongNamespace).toContain(
       `No shipment matching ${foreignShipmentId} is available within`,
     );
     expect(wrongNamespace).not.toContain(`Order: ${orderId};`);
-    const trackingOnly = await buildAuthorizedContext(
-      database,
-      ask(`Show tracking reference ${trackingShipmentId}.`),
-      calderPikeUser,
+    const { records: trackingOnly } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        ask(`Show tracking reference ${trackingShipmentId}.`),
+        calderPikeUser,
+      ),
     );
     expect(trackingOnly).toContain(
       `No shipment matching ${trackingShipmentId} is available within`,
@@ -272,13 +283,6 @@ describe('support reference identity', () => {
         kind: 'clarification',
         message: expect.stringMatching(/Please (?:specify|clarify)/),
       });
-      const context = await buildAuthorizedContext(
-        database,
-        ask(`Show ${identifier}.`),
-        calderPikeUser,
-      );
-      expect(context).toMatch(/Please (?:specify|clarify)/);
-      expect(context).not.toMatch(/(?:^|\n)(?:Order|Shipment):|Order total:/);
     }
   });
 
@@ -313,26 +317,32 @@ describe('support reference identity', () => {
       [sameShipmentId, `Shipment: ${sameShipmentId};`],
       [foreignShipmentId, `Shipment: ${shipmentId};`],
     ]) {
-      const context = await buildAuthorizedContext(
-        database,
-        ask(`Show ${identifier}.`),
-        calderPikeUser,
+      const { records: context } = requireSupportRecords(
+        await buildSupportContext(
+          database,
+          ask(`Show ${identifier}.`),
+          calderPikeUser,
+        ),
       );
       expect(context).toContain(record);
       expect(context).not.toContain(foreignOrderId);
     }
     const meridian = await loadActiveUserFixture(database, 'USR-MCS-001');
-    const sharedPo = await buildAuthorizedContext(
-      database,
-      ask(`Find customer PO ${orderId}.`),
-      meridian,
+    const { records: sharedPo } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        ask(`Find customer PO ${orderId}.`),
+        meridian,
+      ),
     );
     expect(sharedPo).toContain(`Order: ${foreignOrderId};`);
     expect(sharedPo).not.toContain(poOrderId);
-    const foreignId = await buildAuthorizedContext(
-      database,
-      ask(`Find order ID ${orderId}.`),
-      meridian,
+    const { records: foreignId } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        ask(`Find order ID ${orderId}.`),
+        meridian,
+      ),
     );
     expect(foreignId).toContain(
       `No order matching ${orderId} is available within`,

@@ -1,7 +1,8 @@
+import { requireSupportRecords } from '../assertions/support-context';
 import { describe, expect, it } from 'vitest';
 
 import { getDatabase } from '@/db/database';
-import { buildAuthorizedContext } from '@/db/support';
+import { buildSupportContext } from '@/db/support';
 import { classifySupportQuery } from '@/lib/support-query';
 import { calderPikeUser } from '../fixtures/users';
 
@@ -72,10 +73,8 @@ describe('support incident grounding', () => {
     expect(externalIncident).not.toBeNull();
     if (!externalIncident) return;
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
     const contextIncidentIds =
       context.match(/\bINC-[A-Za-z0-9-]{6,100}\b/g) ?? [];

@@ -131,19 +131,6 @@ ${rendered.join('\n\n')}
   };
 }
 
-// Compatibility adapter for existing context/model consumers. Remove in Phase
-// 5D after those consumers migrate to typed retrieval outcomes.
-export async function buildAuthorizedContext(
-  db: D1Database,
-  messages: ChatHistoryMessage[],
-  user: AuthenticatedUser,
-) {
-  const result = await buildSupportContext(db, messages, user);
-  return result.kind === 'records'
-    ? result.records
-    : `<authorized_records>\n${result.message}\n</authorized_records>`;
-}
-
 async function authorizedContextForIntent(
   db: D1Database,
   intent: SupportQueryIntent,

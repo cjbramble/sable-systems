@@ -12,135 +12,26 @@ import type {
 const SUPPORT_IDENTIFIER_PATTERN =
   /(?<![\w-])(?:[A-Z0-9]+-)*(?:(?:SBL|SHP|RTN|AST|INC|ACC)-[A-Z0-9]+(?:-[A-Z0-9]+)*|[A-Z]{3}-(?:PO|REL)-[A-Z0-9]+(?:-[A-Z0-9]+)*)(?![\w-])/gi;
 
-// The current context adapter uses labeled fields and two order-list formats.
-// Read those fields rather than authorizing custom IDs mentioned in event prose.
-function legacyRecordFields(context: string) {
-  const orderIds = new Set<string>();
-  const customerPos = new Set<string>();
-  const legacyReferences: SupportRecordReference[] = [];
-  let list: 'orders' | 'charges' | undefined;
-  for (const line of context.split('\n')) {
-    if (line.startsWith('Order search')) {
-      list = 'orders';
-      continue;
-    }
-    if (line === 'Recent charge-account authorizations:') {
-      list = 'charges';
-      continue;
-    }
-    if (line.startsWith('- ')) {
-      const row =
-        list === 'orders'
-          ? /^- ([A-Z0-9-]+) \/ ([A-Z0-9-]+):/.exec(line)
-          : list === 'charges'
-            ? /^- ([A-Z0-9-]+):/.exec(line)
-            : null;
-      if (row) {
-        orderIds.add(row[1].toUpperCase());
-        if (row[2]) customerPos.add(row[2].toUpperCase());
-      }
-      continue;
-    }
-    list = undefined;
-    if (!/^(?:Order|Shipment|Return|Customer PO):/i.test(line)) continue;
-    for (const [, field, value] of line.matchAll(
-      /(?:^|;)\s*(order|customer PO|shipment|tracking|return):\s*`?([A-Z0-9-]+)`?(?=[;,.]|$)/gi,
-    )) {
-      const identifier = value.toUpperCase();
-      switch (field.toLowerCase()) {
-        case 'order':
-          orderIds.add(identifier);
-          break;
-        case 'customer po':
-          customerPos.add(identifier);
-          break;
-        case 'shipment':
-          legacyReferences.push({
-            kind: 'shipment',
-            namespace: 'shipment_id',
-            identifier,
-          });
-          break;
-        case 'tracking':
-          legacyReferences.push({
-            kind: 'shipment',
-            namespace: 'tracking_reference',
-            identifier,
-          });
-          break;
-        case 'return':
-          legacyReferences.push({
-            kind: 'return',
-            namespace: 'return_id',
-            identifier,
-          });
-          break;
-      }
-    }
-  }
-  return { orderIds, customerPos, legacyReferences };
-}
-
 type IdentifierEvidence = {
   identifiers: Set<string>;
   orderIds: Set<string>;
   customerPos: Set<string>;
   unavailableReferences: SupportRecordReference[];
   verifiedReferences: VerifiedSupportReference[];
-  legacyIdentifiers: Set<string>;
-  legacyReferences: SupportRecordReference[];
-  hasTypedRecords: boolean;
 };
 
-// Compatibility for legacy and string callers only. Remove after their migration.
-// Never feed rendered typed-record parts into this prose adapter.
-function legacyIdentifierEvidence(records: string): IdentifierEvidence {
-  const identifiers = new Set(
-    Array.from(records.matchAll(SUPPORT_IDENTIFIER_PATTERN), ([id]) =>
-      id.toUpperCase(),
-    ),
-  );
-  return {
-    identifiers,
-    legacyIdentifiers: identifiers,
-    hasTypedRecords: false,
-    verifiedReferences: [],
-    ...legacyRecordFields(records),
-    unavailableReferences: Array.from(
-      records.matchAll(/^No order matching ([A-Z0-9-]+) is available\b/gm),
-      ([, identifier]) => ({
-        kind: 'order',
-        namespace: 'unresolved',
-        identifier,
-      }),
-    ),
-  };
-}
-
 function identifierEvidence(
-  context: string | SupportRecordsContext,
+  context: SupportRecordsContext,
 ): IdentifierEvidence {
-  if (typeof context === 'string') return legacyIdentifierEvidence(context);
   const evidence: IdentifierEvidence = {
     identifiers: new Set(),
     orderIds: new Set(),
     customerPos: new Set(),
     unavailableReferences: [],
     verifiedReferences: [],
-    legacyIdentifiers: new Set(),
-    legacyReferences: [],
-    hasTypedRecords: context.parts.some((part) => part.kind !== 'legacy'),
   };
   for (const part of context.parts) {
-    if (part.kind === 'legacy') {
-      const legacy = legacyIdentifierEvidence(part.records);
-      for (const id of legacy.identifiers) evidence.identifiers.add(id);
-      for (const id of legacy.orderIds) evidence.orderIds.add(id);
-      for (const id of legacy.customerPos) evidence.customerPos.add(id);
-      evidence.unavailableReferences.push(...legacy.unavailableReferences);
-      for (const id of legacy.identifiers) evidence.legacyIdentifiers.add(id);
-      evidence.legacyReferences.push(...legacy.legacyReferences);
-    } else if (part.kind === 'unknown_products') {
+    if (part.kind === 'unknown_products') {
       // Missing items are echo allowances, not identities in any record namespace.
       for (const itemNumber of part.requestedItemNumbers)
         evidence.identifiers.add(itemNumber.toUpperCase());
@@ -163,7 +54,7 @@ function identifierEvidence(
 
 export function hasGroundedSupportIdentifiers(
   content: string,
-  context: string | SupportRecordsContext,
+  context: SupportRecordsContext,
 ): boolean {
   const evidence = identifierEvidence(context);
   const { identifiers, orderIds, customerPos, unavailableReferences } =
@@ -183,37 +74,18 @@ export function hasGroundedSupportIdentifiers(
         )
       )
         return true;
-      if (reference.kind !== 'order') {
-        if (!evidence.hasTypedRecords) return true;
-        // Requested references cannot authorize a different kind of record. Legacy
-        // parts retain their own evidence until their migration in Phase 5D.
-        return (
-          evidence.legacyIdentifiers.has(identifier) ||
-          evidence.legacyReferences.some(
-            (legacy) =>
-              legacy.kind === reference.kind &&
-              legacy.identifier === identifier &&
-              (legacy.namespace === 'unresolved' ||
-                namespace === 'unresolved' ||
-                legacy.namespace === namespace),
-          ) ||
-          evidence.verifiedReferences.some(
-            (verified) =>
-              verified.identifier.toUpperCase() === identifier &&
-              (namespace === 'unresolved'
-                ? verified.namespace === 'shipment_id' ||
-                  verified.namespace === 'tracking_reference'
-                : verified.namespace === namespace),
-          )
+      if (reference.kind !== 'order')
+        return evidence.verifiedReferences.some(
+          (verified) =>
+            verified.identifier.toUpperCase() === identifier &&
+            (namespace === 'unresolved'
+              ? verified.namespace === 'shipment_id' ||
+                verified.namespace === 'tracking_reference'
+              : verified.namespace === namespace),
         );
-      }
       if (namespace === 'order_id') return orderIds.has(identifier);
       if (namespace === 'customer_po') return customerPos.has(identifier);
-      return (
-        orderIds.has(identifier) ||
-        customerPos.has(identifier) ||
-        evidence.legacyIdentifiers.has(identifier)
-      );
+      return orderIds.has(identifier) || customerPos.has(identifier);
     }) &&
     Array.from(content.matchAll(SUPPORT_IDENTIFIER_PATTERN), ([id]) =>
       id.toUpperCase(),
@@ -234,11 +106,7 @@ export function unavailableRecordReply(
 ): string | null {
   if (context.parts.length !== 1) return null;
   const part = context.parts[0];
-  if (
-    part.kind === 'legacy' ||
-    part.kind === 'unknown_products' ||
-    part.outcome !== 'unavailable'
-  )
+  if (part.kind === 'unknown_products' || part.outcome !== 'unavailable')
     return null;
   return `I cannot locate ${part.reference.identifier} within ${part.scope.displayName}'s authorization scope. Please ${UNAVAILABLE_RECORD_NEXT_STEP[part.kind]}.`;
 }

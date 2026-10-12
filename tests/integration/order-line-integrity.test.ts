@@ -1,5 +1,6 @@
+import { requireSupportRecords } from '../assertions/support-context';
 import { describe, expect } from 'vitest';
-import { buildAuthorizedContext } from '@/db/support';
+import { buildSupportContext } from '@/db/support';
 import { SCHEMA_VERSION } from '@/db/schema';
 import { calderPikeUser } from '../fixtures/users';
 import { historicalSchemaStatements } from '../fixtures/historical-schema';
@@ -263,10 +264,12 @@ describe('parent/order line integrity', () => {
           )
           .bind(order),
       ]);
-      const context = await buildAuthorizedContext(
-        database,
-        [{ role: 'user', content: 'Show return RTN-2099-123456.' }],
-        calderPikeUser,
+      const { records: context } = requireSupportRecords(
+        await buildSupportContext(
+          database,
+          [{ role: 'user', content: 'Show return RTN-2099-123456.' }],
+          calderPikeUser,
+        ),
       );
       expect(context).toContain('Dermal Maintenance Kit A9');
       expect(context).not.toContain('UNRELATED-ORDER-SNAPSHOT');

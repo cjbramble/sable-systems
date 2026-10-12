@@ -1,7 +1,8 @@
+import { requireSupportRecords } from '../assertions/support-context';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getDatabase } from '@/db/database';
-import { buildAuthorizedContext } from '@/db/support';
+import { buildSupportContext } from '@/db/support';
 import { getAccountSummary } from '@/db/account';
 import { classifySupportQuery } from '@/lib/support-query';
 import { calderPikeUser } from '../fixtures/users';
@@ -34,10 +35,12 @@ describe('support catalog grounding', () => {
         )
         .bind('2026-09-10T10:30:00.000Z', 'SBL-RPC-12', row.location_id)
         .run();
-      const context = await buildAuthorizedContext(
-        database,
-        [{ role: 'user', content: 'How many SBL-RPC-12 are available?' }],
-        calderPikeUser,
+      const { records: context } = requireSupportRecords(
+        await buildSupportContext(
+          database,
+          [{ role: 'user', content: 'How many SBL-RPC-12 are available?' }],
+          calderPikeUser,
+        ),
       );
       expect(context).toContain('Available to promise: 304.');
       expect(context).toContain(
@@ -72,10 +75,12 @@ describe('support catalog grounding', () => {
       'Tell me about SBL-RPC-12.',
       'Is Redline Power Cell R12 available at this warehouse?',
     ]) {
-      const context = await buildAuthorizedContext(
-        database,
-        [...previous, { role: 'user', content }],
-        calderPikeUser,
+      const { records: context } = requireSupportRecords(
+        await buildSupportContext(
+          database,
+          [...previous, { role: 'user', content }],
+          calderPikeUser,
+        ),
       );
       expect(context).toContain('Product: SBL-RPC-12 — Redline Power Cell R12');
       expect(context).toContain('Wholesale price: $680.00');
@@ -94,13 +99,15 @@ describe('support catalog grounding', () => {
           .bind(sku)
           .first(),
       ).toBeNull();
-      const context = await buildAuthorizedContext(
-        database,
-        [
-          ...previous,
-          { role: 'user', content: `Is ${sku} available at this warehouse?` },
-        ],
-        calderPikeUser,
+      const { records: context } = requireSupportRecords(
+        await buildSupportContext(
+          database,
+          [
+            ...previous,
+            { role: 'user', content: `Is ${sku} available at this warehouse?` },
+          ],
+          calderPikeUser,
+        ),
       );
       expect(context).toContain(`No catalog item matching ${sku} was found.`);
       expect(context).not.toMatch(
@@ -147,10 +154,12 @@ describe('support catalog grounding', () => {
     ];
     for (const { prompts, product, fact } of scenarios) {
       for (const content of prompts) {
-        const context = await buildAuthorizedContext(
-          database,
-          [{ role: 'user', content }],
-          calderPikeUser,
+        const { records: context } = requireSupportRecords(
+          await buildSupportContext(
+            database,
+            [{ role: 'user', content }],
+            calderPikeUser,
+          ),
         );
         expect
           .soft(
@@ -222,10 +231,8 @@ describe('support catalog grounding', () => {
         Number(product?.quarantined),
     ).toBe(312);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>
@@ -290,10 +297,8 @@ Quarantined units are excluded from availability. Do not reveal other distributo
       0,
     );
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>
@@ -364,10 +369,8 @@ Quarantined units are excluded from availability. Do not reveal other distributo
     expect(available).toBe(312);
     expect(requestedQuantity - available).toBe(8);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>
@@ -423,10 +426,8 @@ Quarantined units are excluded from availability. Do not reveal other distributo
     expect(requestedQuantity).toBeLessThan(inventory.available);
     expect(requestedQuantity % inventory.case_pack).toBe(6);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>
@@ -484,15 +485,17 @@ Quarantined units are excluded from availability. Do not reveal other distributo
       },
     ];
     for (const { requested, expected } of scenarios) {
-      const context = await buildAuthorizedContext(
-        database,
-        [
-          {
-            role: 'user',
-            content: `Are ${requested} units of Redline Power Cell R12 available?`,
-          },
-        ],
-        calderPikeUser,
+      const { records: context } = requireSupportRecords(
+        await buildSupportContext(
+          database,
+          [
+            {
+              role: 'user',
+              content: `Are ${requested} units of Redline Power Cell R12 available?`,
+            },
+          ],
+          calderPikeUser,
+        ),
       );
       for (const line of expected)
         expect(context, `Quantity ${requested}`).toContain(line);
@@ -501,15 +504,17 @@ Quarantined units are excluded from availability. Do not reveal other distributo
         'Nearest means smallest absolute quantity difference, not rounding down or a guarantee of stock availability.',
       );
     }
-    const validQuantityContext = await buildAuthorizedContext(
-      database,
-      [
-        {
-          role: 'user',
-          content: 'Are 312 units of Redline Power Cell R12 available?',
-        },
-      ],
-      calderPikeUser,
+    const { records: validQuantityContext } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        [
+          {
+            role: 'user',
+            content: 'Are 312 units of Redline Power Cell R12 available?',
+          },
+        ],
+        calderPikeUser,
+      ),
     );
     expect(validQuantityContext).toContain(
       'Requested quantity 312: valid case-pack multiple;',
@@ -518,15 +523,17 @@ Quarantined units are excluded from availability. Do not reveal other distributo
       /(?:Lower|Higher|Nearest) valid quantity:/,
     );
     // A second product prevents hard-coding Redline's eight-unit case size.
-    const controllerContext = await buildAuthorizedContext(
-      database,
-      [
-        {
-          role: 'user',
-          content: 'Are 7 units of SBL-CSR-R2 available?',
-        },
-      ],
-      calderPikeUser,
+    const { records: controllerContext } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        [
+          {
+            role: 'user',
+            content: 'Are 7 units of SBL-CSR-R2 available?',
+          },
+        ],
+        calderPikeUser,
+      ),
     );
     expect(controllerContext).toContain('case pack 4;');
     expect(controllerContext).toContain(
@@ -585,15 +592,17 @@ Quarantined units are excluded from availability. Do not reveal other distributo
       },
     ];
     for (const { item, requested, label } of scenarios) {
-      const context = await buildAuthorizedContext(
-        database,
-        [
-          {
-            role: 'user',
-            content: `Are ${requested} units of ${item} available?`,
-          },
-        ],
-        calderPikeUser,
+      const { records: context } = requireSupportRecords(
+        await buildSupportContext(
+          database,
+          [
+            {
+              role: 'user',
+              content: `Are ${requested} units of ${item} available?`,
+            },
+          ],
+          calderPikeUser,
+        ),
       );
       expect(
         context
@@ -622,15 +631,17 @@ Quarantined units are excluded from availability. Do not reveal other distributo
       { item: 'SBL-CSR-R2', requested: 4, available: 0, shortfall: 4 },
     ];
     for (const { item, requested, available, shortfall } of scenarios) {
-      const context = await buildAuthorizedContext(
-        database,
-        [
-          {
-            role: 'user',
-            content: `Are ${requested} units of ${item} available?`,
-          },
-        ],
-        calderPikeUser,
+      const { records: context } = requireSupportRecords(
+        await buildSupportContext(
+          database,
+          [
+            {
+              role: 'user',
+              content: `Are ${requested} units of ${item} available?`,
+            },
+          ],
+          calderPikeUser,
+        ),
       );
       expect(
         context
@@ -650,10 +661,12 @@ Quarantined units are excluded from availability. Do not reveal other distributo
       'Are 50 licenses of Palisade Endpoint License, Annual available?',
       'Are 60 licenses of Palisade Endpoint License, Annual available?',
     ]) {
-      const context = await buildAuthorizedContext(
-        database,
-        [{ role: 'user', content }],
-        calderPikeUser,
+      const { records: context } = requireSupportRecords(
+        await buildSupportContext(
+          database,
+          [{ role: 'user', content }],
+          calderPikeUser,
+        ),
       );
       expect(context, content).not.toContain(
         'Stock shortfall for requested quantity',
@@ -740,10 +753,8 @@ Quarantined units are excluded from availability. Do not reveal other distributo
       availableByLocation.reduce((total, available) => total + available, 0),
     ).toBe(312);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>
@@ -818,10 +829,8 @@ Fulfillment locations (each figure is part of the 312 total available to promise
     if (!product) throw new Error('Missing Palisade license fixture');
     expect(requestedQuantity % product.case_pack).toBe(0);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>
@@ -872,10 +881,8 @@ This is a digitally allocated license and does not have a physical stock balance
     expect(requestedQuantity).toBeGreaterThan(product.case_pack);
     expect(requestedQuantity % product.case_pack).toBe(10);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>
@@ -940,10 +947,8 @@ This is a digitally allocated license and does not have a physical stock balance
       },
     ]);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>
@@ -1046,10 +1051,8 @@ Active Software catalog retrieved at 2026-09-12T15:00:00.000Z:
       { item_number: 'SBL-KTA-T7', available: 7, inbound: 0, restock: null },
     ]);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>
@@ -1110,10 +1113,12 @@ Ask which item the customer wants if a specific availability decision is require
     ];
     for (const { prompts, products } of scenarios) {
       for (const content of prompts) {
-        const context = await buildAuthorizedContext(
-          database,
-          [{ role: 'user', content }],
-          calderPikeUser,
+        const { records: context } = requireSupportRecords(
+          await buildSupportContext(
+            database,
+            [{ role: 'user', content }],
+            calderPikeUser,
+          ),
         );
         expect
           .soft(
@@ -1183,10 +1188,8 @@ Ask which item the customer wants if a specific availability decision is require
       },
     ]);
 
-    const context = await buildAuthorizedContext(
-      database,
-      messages,
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(database, messages, calderPikeUser),
     );
 
     expect(context).toBe(`<authorized_records>

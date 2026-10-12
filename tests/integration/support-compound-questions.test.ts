@@ -1,7 +1,8 @@
+import { requireSupportRecords } from '../assertions/support-context';
 import { describe, expect } from 'vitest';
 
 import { POST as chat } from '@/app/api/chat/route';
-import { buildAuthorizedContext } from '@/db/support';
+import { buildSupportContext } from '@/db/support';
 import { test } from '../fixtures/support-integration';
 import { calderPikeUser } from '../fixtures/users';
 
@@ -11,10 +12,12 @@ describe('compound support questions', () => {
   test('retrieves an order and a product for one question', async ({
     database,
   }) => {
-    const context = await buildAuthorizedContext(
-      database,
-      ask('Where is SBL-2022-000118, and is SBL-RPC-12 in stock?'),
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        ask('Where is SBL-2022-000118, and is SBL-RPC-12 in stock?'),
+        calderPikeUser,
+      ),
     );
 
     expect(context).toMatch(/^<authorized_records>\n/);
@@ -37,10 +40,12 @@ describe('compound support questions', () => {
       .first<{ order_id: string; customer_po_number: string }>();
     expect(foreign).not.toBeNull();
 
-    const context = await buildAuthorizedContext(
-      database,
-      ask(`Show order SBL-2022-000118 and order ${foreign!.order_id}.`),
-      calderPikeUser,
+    const { records: context } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        ask(`Show order SBL-2022-000118 and order ${foreign!.order_id}.`),
+        calderPikeUser,
+      ),
     );
 
     expect(context).toContain('Order: SBL-2022-000118;');
