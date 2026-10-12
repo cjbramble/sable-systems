@@ -259,7 +259,10 @@ describe('support catalog quantities', () => {
     expect(records).toContain(
       'No catalog item matching SBL-UNKNOWN-999 was found.',
     );
-    expect(records).not.toContain('Product:');
+    expect(records).toContain('Product: SBL-RPC-12');
+    expect(records).toContain('Requested quantity 8: valid case-pack multiple');
+    expect(records).not.toContain('Product: SBL-UNKNOWN-999');
+    expect(records).not.toContain('Requested quantity 12:');
   });
 });
 

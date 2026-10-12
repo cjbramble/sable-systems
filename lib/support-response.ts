@@ -31,8 +31,8 @@ function identifierEvidence(
     verifiedReferences: [],
   };
   for (const part of context.parts) {
-    if (part.kind === 'unknown_products') {
-      // Missing items are echo allowances, not identities in any record namespace.
+    if (part.kind === 'unknown_products' || part.kind === 'omitted_products') {
+      // Missing and omitted items are echo allowances, not verified identities.
       for (const itemNumber of part.requestedItemNumbers)
         evidence.identifiers.add(itemNumber.toUpperCase());
     } else if (part.outcome === 'unavailable') {

@@ -185,6 +185,7 @@ export function renderSupportContextPart(part: SupportContextPart): string {
     case 'catalog_category':
     case 'inventory_advisories':
     case 'unknown_products':
+    case 'omitted_products':
       return renderCatalogOutcome(part);
     case 'order':
     case 'shipment':
