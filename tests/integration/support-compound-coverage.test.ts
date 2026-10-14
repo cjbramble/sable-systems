@@ -137,3 +137,86 @@ describe('mixed account and record coverage', () => {
     expect(model).toHaveBeenCalledOnce();
   });
 });
+
+test.for([
+  [
+    'Show my payment terms and SBL-RPC-12 availability. Show order SBL-2022-000118.',
+    ['account', 'products', 'order'],
+  ],
+  [
+    'What is the status of order SBL-2022-000118 and my account tier?',
+    ['order', 'account'],
+  ],
+  [
+    'Show order SBL-2022-000118. Tell me my payment terms because I need them.',
+    ['order', 'account'],
+  ],
+  [
+    'Check the delivery status of order SBL-2022-000118 and availability of SBL-RPC-12.',
+    ['order', 'products'],
+  ],
+  [
+    'Can you compare order SBL-2022-000118 with order SBL-2026-000417?',
+    ['order', 'order'],
+  ],
+] as const)(
+  'retrieves every reviewed request part without unrelated inventory: %s',
+  async ([message, expected], { database }) => {
+    const context = requireSupportRecords(
+      await buildSupportContext(database, ask(message), calderPikeUser),
+    );
+    expect(context.parts.map(({ kind }) => kind)).toEqual(expected);
+    expect(context.records).not.toContain('Inventory advisories');
+    if (expected.some((kind) => kind === 'account'))
+      expect(context.records).toContain('payment terms: Net 45');
+    if (expected.some((kind) => kind === 'products'))
+      expect(context.records).toContain('Product: SBL-RPC-12');
+  },
+);
+
+test('saves all three shared-cue request parts and their quantities', async ({
+  database,
+  supportApi,
+}) => {
+  const message =
+    'Show my payment terms and availability of 16 units of SBL-RPC-12. Show order SBL-2022-000118.';
+  const context = requireSupportRecords(
+    await buildSupportContext(database, ask(message), calderPikeUser),
+  );
+  expect(context.parts.map(({ kind }) => kind)).toEqual([
+    'account',
+    'products',
+    'order',
+  ]);
+  expect(context.records).toContain(
+    'Requested quantity 16: valid case-pack multiple',
+  );
+  const incidentId = 'INC-PR50-SHARED-CUE';
+  await supportApi.trackTemporaryIncident(incidentId, calderPikeUser);
+  const session = await supportApi.session(calderPikeUser);
+  const reply =
+    'Your payment terms are Net 45. SBL-RPC-12 has 312 units available, enough for 16 units. Order SBL-2022-000118 was delivered.';
+  const model = supportApi.mockModel(reply);
+  const response = await chat(
+    session.request({
+      incidentId,
+      messageId: 'MSG-PR50-SHARED-CUE',
+      expectedRevision: 0,
+      message,
+    }),
+  );
+  expect(response.status).toBe(200);
+  expect(model).toHaveBeenCalledOnce();
+  const body = JSON.parse(model.mock.calls[0][1]?.body as string) as {
+    messages: { content: string }[];
+  };
+  const { records } = JSON.parse(body.messages[1].content) as {
+    records: string;
+  };
+  expect(records).toContain('Part 1 of 3: account details');
+  expect(records).toContain('Part 2 of 3: catalog request');
+  expect(records).toContain('Part 3 of 3: order SBL-2022-000118');
+  expect((await supportApi.messageContents(incidentId)).results).toEqual(
+    expect.arrayContaining([expect.objectContaining({ content: reply })]),
+  );
+});

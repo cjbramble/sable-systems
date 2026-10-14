@@ -343,14 +343,89 @@ export function classifySupportQuery(
   return intent;
 }
 
-// Named record values are already masked. Skip request grammar and record labels
-// to locate the first catalog subject, whether it is a name or an item number.
-function catalogSubjectStart(clause: string): number {
-  const grammar =
-    /^(?:can|could|would|will|you|i|we|please|show|list|find|check|tell|me|what|where|when|how|is|are|the|a|an|of|for|and|also|with|or|compare|versus|vs|order|orders|shipment|shipments|return|returns|customer|po|tracking|id|number|reference)$/i;
-  for (const token of clause.matchAll(/\b[a-z0-9][a-z0-9-]*\b/gi))
-    if (!grammar.test(token[0])) return token.index;
-  return 0;
+type RequestBoundary = { start: number; end: number; coordinated: boolean };
+
+function requestBoundaries(
+  latest: string,
+  remainder: string,
+): RequestBoundary[] {
+  const boundaries = Array.from(
+    latest.matchAll(COMPOUND_REQUEST_BOUNDARY),
+    (match) => ({
+      start: match.index,
+      end: match.index + match[0].length,
+      coordinated: /^(?:and|also)\b/i.test(match[0]),
+    }),
+  );
+  const starts = [0, ...boundaries.map(({ end }) => end)];
+  const ends = [...boundaries.map(({ start }) => start), latest.length];
+  // Split shared account/catalog requests without splitting product lists owned
+  // by an order search or separating a quantity from its catalog target.
+  for (const [index, start] of starts.entries()) {
+    const end = ends[index];
+    const clause = remainder.slice(start, end);
+    if (classifyCurrentTopic(clause).kind === 'orders') continue;
+    for (const match of clause.matchAll(/\b(?:and|also)\s+/gi)) {
+      const left = clause.slice(0, match.index);
+      const right = clause.slice(match.index + match[0].length);
+      if (
+        classifyCurrentTopic(left).kind !== 'account' ||
+        classifyCurrentTopic(right).kind !== 'catalog'
+      )
+        continue;
+      boundaries.push({
+        start: start + match.index,
+        end: start + match.index + match[0].length,
+        coordinated: true,
+      });
+      break;
+    }
+  }
+  return boundaries.sort((left, right) => left.start - right.start);
+}
+
+// Coordinated subjects containing a named record own their descriptive words.
+// Only a separate subject can position the catalog part; record-only comparisons
+// therefore have no catalog position, regardless of their polite request prefix.
+function catalogSubjectStart(
+  remainder: string,
+  occurrences: ReferenceOccurrence[],
+  start: number,
+  end: number,
+): number | undefined {
+  const separators = Array.from(
+    remainder
+      .slice(start, end)
+      .matchAll(
+        /\b(?:and|also|with|versus|vs|plus)\b|[;!?]|\.(?!\d)|,(?!\d)/gi,
+      ),
+  );
+  const starts = [
+    start,
+    ...separators.map((match) => start + match.index + match[0].length),
+  ];
+  const ends = [...separators.map((match) => start + match.index), end];
+  for (const [index, subjectStart] of starts.entries()) {
+    const subjectEnd = ends[index];
+    if (
+      occurrences.some(
+        (reference) =>
+          reference.start < subjectEnd && reference.end > subjectStart,
+      )
+    )
+      continue;
+    const subject = remainder.slice(subjectStart, subjectEnd);
+    // A detached request cue or politeness marker is not a product target.
+    if (
+      /^(?:(?:can|could|would|will)\s+you\s*)?(?:please\s*)?(?:show|list|find|count|compare)?$|^(?:thanks|thank you)$/i.test(
+        subject.trim(),
+      )
+    )
+      continue;
+    const offset = subject.search(/[a-z0-9]/i);
+    if (offset >= 0) return subjectStart + offset;
+  }
+  return undefined;
 }
 
 // Record identity comes from source spans; independent topic requests retain
@@ -375,53 +450,47 @@ export function classifySupportQueries(
   // quantities and reference labels retain their existing interpretation.
   const catalogCharacters = remainder.split('');
   let catalogStart: number | undefined;
-  const boundaries = Array.from(
-    latest.matchAll(COMPOUND_REQUEST_BOUNDARY),
-    (match) => ({
-      start: match.index,
-      end: match.index + match[0].length,
-      coordinated: /^(?:and|also)\b/i.test(match[0]),
-    }),
-  );
+  const boundaries = requestBoundaries(latest, remainder);
   const starts = [0, ...boundaries.map((boundary) => boundary.end)];
   const ends = [...boundaries.map((boundary) => boundary.start), latest.length];
   let searchRequested = false;
+  let topicRequested = false;
   for (const [index, start] of starts.entries()) {
     const end = ends[index];
     const clause = remainder.slice(start, end).trim();
     // A coordinated noun phrase can share "show"; a new sentence cannot.
-    if (index > 0 && !boundaries[index - 1].coordinated)
+    if (index > 0 && !boundaries[index - 1].coordinated) {
       searchRequested = false;
-    if (TOPIC_REQUEST.test(clause))
+      topicRequested = false;
+    }
+    if (TOPIC_REQUEST.test(clause)) {
       searchRequested = ORDER_SEARCH_REQUEST.test(clause);
+      topicRequested = true;
+    }
     const hasRecord = occurrences.some(
       (reference) => reference.start < end && reference.end > start,
     );
-    // A comparison containing only record labels has no separate catalog target.
-    if (
-      hasRecord &&
-      /^(?:\s|[,.?!;:]|\b(?:compare|with|and|versus|vs|order|shipment|return|customer|po|tracking|id|number|reference)\b)*$/i.test(
-        clause,
-      )
-    ) {
-      catalogCharacters.fill(' ', start, end);
-      continue;
-    }
     const request = classifyCurrentTopic(clause);
     if (request.kind === 'catalog') {
-      catalogStart ??= start + catalogSubjectStart(remainder.slice(start, end));
+      catalogStart ??= catalogSubjectStart(remainder, occurrences, start, end);
     }
-    // Pronouns and demonstratives keep a follow-up attached to named records;
-    // a separate account request must stand on its own.
-    const recordContinuation =
-      /\b(?:it|its|they|their|them)\b|\b(?:that|this|the|those|these)\s+(?:orders?|shipments?|returns?)\b/i.test(
+    // Explicit account ownership permits later pronouns about that fact.
+    // Subjects and prepositional references still tie fields to a named record.
+    const accountOwnsPronoun =
+      /\b(?:my|our)\s+(?:account|payment|billing|terms|currency|region|charge)\b/i.test(
         clause,
       );
+    const recordContinuation =
+      /\b(?:for|of|about|on|to|in|from|with)\s+(?:it|them)\b|\b(?:that|this|the|those|these)\s+(?:orders?|shipments?|returns?)\b/i.test(
+        clause,
+      ) ||
+      (!accountOwnsPronoun &&
+        /\b(?:its|their)\b|\b(?:is|are|was|were|does|do|has|have|can|will|would|should)\s+(?:it|they)\b/i.test(
+          clause,
+        ));
     if (hasRecord || (request.kind === 'account' && recordContinuation))
       continue;
-    const accountRequested =
-      request.kind === 'account' &&
-      (TOPIC_REQUEST.test(clause) || searchRequested);
+    const accountRequested = request.kind === 'account' && topicRequested;
     const ordersRequested =
       request.kind === 'orders' && searchRequested && request.statusFilter;
     if (!accountRequested && !ordersRequested) continue;
@@ -433,8 +502,8 @@ export function classifySupportQueries(
     catalogCharacters.fill(' ', start, end);
   }
   const catalog = classifyCurrentTopic(catalogCharacters.join(''));
-  if (catalog.kind === 'catalog')
-    requests.push({ intent: catalog, start: catalogStart ?? 0 });
+  if (catalog.kind === 'catalog' && catalogStart !== undefined)
+    requests.push({ intent: catalog, start: catalogStart });
   return requests.length > 1
     ? requests
         .sort((left, right) => left.start - right.start)
