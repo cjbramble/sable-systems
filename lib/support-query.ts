@@ -119,7 +119,6 @@ function classifyCurrentTopic(latest: string): SupportQueryIntent {
   return { kind: 'summary', message: normalized };
 }
 
-const MAX_COMPOUND_REQUESTS = 3;
 const ORDER_SEARCH_REQUEST_SOURCE =
   '(?:(?:(?:can|could|would|will)\\s+you\\s+)?(?:please\\s+)?(?:show|list|find|count)\\b|how many\\b)';
 const ORDER_SEARCH_REQUEST = new RegExp(`^${ORDER_SEARCH_REQUEST_SOURCE}`, 'i');
@@ -507,7 +506,6 @@ export function classifySupportQueries(
   return requests.length > 1
     ? requests
         .sort((left, right) => left.start - right.start)
-        .slice(0, MAX_COMPOUND_REQUESTS)
         .map(({ intent }) => intent)
     : [primary];
 }

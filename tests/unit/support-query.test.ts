@@ -218,7 +218,7 @@ describe('compound support questions', () => {
     ]);
   });
 
-  it('caps a compound question at three records in order of appearance', () => {
+  it('retains all compound records in order for budget planning', () => {
     expect(
       ask(
         'Check RTN-2022-000014, SBL-2022-000118, SBL-2026-000417 and SBL-2031-000124.',
@@ -227,6 +227,7 @@ describe('compound support questions', () => {
       { kind: 'return', namespace: 'return_id', identifier: 'RTN-2022-000014' },
       { kind: 'order', namespace: 'unresolved', identifier: 'SBL-2022-000118' },
       { kind: 'order', namespace: 'unresolved', identifier: 'SBL-2026-000417' },
+      { kind: 'order', namespace: 'unresolved', identifier: 'SBL-2031-000124' },
     ]);
   });
 });

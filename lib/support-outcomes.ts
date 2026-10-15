@@ -1,4 +1,8 @@
 import {
+  renderOmittedRequests,
+  type OmittedRequestsOutcome,
+} from './support-request-outcomes.ts';
+import {
   renderAccountOutcome,
   renderSummaryOutcome,
   renderIncidentHistoryOutcome,
@@ -158,7 +162,8 @@ export type SupportContextPart =
   | OrderSearchOutcome
   | AccountLookupOutcome
   | SummaryLookupOutcome
-  | IncidentHistoryOutcome;
+  | IncidentHistoryOutcome
+  | OmittedRequestsOutcome;
 
 export type SupportRecordsContext = {
   kind: 'records';
@@ -172,6 +177,8 @@ export type SupportContextResult =
 
 export function renderSupportContextPart(part: SupportContextPart): string {
   switch (part.kind) {
+    case 'omitted_requests':
+      return renderOmittedRequests(part);
     case 'account':
       return renderAccountOutcome(part);
     case 'summary':
