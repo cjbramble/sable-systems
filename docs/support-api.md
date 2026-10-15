@@ -84,8 +84,12 @@ their requested namespaces, but do not verify record identities or imply that
 records are missing. A single incident-list request receives a server-built reply;
 a mixed request uses the scoped facts for all selected parts. Incident titles are
 customer-written labels and cannot verify record identities or SABLE resources.
-Follow-ups retain their previously resolved targets; missing or ambiguous targets
-still prompt clarification before inference.
+Each follow-up clause retains its resolved target even when another clause asks
+for incident history or an order search. Missing or ambiguous targets still prompt
+clarification before inference. Shared requests such as “Show my support incidents
+and my orders” retain both topics. An incident qualifier such as “for this year”
+does not suppress a separate item-availability question; coordinated product names
+that describe incidents remain part of the incident request.
 
 Quantity lookups accept whole numbers from 1 through 999,999, with optional comma
 grouping such as `1,000`. Attach each quantity to its product, or use shared wording

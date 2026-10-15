@@ -128,7 +128,7 @@ const TOPIC_REQUEST = new RegExp(
   'i',
 );
 const COMPOUND_REQUEST_BOUNDARY = new RegExp(
-  `(?:[;.!?]\\s*|\\b(?:and|also)\\s+)(?=(?:${ORDER_SEARCH_REQUEST_SOURCE}|${TOPIC_REQUEST_SOURCE}|(?:my|our)\\s+(?:account|payment|billing|${INCIDENT_TOPIC_SOURCE})\\b|${INCIDENT_TOPIC_SOURCE}\\b|(?:please\\s+)?(?:orders?|purchases?|releases?|shipments?|returns?|customer\\s+po)\\b))`,
+  `(?:[;.!?]\\s*|\\b(?:and|also)\\s+)(?=(?:${ORDER_SEARCH_REQUEST_SOURCE}|${TOPIC_REQUEST_SOURCE}|(?:my|our)\\s+(?:account|payment|billing|orders|purchases?|releases?|${INCIDENT_TOPIC_SOURCE})\\b|${INCIDENT_TOPIC_SOURCE}\\b|(?:please\\s+)?(?:orders?|purchases?|releases?|shipments?|returns?|customer\\s+po)\\b))`,
   'gi',
 );
 
@@ -367,9 +367,20 @@ function requestBoundaries(
       const left = clause.slice(0, match.index);
       const right = clause.slice(match.index + match[0].length);
       const leftKind = classifyCurrentTopic(left).kind;
-      // Incident descriptions can contain coordinated products or stock terms.
+      const rightTopic = classifyCurrentTopic(right);
+      const separateCatalogSubject =
+        rightTopic.kind === 'catalog' &&
+        (itemReferences(right).length > 0 ||
+          rightTopic.category !== undefined) &&
+        (rightTopic.compare ||
+          /\b(?:availability|available|stock|inventory|backorder|prices?|pricing|lead[ -]times?|case[ -]packs?)\b/i.test(
+            right,
+          ));
+      // Bare products and stock terms can describe incidents; a separate target
+      // with requested catalog facts is independent of an earlier qualifier.
       if (
         leftKind === 'incidents' &&
+        !separateCatalogSubject &&
         /\b(?:about|for|regarding|containing|involving|with|on|related to)\b/i.test(
           left,
         )
@@ -377,7 +388,7 @@ function requestBoundaries(
         continue;
       if (
         !['account', 'incidents'].includes(leftKind) ||
-        classifyCurrentTopic(right).kind !== 'catalog'
+        rightTopic.kind !== 'catalog'
       )
         continue;
       boundaries.push({
@@ -479,16 +490,44 @@ export function classifySupportQueries(
       (reference) => reference.start < end && reference.end > start,
     );
     const request = classifyCurrentTopic(clause);
-    // A resolved record follow-up still owns its clause in a topic-only message.
+    // Explicit account ownership permits later pronouns about that fact.
+    // Subjects and prepositional references still tie fields to a named record.
+    const accountOwnsPronoun =
+      /\b(?:my|our)\s+(?:account|payment|billing|terms|currency|region|charge)\b/i.test(
+        clause,
+      );
+    const recordContinuation =
+      /\b(?:for|of|about|on|to|in|from|with)\s+(?:it|them)\b|\b(?:that|this|the|those|these)\s+(?:orders?|shipments?|returns?)\b/i.test(
+        clause,
+      ) ||
+      (!accountOwnsPronoun &&
+        /\b(?:its|their)\b|\b(?:is|are|was|were|does|do|has|have|can|will|would|should)\s+(?:it|they)\b/i.test(
+          clause,
+        ));
+    // Resolve each eligible clause independently; another topic must not
+    // replace its saved target or suppress a clarification.
     if (
-      !records.length &&
-      'identifier' in primary &&
-      TOPIC_REQUEST.test(clause)
+      !hasRecord &&
+      TOPIC_REQUEST.test(clause) &&
+      (request.kind !== 'account' || recordContinuation)
     ) {
+      const preceding = latest.slice(0, start);
+      const precedingTargets = parseSupportReferences(preceding);
+      const hasPrecedingTarget =
+        precedingTargets.occurrences.length > 0 ||
+        itemReferences(precedingTargets.remainder).length > 0;
       const resolved = classifySupportQuery([
         ...priorMessages,
+        ...(hasPrecedingTarget
+          ? [{ role: 'user' as const, content: preceding }]
+          : []),
         { role: 'user', content: clause },
       ]);
+      if (resolved.kind === 'clarification') {
+        requests.push({ intent: resolved, start });
+        catalogCharacters.fill(' ', start, end);
+        continue;
+      }
       if ('identifier' in resolved) {
         if (
           !requests.some(
@@ -507,20 +546,6 @@ export function classifySupportQueries(
     if (request.kind === 'catalog') {
       catalogStart ??= catalogSubjectStart(remainder, occurrences, start, end);
     }
-    // Explicit account ownership permits later pronouns about that fact.
-    // Subjects and prepositional references still tie fields to a named record.
-    const accountOwnsPronoun =
-      /\b(?:my|our)\s+(?:account|payment|billing|terms|currency|region|charge)\b/i.test(
-        clause,
-      );
-    const recordContinuation =
-      /\b(?:for|of|about|on|to|in|from|with)\s+(?:it|them)\b|\b(?:that|this|the|those|these)\s+(?:orders?|shipments?|returns?)\b/i.test(
-        clause,
-      ) ||
-      (!accountOwnsPronoun &&
-        /\b(?:its|their)\b|\b(?:is|are|was|were|does|do|has|have|can|will|would|should)\s+(?:it|they)\b/i.test(
-          clause,
-        ));
     if (hasRecord || (request.kind === 'account' && recordContinuation))
       continue;
     const accountRequested = request.kind === 'account' && topicRequested;
