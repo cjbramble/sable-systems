@@ -29,25 +29,9 @@ import {
   classifySupportQueries,
   type SupportQueryIntent,
 } from '@/lib/support-query';
+import { supportRequestLabel } from '@/lib/support-request-outcomes';
 
-const REFERENCE_NAMESPACE_LABELS = {
-  order_id: 'order ID',
-  customer_po: 'customer PO',
-  shipment_id: 'shipment ID',
-  tracking_reference: 'tracking reference',
-  return_id: 'return ID',
-};
-
-function compoundPartLabel(intent: SupportQueryIntent) {
-  if (intent.kind === 'orders') return 'order search';
-  if (intent.kind === 'account') return 'account details';
-  if (!('identifier' in intent)) return 'catalog request';
-  const namespace =
-    intent.namespace === 'unresolved'
-      ? ''
-      : ` (${REFERENCE_NAMESPACE_LABELS[intent.namespace]})`;
-  return `${intent.kind} ${intent.identifier}${namespace}`;
-}
+const MAX_COMPOUND_REQUESTS = 3;
 
 const CLARIFICATION_REFERENCES = {
   order: 'order ID or customer PO number',
@@ -66,9 +50,11 @@ export async function buildSupportContext(
   user: AuthenticatedUser,
 ): Promise<SupportContextResult> {
   const intents = classifySupportQueries(messages);
+  const selected = intents.slice(0, MAX_COMPOUND_REQUESTS);
+  const omitted = intents.slice(MAX_COMPOUND_REQUESTS);
   const parts: SupportContextPart[] = [];
   const rendered: string[] = [];
-  for (const [index, intent] of intents.entries()) {
+  for (const [index, intent] of selected.entries()) {
     const result = await authorizedContextForIntent(db, intent, user);
     const outcomes = Array.isArray(result) ? result : [result];
     const group: SupportContextPart[] = [];
@@ -102,14 +88,24 @@ export async function buildSupportContext(
         parts,
       };
     rendered.push(
-      `Part ${index + 1} of ${intents.length}: ${compoundPartLabel(intent)}\n${records}`,
+      `Part ${index + 1} of ${intents.length}: ${supportRequestLabel(intent)}\n${records}`,
     );
+  }
+  if (omitted.length) {
+    const omission = {
+      kind: 'omitted_requests' as const,
+      outcome: 'omitted' as const,
+      requests: omitted,
+      limit: MAX_COMPOUND_REQUESTS,
+    };
+    parts.push(omission);
+    rendered.push(renderSupportContextPart(omission));
   }
   return {
     kind: 'records',
     parts,
     records: `<authorized_records>
-The customer asked about ${intents.length} things in one message. Answer each part from its own records.
+The customer asked about ${intents.length} things in one message. Answer retrieved parts from their own records and explicitly report any omitted parts.
 
 ${rendered.join('\n\n')}
 </authorized_records>`,

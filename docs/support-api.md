@@ -74,9 +74,11 @@ filtered order searches, and catalog requests in source order. For example, “W
 are my payment terms? Show order SBL-2022-000118” retrieves account details before
 that order. Descriptions attached to a record do not trigger another account
 lookup or a broad order search. Catalog targets remain grouped as one request,
-positioned at their first mention. The three-part retrieval limit still applies;
-explicit reporting of parts beyond that limit and compound topic requests without
-named records remain planned.
+positioned at their first mention. Only the first three parts are retrieved.
+Remaining parts are listed as omitted, with a request to ask about them separately.
+Omitted references can be echoed in their requested namespaces, but do not verify
+record identities or imply that records are missing. Compound topic requests
+without named records remain planned.
 
 Quantity lookups accept whole numbers from 1 through 999,999, with optional comma
 grouping such as `1,000`. Attach each quantity to its product, or use shared wording

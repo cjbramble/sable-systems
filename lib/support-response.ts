@@ -1,5 +1,6 @@
 import {
   parseSupportReferences,
+  itemReferences,
   type SupportRecordReference,
 } from './support-references.ts';
 import type {
@@ -16,7 +17,7 @@ type IdentifierEvidence = {
   identifiers: Set<string>;
   orderIds: Set<string>;
   customerPos: Set<string>;
-  unavailableReferences: SupportRecordReference[];
+  echoReferences: SupportRecordReference[];
   verifiedReferences: VerifiedSupportReference[];
 };
 
@@ -27,17 +28,30 @@ function identifierEvidence(
     identifiers: new Set(),
     orderIds: new Set(),
     customerPos: new Set(),
-    unavailableReferences: [],
+    echoReferences: [],
     verifiedReferences: [],
   };
   for (const part of context.parts) {
-    if (part.kind === 'unknown_products' || part.kind === 'omitted_products') {
+    if (part.kind === 'omitted_requests') {
+      for (const request of part.requests) {
+        if ('identifier' in request) {
+          evidence.echoReferences.push(request);
+          evidence.identifiers.add(request.identifier.toUpperCase());
+        } else if ('message' in request) {
+          for (const item of itemReferences(request.message))
+            evidence.identifiers.add(item.toUpperCase());
+        }
+      }
+    } else if (
+      part.kind === 'unknown_products' ||
+      part.kind === 'omitted_products'
+    ) {
       // Missing and omitted items are echo allowances, not verified identities.
       for (const itemNumber of part.requestedItemNumbers)
         evidence.identifiers.add(itemNumber.toUpperCase());
     } else if (part.outcome === 'unavailable') {
       // Echoing the requested reference does not verify a record's existence.
-      evidence.unavailableReferences.push(part.reference);
+      evidence.echoReferences.push(part.reference);
       evidence.identifiers.add(part.reference.identifier.toUpperCase());
     } else {
       evidence.verifiedReferences.push(...part.verifiedReferences);
@@ -57,14 +71,13 @@ export function hasGroundedSupportIdentifiers(
   context: SupportRecordsContext,
 ): boolean {
   const evidence = identifierEvidence(context);
-  const { identifiers, orderIds, customerPos, unavailableReferences } =
-    evidence;
+  const { identifiers, orderIds, customerPos, echoReferences } = evidence;
   const { occurrences } = parseSupportReferences(content, identifiers);
   return (
     occurrences.every(({ reference }) => {
       const { identifier, namespace } = reference;
       if (
-        unavailableReferences.some(
+        echoReferences.some(
           (requested) =>
             requested.kind === reference.kind &&
             requested.identifier === identifier &&
