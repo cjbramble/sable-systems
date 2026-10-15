@@ -23,7 +23,8 @@ import {
 } from '@/lib/chat-request';
 import { BodyTooLargeError, readJsonBody } from '@/lib/json-body';
 import { formatIncidentListReply } from '@/lib/support-incidents';
-import { classifySupportQuery } from '@/lib/support-query';
+import { classifySupportQueries } from '@/lib/support-query';
+import { renderSupportContextPart } from '@/lib/support-outcomes';
 import {
   hasGroundedSupportIdentifiers,
   unavailableRecordReply,
@@ -148,9 +149,10 @@ export async function POST(request: Request) {
       );
     };
 
-    // Incident lists are pure records: build them on the server so a
+    // Single-topic incident lists are pure records: build them on the server so a
     // customer-written title cannot lead the model to hide or rewrite one.
-    if (classifySupportQuery(history).kind === 'incidents')
+    const intents = classifySupportQueries(history);
+    if (intents.length === 1 && intents[0].kind === 'incidents')
       return await reply(
         formatIncidentListReply(await listSupportIncidents(db, user)),
       );
@@ -158,6 +160,11 @@ export async function POST(request: Request) {
     const context = await buildSupportContext(db, history, user);
     if (context.kind === 'clarification') return await reply(context.message);
     const authorizedContext = context.records;
+    // Incident titles are customer-written labels, not evidence of SABLE resources.
+    const resourceEvidence = context.parts
+      .filter((part) => part.kind !== 'incidents')
+      .map(renderSupportContextPart)
+      .join('\n');
     const unavailable = unavailableRecordReply(context);
     if (unavailable) return await reply(unavailable);
     const retryAfter = await consumeRequestQuota(
@@ -270,7 +277,7 @@ export async function POST(request: Request) {
         );
       }
 
-      const invented = unsupportedSableResources(content, authorizedContext);
+      const invented = unsupportedSableResources(content, resourceEvidence);
       if (invented.length) {
         // Invented SABLE resources are intermittent: ask the model once more,
         // naming what to remove, before returning a retryable error. Nothing

@@ -45,6 +45,10 @@ export type SupportQueryIntent =
     }
   | { kind: 'summary'; message: string };
 
+const INCIDENT_TOPIC_SOURCE =
+  '(?:(?:support|service)\\s+incidents?|incident\\s+(?:history|records?)|past\\s+incidents?)';
+const INCIDENT_TOPIC = new RegExp(`\\b${INCIDENT_TOPIC_SOURCE}\\b`, 'i');
+
 function requestedCategory(message: string) {
   for (const word of message.match(/[a-z]+/g) ?? []) {
     const titleCase = `${word[0].toUpperCase()}${word.slice(1)}`;
@@ -88,12 +92,7 @@ function classifyCurrentTopic(latest: string): SupportQueryIntent {
     };
   }
 
-  if (
-    /\b(?:support|service) incidents?\b|\bincident (?:history|records?)\b|\bpast incidents?\b/.test(
-      normalized,
-    )
-  )
-    return { kind: 'incidents' };
+  if (INCIDENT_TOPIC.test(normalized)) return { kind: 'incidents' };
 
   const quantities = parseQuantityOccurrences(normalized);
   if (
@@ -129,7 +128,7 @@ const TOPIC_REQUEST = new RegExp(
   'i',
 );
 const COMPOUND_REQUEST_BOUNDARY = new RegExp(
-  `(?:[;.!?]\\s*|\\b(?:and|also)\\s+)(?=(?:${ORDER_SEARCH_REQUEST_SOURCE}|${TOPIC_REQUEST_SOURCE}|(?:my|our)\\s+(?:account|payment|billing)\\b|(?:please\\s+)?(?:orders?|purchases?|releases?|shipments?|returns?|customer\\s+po)\\b))`,
+  `(?:[;.!?]\\s*|\\b(?:and|also)\\s+)(?=(?:${ORDER_SEARCH_REQUEST_SOURCE}|${TOPIC_REQUEST_SOURCE}|(?:my|our)\\s+(?:account|payment|billing|orders|purchases?|releases?|${INCIDENT_TOPIC_SOURCE})\\b|${INCIDENT_TOPIC_SOURCE}\\b|(?:please\\s+)?(?:orders?|purchases?|releases?|shipments?|returns?|customer\\s+po)\\b))`,
   'gi',
 );
 
@@ -358,8 +357,8 @@ function requestBoundaries(
   );
   const starts = [0, ...boundaries.map(({ end }) => end)];
   const ends = [...boundaries.map(({ start }) => start), latest.length];
-  // Split shared account/catalog requests without splitting product lists owned
-  // by an order search or separating a quantity from its catalog target.
+  // Split shared topic/catalog requests without detaching product filters
+  // or separating a quantity from its catalog target.
   for (const [index, start] of starts.entries()) {
     const end = ends[index];
     const clause = remainder.slice(start, end);
@@ -367,9 +366,29 @@ function requestBoundaries(
     for (const match of clause.matchAll(/\b(?:and|also)\s+/gi)) {
       const left = clause.slice(0, match.index);
       const right = clause.slice(match.index + match[0].length);
+      const leftKind = classifyCurrentTopic(left).kind;
+      const rightTopic = classifyCurrentTopic(right);
+      const separateCatalogSubject =
+        rightTopic.kind === 'catalog' &&
+        (itemReferences(right).length > 0 ||
+          rightTopic.category !== undefined) &&
+        (rightTopic.compare ||
+          /\b(?:availability|available|stock|inventory|backorder|prices?|pricing|lead[ -]times?|case[ -]packs?)\b/i.test(
+            right,
+          ));
+      // Bare products and stock terms can describe incidents; a separate target
+      // with requested catalog facts is independent of an earlier qualifier.
       if (
-        classifyCurrentTopic(left).kind !== 'account' ||
-        classifyCurrentTopic(right).kind !== 'catalog'
+        leftKind === 'incidents' &&
+        !separateCatalogSubject &&
+        /\b(?:about|for|regarding|containing|involving|with|on|related to)\b/i.test(
+          left,
+        )
+      )
+        continue;
+      if (
+        !['account', 'incidents'].includes(leftKind) ||
+        rightTopic.kind !== 'catalog'
       )
         continue;
       boundaries.push({
@@ -436,7 +455,8 @@ export function classifySupportQueries(
   const latest = messages.at(-1)?.content.trim() ?? '';
   const { occurrences, remainder } = parseSupportReferences(latest);
   const records = uniqueReferences(occurrences);
-  if (!records.length) return [primary];
+  if (!records.length && primary.kind === 'clarification') return [primary];
+  const priorMessages = messages.slice(0, -1);
   const requests: { intent: SupportQueryIntent; start: number }[] = records.map(
     (reference) => ({
       intent: reference,
@@ -470,9 +490,6 @@ export function classifySupportQueries(
       (reference) => reference.start < end && reference.end > start,
     );
     const request = classifyCurrentTopic(clause);
-    if (request.kind === 'catalog') {
-      catalogStart ??= catalogSubjectStart(remainder, occurrences, start, end);
-    }
     // Explicit account ownership permits later pronouns about that fact.
     // Subjects and prepositional references still tie fields to a named record.
     const accountOwnsPronoun =
@@ -487,21 +504,72 @@ export function classifySupportQueries(
         /\b(?:its|their)\b|\b(?:is|are|was|were|does|do|has|have|can|will|would|should)\s+(?:it|they)\b/i.test(
           clause,
         ));
+    // Resolve each eligible clause independently; another topic must not
+    // replace its saved target or suppress a clarification.
+    if (
+      !hasRecord &&
+      TOPIC_REQUEST.test(clause) &&
+      (request.kind !== 'account' || recordContinuation)
+    ) {
+      const preceding = latest.slice(0, start);
+      const precedingTargets = parseSupportReferences(preceding);
+      const hasPrecedingTarget =
+        precedingTargets.occurrences.length > 0 ||
+        itemReferences(precedingTargets.remainder).length > 0;
+      const resolved = classifySupportQuery([
+        ...priorMessages,
+        ...(hasPrecedingTarget
+          ? [{ role: 'user' as const, content: preceding }]
+          : []),
+        { role: 'user', content: clause },
+      ]);
+      if (resolved.kind === 'clarification') {
+        requests.push({ intent: resolved, start });
+        catalogCharacters.fill(' ', start, end);
+        continue;
+      }
+      if ('identifier' in resolved) {
+        if (
+          !requests.some(
+            ({ intent }) =>
+              'identifier' in intent &&
+              intent.kind === resolved.kind &&
+              intent.namespace === resolved.namespace &&
+              intent.identifier === resolved.identifier,
+          )
+        )
+          requests.push({ intent: resolved, start });
+        catalogCharacters.fill(' ', start, end);
+        continue;
+      }
+    }
+    if (request.kind === 'catalog') {
+      catalogStart ??= catalogSubjectStart(remainder, occurrences, start, end);
+    }
     if (hasRecord || (request.kind === 'account' && recordContinuation))
       continue;
     const accountRequested = request.kind === 'account' && topicRequested;
-    const ordersRequested =
-      request.kind === 'orders' && searchRequested && request.statusFilter;
-    if (!accountRequested && !ordersRequested) continue;
+    const incidentsRequested = request.kind === 'incidents' && topicRequested;
+    const ordersRequested = request.kind === 'orders' && searchRequested;
+    if (!accountRequested && !incidentsRequested && !ordersRequested) continue;
     if (
-      !accountRequested ||
-      !requests.some(({ intent }) => intent.kind === 'account')
+      (!accountRequested && !incidentsRequested) ||
+      !requests.some(({ intent }) => intent.kind === request.kind)
     )
       requests.push({ intent: request, start });
     catalogCharacters.fill(' ', start, end);
   }
-  const catalog = classifyCurrentTopic(catalogCharacters.join(''));
-  if (catalog.kind === 'catalog' && catalogStart !== undefined)
+  const catalogMessage = catalogCharacters.join('');
+  const catalog = records.length
+    ? classifyCurrentTopic(catalogMessage)
+    : classifySupportQuery([
+        ...priorMessages,
+        { role: 'user', content: catalogMessage },
+      ]);
+  if (
+    catalogStart !== undefined &&
+    (catalog.kind === 'catalog' || catalog.kind === 'clarification')
+  )
     requests.push({ intent: catalog, start: catalogStart });
   return requests.length > 1
     ? requests
