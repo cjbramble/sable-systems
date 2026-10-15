@@ -40,6 +40,7 @@ const REFERENCE_NAMESPACE_LABELS = {
 
 function compoundPartLabel(intent: SupportQueryIntent) {
   if (intent.kind === 'orders') return 'order search';
+  if (intent.kind === 'account') return 'account details';
   if (!('identifier' in intent)) return 'catalog request';
   const namespace =
     intent.namespace === 'unresolved'

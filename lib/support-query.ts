@@ -123,8 +123,14 @@ const MAX_COMPOUND_REQUESTS = 3;
 const ORDER_SEARCH_REQUEST_SOURCE =
   '(?:(?:(?:can|could|would|will)\\s+you\\s+)?(?:please\\s+)?(?:show|list|find|count)\\b|how many\\b)';
 const ORDER_SEARCH_REQUEST = new RegExp(`^${ORDER_SEARCH_REQUEST_SOURCE}`, 'i');
+const TOPIC_REQUEST_SOURCE =
+  '(?:(?:please\\s+)?(?:what|where|when|how|is|are|tell\\s+me|explain)\\b)';
+const TOPIC_REQUEST = new RegExp(
+  `^(?:${ORDER_SEARCH_REQUEST_SOURCE}|${TOPIC_REQUEST_SOURCE})`,
+  'i',
+);
 const COMPOUND_REQUEST_BOUNDARY = new RegExp(
-  `(?:[;.!?]\\s*|\\b(?:and|also)\\s+)(?=(?:${ORDER_SEARCH_REQUEST_SOURCE}|(?:please\\s+)?(?:orders?|purchases?|releases?|shipments?|returns?|customer\\s+po)\\b))`,
+  `(?:[;.!?]\\s*|\\b(?:and|also)\\s+)(?=(?:${ORDER_SEARCH_REQUEST_SOURCE}|${TOPIC_REQUEST_SOURCE}|(?:my|our)\\s+(?:account|payment|billing)\\b|(?:please\\s+)?(?:orders?|purchases?|releases?|shipments?|returns?|customer\\s+po)\\b))`,
   'gi',
 );
 
@@ -337,22 +343,12 @@ export function classifySupportQuery(
   return intent;
 }
 
-// Explicit records retain appearance order and namespace, including two labels
-// with the same value. The existing three-part retrieval budget stays unchanged.
-export function classifySupportQueries(
-  messages: ChatHistoryMessage[],
-): SupportQueryIntent[] {
-  const primary = classifySupportQuery(messages);
-  const latest = messages.at(-1)?.content.trim() ?? '';
-  const { occurrences, remainder } = parseSupportReferences(latest);
-  const records = uniqueReferences(occurrences);
-  if (!records.length) return [primary];
-  const intents: SupportQueryIntent[] = [...records];
-  const rest = classifyCurrentTopic(remainder);
-  if (rest.kind === 'catalog') intents.push(rest);
-  // Split only at a new request or record label. Preserve source spans so a
-  // description of named records cannot become a broad search after masking.
-  // Other continuations stay attached, including unsupported negative clauses.
+type RequestBoundary = { start: number; end: number; coordinated: boolean };
+
+function requestBoundaries(
+  latest: string,
+  remainder: string,
+): RequestBoundary[] {
   const boundaries = Array.from(
     latest.matchAll(COMPOUND_REQUEST_BOUNDARY),
     (match) => ({
@@ -361,29 +357,157 @@ export function classifySupportQueries(
       coordinated: /^(?:and|also)\b/i.test(match[0]),
     }),
   );
-  const starts = [0, ...boundaries.map((boundary) => boundary.end)];
-  const ends = [...boundaries.map((boundary) => boundary.start), latest.length];
-  let searchRequested = false;
+  const starts = [0, ...boundaries.map(({ end }) => end)];
+  const ends = [...boundaries.map(({ start }) => start), latest.length];
+  // Split shared account/catalog requests without splitting product lists owned
+  // by an order search or separating a quantity from its catalog target.
   for (const [index, start] of starts.entries()) {
     const end = ends[index];
-    const clause = remainder.slice(start, end).trim();
-    // "Show X and orders ..." shares its request cue. A new sentence must
-    // supply its own; a statement about orders does not request another list.
-    if (index > 0 && !boundaries[index - 1].coordinated)
-      searchRequested = false;
-    if (ORDER_SEARCH_REQUEST.test(clause)) searchRequested = true;
+    const clause = remainder.slice(start, end);
+    if (classifyCurrentTopic(clause).kind === 'orders') continue;
+    for (const match of clause.matchAll(/\b(?:and|also)\s+/gi)) {
+      const left = clause.slice(0, match.index);
+      const right = clause.slice(match.index + match[0].length);
+      if (
+        classifyCurrentTopic(left).kind !== 'account' ||
+        classifyCurrentTopic(right).kind !== 'catalog'
+      )
+        continue;
+      boundaries.push({
+        start: start + match.index,
+        end: start + match.index + match[0].length,
+        coordinated: true,
+      });
+      break;
+    }
+  }
+  return boundaries.sort((left, right) => left.start - right.start);
+}
+
+// Coordinated subjects containing a named record own their descriptive words.
+// Only a separate subject can position the catalog part; record-only comparisons
+// therefore have no catalog position, regardless of their polite request prefix.
+function catalogSubjectStart(
+  remainder: string,
+  occurrences: ReferenceOccurrence[],
+  start: number,
+  end: number,
+): number | undefined {
+  const separators = Array.from(
+    remainder
+      .slice(start, end)
+      .matchAll(
+        /\b(?:and|also|with|versus|vs|plus)\b|[;!?]|\.(?!\d)|,(?!\d)/gi,
+      ),
+  );
+  const starts = [
+    start,
+    ...separators.map((match) => start + match.index + match[0].length),
+  ];
+  const ends = [...separators.map((match) => start + match.index), end];
+  for (const [index, subjectStart] of starts.entries()) {
+    const subjectEnd = ends[index];
     if (
-      !searchRequested ||
       occurrences.some(
-        (reference) => reference.start < end && reference.end > start,
+        (reference) =>
+          reference.start < subjectEnd && reference.end > subjectStart,
       )
     )
       continue;
-    const request = classifyCurrentTopic(clause);
-    if (request.kind === 'orders' && request.statusFilter)
-      intents.push(request);
+    const subject = remainder.slice(subjectStart, subjectEnd);
+    // A detached request cue or politeness marker is not a product target.
+    if (
+      /^(?:(?:can|could|would|will)\s+you\s*)?(?:please\s*)?(?:show|list|find|count|compare)?$|^(?:thanks|thank you)$/i.test(
+        subject.trim(),
+      )
+    )
+      continue;
+    const offset = subject.search(/[a-z0-9]/i);
+    if (offset >= 0) return subjectStart + offset;
   }
-  return intents.length > 1
-    ? intents.slice(0, MAX_COMPOUND_REQUESTS)
+  return undefined;
+}
+
+// Record identity comes from source spans; independent topic requests retain
+// their own position instead of being appended after every named record.
+export function classifySupportQueries(
+  messages: ChatHistoryMessage[],
+): SupportQueryIntent[] {
+  const primary = classifySupportQuery(messages);
+  const latest = messages.at(-1)?.content.trim() ?? '';
+  const { occurrences, remainder } = parseSupportReferences(latest);
+  const records = uniqueReferences(occurrences);
+  if (!records.length) return [primary];
+  const requests: { intent: SupportQueryIntent; start: number }[] = records.map(
+    (reference) => ({
+      intent: reference,
+      start: occurrences.find(
+        ({ reference: candidate }) => candidate === reference,
+      )!.start,
+    }),
+  );
+  // Keep source spans intact when removing separately owned topics, so product
+  // quantities and reference labels retain their existing interpretation.
+  const catalogCharacters = remainder.split('');
+  let catalogStart: number | undefined;
+  const boundaries = requestBoundaries(latest, remainder);
+  const starts = [0, ...boundaries.map((boundary) => boundary.end)];
+  const ends = [...boundaries.map((boundary) => boundary.start), latest.length];
+  let searchRequested = false;
+  let topicRequested = false;
+  for (const [index, start] of starts.entries()) {
+    const end = ends[index];
+    const clause = remainder.slice(start, end).trim();
+    // A coordinated noun phrase can share "show"; a new sentence cannot.
+    if (index > 0 && !boundaries[index - 1].coordinated) {
+      searchRequested = false;
+      topicRequested = false;
+    }
+    if (TOPIC_REQUEST.test(clause)) {
+      searchRequested = ORDER_SEARCH_REQUEST.test(clause);
+      topicRequested = true;
+    }
+    const hasRecord = occurrences.some(
+      (reference) => reference.start < end && reference.end > start,
+    );
+    const request = classifyCurrentTopic(clause);
+    if (request.kind === 'catalog') {
+      catalogStart ??= catalogSubjectStart(remainder, occurrences, start, end);
+    }
+    // Explicit account ownership permits later pronouns about that fact.
+    // Subjects and prepositional references still tie fields to a named record.
+    const accountOwnsPronoun =
+      /\b(?:my|our)\s+(?:account|payment|billing|terms|currency|region|charge)\b/i.test(
+        clause,
+      );
+    const recordContinuation =
+      /\b(?:for|of|about|on|to|in|from|with)\s+(?:it|them)\b|\b(?:that|this|the|those|these)\s+(?:orders?|shipments?|returns?)\b/i.test(
+        clause,
+      ) ||
+      (!accountOwnsPronoun &&
+        /\b(?:its|their)\b|\b(?:is|are|was|were|does|do|has|have|can|will|would|should)\s+(?:it|they)\b/i.test(
+          clause,
+        ));
+    if (hasRecord || (request.kind === 'account' && recordContinuation))
+      continue;
+    const accountRequested = request.kind === 'account' && topicRequested;
+    const ordersRequested =
+      request.kind === 'orders' && searchRequested && request.statusFilter;
+    if (!accountRequested && !ordersRequested) continue;
+    if (
+      !accountRequested ||
+      !requests.some(({ intent }) => intent.kind === 'account')
+    )
+      requests.push({ intent: request, start });
+    catalogCharacters.fill(' ', start, end);
+  }
+  const catalog = classifyCurrentTopic(catalogCharacters.join(''));
+  if (catalog.kind === 'catalog' && catalogStart !== undefined)
+    requests.push({ intent: catalog, start: catalogStart });
+  return requests.length > 1
+    ? requests
+        .sort((left, right) => left.start - right.start)
+        .slice(0, MAX_COMPOUND_REQUESTS)
+        .map(({ intent }) => intent)
     : [primary];
 }

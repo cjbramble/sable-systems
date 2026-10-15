@@ -212,8 +212,8 @@ describe('order status filters', () => {
     'retains a separately requested order list before a record: %s',
     (message, statusFilter) => {
       expect(classifySupportQueries(ask(message))).toMatchObject([
-        { kind: 'order', identifier: 'SBL-2022-000118' },
         { kind: 'orders', statusFilter },
+        { kind: 'order', identifier: 'SBL-2022-000118' },
       ]);
     },
   );
@@ -285,10 +285,12 @@ describe('order status filters', () => {
   ])(
     'retains a separately requested search with its own action cue: %s',
     (message, statusFilter) => {
-      expect(classifySupportQueries(ask(message))).toMatchObject([
+      const expected = [
         { kind: 'order', identifier: 'SBL-2022-000118' },
         { kind: 'orders', statusFilter },
-      ]);
+      ];
+      if (message.startsWith('How many')) expected.reverse();
+      expect(classifySupportQueries(ask(message))).toMatchObject(expected);
     },
   );
 });

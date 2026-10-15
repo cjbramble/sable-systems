@@ -62,14 +62,21 @@ outcomes; rendered prompt text cannot supply record identity evidence. Model
 evaluations keep the typed evidence separate from the prompt text as well.
 Catalog requests retain known and unknown item outcomes together in request order.
 Explicit item numbers, full product names and comparisons cover up to three distinct
-targets, counting
-unknown items toward that limit; remaining targets are listed as omitted with a
-request to ask about them separately. Omitted items are not claimed to be missing.
+targets, counting unknown items toward that limit; remaining targets are listed as
+omitted with a request to ask about them separately. Omitted items are not claimed to be missing.
 Unknown and omitted item numbers can be echoed as items, but cannot authorize
 order, shipment, or return references. Quantities stay attached to their own item,
 including when another requested item is unknown; more than three quantified
-targets prompt clarification. Broader compound request ordering, account/order
-coverage, and record-target omission handling remain planned.
+targets prompt clarification.
+
+Questions containing named records retain separately requested account details,
+filtered order searches, and catalog requests in source order. For example, “What
+are my payment terms? Show order SBL-2022-000118” retrieves account details before
+that order. Descriptions attached to a record do not trigger another account
+lookup or a broad order search. Catalog targets remain grouped as one request,
+positioned at their first mention. The three-part retrieval limit still applies;
+explicit reporting of parts beyond that limit and compound topic requests without
+named records remain planned.
 
 Quantity lookups accept whole numbers from 1 through 999,999, with optional comma
 grouping such as `1,000`. Attach each quantity to its product, or use shared wording
