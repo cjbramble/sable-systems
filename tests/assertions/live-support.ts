@@ -2,6 +2,10 @@ import { expect } from 'vitest';
 import fixture from '../fixtures/judge/live-support-scenarios.json';
 import { expectClaimsToComeFromContext } from './context-claims';
 import { unsupportedSableResources } from '@/lib/support-response';
+import {
+  expectScenarioFacts,
+  normalizeAnswerPresentation,
+} from './scenario-facts';
 
 export const liveSupportScenarios = fixture.scenarios;
 export type LiveSupportScenario = (typeof liveSupportScenarios)[number];
@@ -20,7 +24,7 @@ export function expectLiveSupportAnswer(
   answer: string,
   context: string,
 ) {
-  const normalized = answer.replace(/[*`]/g, '').replace(/’/g, "'");
+  const normalized = normalizeAnswerPresentation(answer);
   for (const pattern of scenario.answerRequired)
     expect(
       normalized,
@@ -46,60 +50,8 @@ export function expectLiveSupportAnswer(
       ).toBe(true);
     }
   }
-  // Status checks belong to the requested record, not every linked record.
-  const requestedKind = scenario.contextIncludes[0]
-    .match(/^(Order|Shipment|Return):/i)?.[1]
-    ?.toLowerCase();
-  if (requestedKind && scenario.expectedStatus !== null) {
-    for (const sentence of normalized.split(/[.!?;\n]/)) {
-      const namedKinds = [
-        ...sentence.matchAll(
-          /\b(order|shipment|return)\b|\b(SBL-\d{4}-\d{6}|SHP-\d{4}-\d{6}|RTN-\d{4}-\d{6})\b/gi,
-        ),
-      ].map(
-        (match) =>
-          match[1]?.toLowerCase() ??
-          { SBL: 'order', SHP: 'shipment', RTN: 'return' }[
-            match[2].slice(0, 3) as 'SBL' | 'SHP' | 'RTN'
-          ],
-      );
-      if (namedKinds.length && !namedKinds.includes(requestedKind)) continue;
-      const statusClaims = sentence.matchAll(
-        /\b(?:current\s+status|status|(?:order|shipment|return|it|SBL-\d{4}-\d{6}|SHP-\d{4}-\d{6}|RTN-\d{4}-\d{6})\s+(?:is|was|has been|is now))\s*(?:is\s*|:\s*)?(partially[_ -]shipped|in[_ -]transit|delivered|shipped|delayed|backordered|closed|authorized|cancelled|canceled|received)\b/gi,
-      );
-      for (const claim of statusClaims) {
-        const subject = claim[0].match(
-          /^(order|shipment|return|SBL-\d{4}-\d{6}|SHP-\d{4}-\d{6}|RTN-\d{4}-\d{6})\b/i,
-        )?.[1];
-        const subjectKind = subject?.includes('-')
-          ? { SBL: 'order', SHP: 'shipment', RTN: 'return' }[
-              subject.slice(0, 3).toUpperCase() as 'SBL' | 'SHP' | 'RTN'
-            ]
-          : subject?.toLowerCase();
-        if (subjectKind && subjectKind !== requestedKind) continue;
-        if (
-          subject?.includes('-') &&
-          !scenario.contextIncludes[0].includes(subject.toUpperCase())
-        )
-          continue;
-        expect(
-          claim[1].toLowerCase().replace(/[_ -]/g, '_'),
-          `Conflicting status: ${claim[0]}`,
-        ).toBe(scenario.expectedStatus);
-      }
-    }
-  }
-  if (scenario.expectedAvailable !== null) {
-    const quantityClaims = normalized.matchAll(
-      /\b(?:available(?:[- ]to[- ]promise)?(?:\s+(?:quantity|stock|units))?\s*(?:is|of|:|=)?\s*([+-]?\d[\d,]*(?:\.\d+)?)|([+-]?\d[\d,]*(?:\.\d+)?)\s+(?:units?|cells?)\s+(?:are\s+)?available)\b/gi,
-    );
-    for (const claim of quantityClaims) {
-      expect(
-        Number((claim[1] ?? claim[2]).replaceAll(',', '')),
-        `Conflicting availability: ${claim[0]}`,
-      ).toBe(scenario.expectedAvailable);
-    }
-  }
+  expectScenarioFacts(normalized, scenario);
   expectClaimsToComeFromContext(answer, context);
+  // Production-guard consistency coverage, not an independent factual oracle.
   expect(unsupportedSableResources(answer, context)).toEqual([]);
 }
