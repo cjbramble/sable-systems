@@ -73,7 +73,6 @@ def plan_transcript(
                 or not system["content"].strip()
             ):
                 raise ValueError("Captured request requires a nonempty system policy")
-            policy = system["content"]
             start = 1
             if len(messages) >= 3 and isinstance(messages[1], dict):
                 try:
@@ -94,6 +93,7 @@ def plan_transcript(
                             "references": [records.get("records")],
                         }
                     )
+                    policy = system["content"]
                     reference_source = "captured"
                     start = 2
             if len(messages) >= 3 and start != 2:

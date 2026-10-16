@@ -321,3 +321,48 @@ def test_modern_capture_cannot_silently_fall_back_to_fixture_facts(record_messag
     )
     with pytest.raises(ValueError):
         evaluation.plan_transcript(transcript)
+
+
+def test_legacy_system_records_do_not_enter_fixture_grounded_judging(monkeypatch):
+    import transcript_evaluation as evaluation
+    from judge_inputs import TranscriptInput
+
+    question = "Are 310 units of the Redline Power Cell R12 available? Include the available quantity, case-pack validity, and any stock shortfall."
+    legacy_system = "Read-only support assistant. Redline has 999 units available."
+    transcript = TranscriptInput.model_validate(
+        {
+            "mode": "transcript",
+            "batches": {
+                "case-pack": {
+                    "request": {
+                        "messages": [
+                            {"role": "system", "content": legacy_system},
+                            {"role": "user", "content": question},
+                        ]
+                    },
+                    "samples": [
+                        {
+                            "sample": 1,
+                            "answer": "999 units are available.",
+                            "passed": False,
+                        }
+                    ],
+                }
+            },
+        }
+    )
+    plan = evaluation.plan_transcript(transcript)[0]
+    assert plan.reference_source == "fixture"
+    assert plan.policy is None
+    seen = []
+
+    def judge(question, answer, reference, **kwargs):
+        seen.append((reference, kwargs))
+        return {"passed": False, "calls": []}
+
+    monkeypatch.setattr(evaluation, "judge_answer", judge)
+    result = evaluation.evaluate_sample(plan, plan.batch.samples[0])
+    assert "312" in seen[0][0]
+    assert "999" not in seen[0][0]
+    assert not seen[0][1].get("policy")
+    assert result["sourceRequest"] == plan.batch.request
