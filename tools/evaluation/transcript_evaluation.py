@@ -55,7 +55,9 @@ def plan_transcript(
             fixture = FixtureInput.model_validate_json(fixture_path.read_text())
         history: list[ConversationMessage] = []
         policy = None
-        reference_source: Literal["captured", "fixture"] = "fixture"
+        reference_source: Literal["captured", "fixture"] = (
+            "captured" if live else "fixture"
+        )
         request = batch.request
         if isinstance(request, dict) and "messages" in request:
             messages = request["messages"]
@@ -94,6 +96,10 @@ def plan_transcript(
                     )
                     reference_source = "captured"
                     start = 2
+            if len(messages) >= 3 and start != 2:
+                raise ValueError(
+                    "Captured request has missing or malformed authorized records"
+                )
             dialogue = [
                 ConversationMessage.model_validate(message)
                 for message in messages[start:]
@@ -144,7 +150,7 @@ def new_report(
         "dependencyVersions": provenance.dependency_versions,
         "policy": {
             "mode": "advisory",
-            "metric": "DeepEval: Faithfulness, Task completeness, Support policy",
+            "metric": "DeepEval GEval: Factual support, Task completeness, Support policy",
             "strictMode": True,
             "gradingRevision": GRADING_REVISION,
             "metricConfiguration": METRIC_CONFIGURATION,

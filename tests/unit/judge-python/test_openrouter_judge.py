@@ -347,3 +347,25 @@ def test_invalid_proxy_configuration_fails_before_connection(
     with pytest.raises(ValueError, match="proxy"):
         openrouter_judge.OpenRouterJudge().generate("Evaluate", Verdict)
     assert "destination" not in transport
+
+
+@pytest.mark.parametrize("score", [8, 1.9, -1, True, "1"])
+def test_native_geval_raw_binary_scores_cannot_be_coerced_into_a_pass(transport, score):
+    from deepeval.metrics.g_eval.schema import ReasonScore
+
+    transport["content"] = json.dumps({"score": score, "reason": "Invalid raw score"})
+    judge = openrouter_judge.OpenRouterJudge()
+    with pytest.raises(ValueError):
+        judge.generate("Evaluate", ReasonScore)
+    assert not judge.requests[-1].get("completed", False)
+
+
+@pytest.mark.parametrize("score", [-1, 11, 1.9, True, "10"])
+def test_native_conversation_score_must_be_an_integer_zero_through_ten(
+    transport, score
+):
+    from deepeval.metrics.conversational_g_eval.schema import ReasonScore
+
+    transport["content"] = json.dumps({"score": score, "reason": "Invalid raw score"})
+    with pytest.raises(ValueError):
+        openrouter_judge.OpenRouterJudge().generate("Evaluate", ReasonScore)

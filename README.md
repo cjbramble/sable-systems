@@ -301,8 +301,8 @@ answers, claim extraction, and claim verification. Each case stores its question
 reference facts, candidate answer, and expected results. A passing check means the
 judge matched those expectations, including correctly rejecting a bad answer.
 The judge remains advisory; these exposed cases are regression checks, not a
-fresh benchmark. DeepEval runs faithfulness and independent completeness and
-support-policy metrics. See [metric behavior](docs/inference.md#judge-metrics).
+fresh benchmark. DeepEval runs independent grounding, completeness and support-policy metrics,
+plus standalone faithfulness diagnostics. See [metric behavior](docs/inference.md#judge-metrics).
 
 List cases and categories without making API calls, or run a selected category:
 

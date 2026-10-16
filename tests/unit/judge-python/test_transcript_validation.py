@@ -280,3 +280,44 @@ def test_captured_records_override_fixture_oracle_without_mixing_history():
         "Old stock: 100.",
     ]
     assert plan.policy == "Read-only assistant."
+
+
+@pytest.mark.parametrize(
+    "record_message",
+    [
+        {"role": "user", "content": "not JSON"},
+        {"role": "user", "content": '{"source":"wrong","records":"47 units"}'},
+        {
+            "role": "assistant",
+            "content": '{"source":"authorized_support_records","records":"47 units"}',
+        },
+        {
+            "role": "user",
+            "content": '{"source":"authorized_support_records","records":" "}',
+        },
+    ],
+)
+def test_modern_capture_cannot_silently_fall_back_to_fixture_facts(record_message):
+    import transcript_evaluation as evaluation
+    from judge_inputs import TranscriptInput
+
+    question = "Are 310 units of the Redline Power Cell R12 available? Include the available quantity, case-pack validity, and any stock shortfall."
+    transcript = TranscriptInput.model_validate(
+        {
+            "mode": "transcript",
+            "batches": {
+                "case-pack": {
+                    "request": {
+                        "messages": [
+                            {"role": "system", "content": "Read-only assistant."},
+                            record_message,
+                            {"role": "user", "content": question},
+                        ]
+                    },
+                    "samples": [{"sample": 1, "answer": "Answer", "passed": True}],
+                }
+            },
+        }
+    )
+    with pytest.raises(ValueError):
+        evaluation.plan_transcript(transcript)

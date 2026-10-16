@@ -1,8 +1,9 @@
 """DeepEval adapter for schema-bound OpenRouter judgments."""
 
 import asyncio
+from typing import Annotated, cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from judge_runtime import initialize_runtime
 from judge_settings import judge_config
@@ -12,7 +13,23 @@ from openrouter_transport import request_verdict
 initialize_runtime()
 
 # Privacy settings and the network guard must precede every DeepEval import.
+from deepeval.metrics.conversational_g_eval.schema import (  # noqa: E402
+    ReasonScore as ConversationScore,
+)
+from deepeval.metrics.g_eval.schema import ReasonScore as SingleTurnScore  # noqa: E402
 from deepeval.models import DeepEvalBaseLLM  # noqa: E402
+
+
+class BinaryScore(SingleTurnScore):
+    """Validate the wire score before DeepEval's strict-mode integer conversion."""
+
+    model_config = ConfigDict(strict=True)
+    score: Annotated[int, Field(ge=0, le=1)]
+
+
+class TenPointScore(ConversationScore):
+    model_config = ConfigDict(strict=True)
+    score: Annotated[int, Field(ge=0, le=10)]
 
 
 class OpenRouterJudge(DeepEvalBaseLLM):
@@ -34,6 +51,11 @@ class OpenRouterJudge(DeepEvalBaseLLM):
     ) -> Response:
         if schema is None:
             raise ValueError("Judging requires a response schema")
+        # These constraints match the pinned SDK's respective prompt contracts.
+        if schema is SingleTurnScore:
+            schema = cast(type[Response], BinaryScore)
+        elif schema is ConversationScore:
+            schema = cast(type[Response], TenPointScore)
         body: dict[str, object] = {
             "model": self.model_name,
             "messages": [{"role": "user", "content": prompt}],

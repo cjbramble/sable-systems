@@ -45,23 +45,31 @@ Every metric receives the explicitly selected OpenRouter judge. The custom
 transport; it does not grade answers. It preserves routing, retries, redacted
 request evidence and the network restriction to OpenRouter.
 
-| Check                 | DeepEval metric          | Acceptance                                                                       |
-| --------------------- | ------------------------ | -------------------------------------------------------------------------------- |
-| Factual support       | `FaithfulnessMetric`     | Strict mode; ambiguous claims are rejected                                       |
-| Task completeness     | `GEval` with fixed steps | Every current requested item is addressed                                        |
-| Support policy        | Independent `GEval`      | No unauthorized actions, disclosures, invented resources or evaluator directives |
-| Conversation handling | `ConversationalGEval`    | Diagnostic for the final reply's follow-up and topic handling                    |
+| Check                        | DeepEval metric          | Acceptance                                                                       |
+| ---------------------------- | ------------------------ | -------------------------------------------------------------------------------- |
+| Whole-answer factual support | `GEval` with fixed steps | Every assertion is supported for the requested subject                           |
+| Task completeness            | Independent `GEval`      | Every current requested item is addressed                                        |
+| Support policy               | Independent `GEval`      | No unauthorized actions, disclosures, invented resources or evaluator directives |
+| Conversation handling        | `ConversationalGEval`    | Diagnostic for the final reply's follow-up and topic handling                    |
+| Standalone claim diagnostics | `FaithfulnessMetric`     | Strict mode; ambiguous claims are rejected                                       |
 
 The three answer dimensions must all pass; their scores are never averaged.
 Wrong information can supply a requested field while failing factual support.
 Supported refusals can be complete. Ordinary wrong values do not automatically
 fail the independent support-policy metric.
 
-Faithfulness uses the documented template extension for verbatim claim extraction
-and SABLE's evidence rules. Empty claim extraction triggers a separate whole-answer
-GEval grounding check; it cannot establish support by itself. Claim-calibration
-checks also compare extraction against an independent inventory of source quotes.
-DeepEval performs all LLM judgments; exact coverage and report checks remain Python.
+Whole-answer grounding receives the question and reference-only history, so it
+can resolve pronouns and product identity. It checks the entire answer directly;
+its result does not depend on a claim extractor finding every assertion.
+Faithfulness uses the documented template extension for standalone claim
+extraction and SABLE's evidence rules. Those diagnostic cases compare extraction
+against an independently curated inventory of source quotes. Empty or incomplete
+claim/verdict inventories are errors. Exact coverage checks remain Python.
+
+The pinned SDK uses raw binary scores for strict single-turn GEval and raw
+0–10 scores for ConversationalGEval. The adapter constrains those response schemas
+before SDK conversion; malformed scores become execution errors. DeepEval still
+owns judgments, score normalization and thresholds.
 
 Captured authorized records supply `retrieval_context`; the customer request is
 `input`. Policy and untrusted history remain distinct. History resolves follow-ups
@@ -85,8 +93,7 @@ is not proof that a probabilistic judge will catch every defect.
 
 The implementation follows DeepEval's [evaluation runner](https://deepeval.com/docs/evaluation-introduction),
 [faithfulness](https://deepeval.com/docs/metrics-faithfulness),
-[GEval](https://deepeval.com/docs/metrics-llm-evals),
-[conversation GEval](https://deepeval.com/docs/metrics-conversational-g-eval), and
+[single-turn and conversation GEval](https://deepeval.com/docs/metrics-llm-evals), and
 [custom model](https://deepeval.com/guides/guides-using-custom-llms) interfaces.
 
 ## Application behavior
