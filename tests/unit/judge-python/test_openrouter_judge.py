@@ -165,6 +165,30 @@ def test_luna_pro_omits_unsupported_sampling_parameters(monkeypatch, transport):
     assert judge_settings.judge_metadata()[1] == judge.generation
 
 
+def test_luna_claim_schema_closes_nested_objects_and_requires_nullable_fields(
+    monkeypatch, transport
+):
+    from deepeval.metrics.faithfulness.schema import Verdicts
+
+    original = Verdicts.model_json_schema()
+    monkeypatch.setenv("OPENROUTER_JUDGE_MODEL", "openai/gpt-6-luna-pro")
+    transport["content"] = '{"verdicts":[{"verdict":"yes","reason":null}]}'
+    result = openrouter_judge.OpenRouterJudge().generate("Evaluate", Verdicts)
+    wire = transport["request"][2]["response_format"]["json_schema"]["schema"]
+    assert wire["additionalProperties"] is False
+    assert wire["required"] == ["verdicts"]
+    verdict = wire["$defs"]["FaithfulnessVerdict"]
+    assert verdict["additionalProperties"] is False
+    assert verdict["required"] == ["verdict", "reason"]
+    assert verdict["properties"]["reason"]["anyOf"] == [
+        {"type": "string"},
+        {"type": "null"},
+    ]
+    assert "default" not in verdict["properties"]["reason"]
+    assert result.verdicts[0].reason is None
+    assert Verdicts.model_json_schema() == original
+
+
 @pytest.mark.parametrize("effort", ["medium", "xhigh"])
 def test_alternate_model_can_use_standard_explicit_efforts(
     monkeypatch, transport, effort

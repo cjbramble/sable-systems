@@ -35,6 +35,8 @@ an explicit effort must be supported by the selected model.
 For `openai/gpt-6-luna-pro`, the judge omits `temperature` and `top_p` because
 its OpenRouter endpoints do not support those parameters. The model alias selects
 pro reasoning mode; the same DeepEval metrics and provider privacy policy apply.
+The adapter serializes DeepEval's schemas using OpenAI's strict object and
+required-field rules, preserving nullable fields and SDK response validation.
 
 Both configurations disable provider fallback, require supported parameters,
 deny data collection, and request zero data retention. The judge lets OpenRouter
