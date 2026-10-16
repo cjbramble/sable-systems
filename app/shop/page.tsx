@@ -96,6 +96,7 @@ export default function ShopPage() {
   const pageRequest = useRef<AbortController | null>(null);
   const catalogRequest = useRef(0);
   const checkoutPending = useRef(false);
+  const cartOutcomeHeading = useRef<HTMLHeadingElement>(null);
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const { sessionChanged, invalidateSession } = useSessionGuard(
@@ -246,6 +247,10 @@ export default function ShopPage() {
     totalCents: subtotal,
     canOrder: cartReady,
   } = useMemo(() => reconcileCart(cart, products), [cart, products]);
+  useEffect(() => {
+    if (cartOpen) cartOutcomeHeading.current?.focus();
+  }, [cartOpen, confirmation, cartLines.length]);
+
   const money = (cents: number) => formatCurrency(cents, account?.currency);
   const cartTotalLabel = subtotal === null ? 'Unavailable' : money(subtotal);
 
@@ -653,7 +658,10 @@ export default function ShopPage() {
       ) : null}
 
       <Sheet open={cartOpen} onOpenChange={setCartOpen}>
-        <SheetContent className="checkout-sheet">
+        <SheetContent
+          className="checkout-sheet"
+          initialFocus={() => cartOutcomeHeading.current ?? true}
+        >
           <SheetHeader className="checkout-header">
             <span className="brand-kicker">
               <span /> ORDER ASSEMBLY
@@ -663,227 +671,235 @@ export default function ShopPage() {
               {account?.displayName} · {account?.customerId}
             </SheetDescription>
           </SheetHeader>
-          {confirmation ? (
-            <div className="order-success">
-              <span>
-                <PackageCheck />
-              </span>
-              <p>CHARGE ACCOUNT AUTHORIZED</p>
-              <h2>Order entered.</h2>
-              <dl>
-                <div>
-                  <dt>Order</dt>
-                  <dd>{confirmation.orderId}</dd>
-                </div>
-                <div>
-                  <dt>Authorization</dt>
-                  <dd>{confirmation.authorizationCode}</dd>
-                </div>
-                <div>
-                  <dt>Order total</dt>
-                  <dd>
-                    {formatCurrency(
-                      confirmation.totalCents,
-                      confirmation.currency,
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Requested ship</dt>
-                  <dd>{confirmation.requestedShipDate}</dd>
-                </div>
-              </dl>
-              <p>
-                The order has been posted to the {account?.displayName} charge
-                account and inventory is reserved.
-              </p>
-              <Link className="order-history-link" href="/orders">
-                View order history <ArrowRight />
-              </Link>
-              <Button
-                disabled={checkoutLocked}
-                onClick={() => {
-                  if (!checkoutPending.current && !checkoutCommand)
-                    setConfirmation(null);
-                }}
-              >
-                Build another order <ArrowRight />
-              </Button>
-            </div>
-          ) : cartLines.length ? (
-            <form className="checkout-body" onSubmit={submitOrder}>
-              <div className="checkout-lines">
-                {cartLines.map((line) => (
-                  <div className="checkout-line" key={line.itemNumber}>
-                    <div>
-                      <span>{line.itemNumber}</span>
-                      <strong>{line.name}</strong>
-                      <small>
-                        {line.product
-                          ? `${money(line.product.unitPriceCents)} / ${line.product.unitLabel}`
-                          : 'Price unavailable'}
-                      </small>
-                      {line.issue ? (
-                        <p className="checkout-error">
-                          {line.issue === 'unavailable'
-                            ? 'No longer available. Remove this item to continue.'
-                            : line.issue === 'case_pack'
-                              ? `Order in case packs of ${line.product!.casePack}. Remove and add this item again.`
-                              : `Only ${line.product!.availableQuantity} units available. Reduce the quantity or remove this item.`}
-                        </p>
-                      ) : null}
-                    </div>
-                    {line.product ? (
-                      <QuantityControl
-                        product={line.product}
-                        quantity={line.quantity}
-                        disabled={checkoutLocked || line.issue === 'case_pack'}
-                        onChange={(delta) =>
-                          changeQuantity(line.product!, delta)
-                        }
-                      />
-                    ) : (
-                      <span>{line.quantity} units requested</span>
-                    )}
-                    <strong>
-                      {line.product
-                        ? money(line.product.unitPriceCents * line.quantity)
-                        : 'Unavailable'}
-                    </strong>
-                    <Button
-                      className="remove-line"
-                      variant="ghost"
-                      size="icon-sm"
-                      type="button"
-                      aria-label={`Remove ${line.name} from cart`}
-                      disabled={checkoutLocked}
-                      onClick={() => removeFromCart(line.itemNumber)}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-              <div className="checkout-total">
-                <span>Order total</span>
-                <strong>{cartTotalLabel}</strong>
-              </div>
-              <div className="checkout-form-grid">
-                <label htmlFor="po-number">
-                  <span>Purchase-order reference</span>
-                  <Input
-                    id="po-number"
-                    required
-                    minLength={4}
-                    maxLength={40}
-                    pattern="[A-Za-z0-9][A-Za-z0-9-]{3,39}"
-                    value={poNumber}
-                    disabled={checkoutLocked}
-                    onChange={(event) => {
-                      if (!checkoutPending.current && !checkoutCommand) {
-                        setPoNumber(event.target.value);
-                        setChargeAccountAuthorized(false);
-                      }
-                    }}
-                    placeholder="ACCOUNT-PO-260901"
-                  />
-                </label>
-                <label htmlFor="ship-date">
-                  <span>Requested ship date</span>
-                  <Input
-                    id="ship-date"
-                    required
-                    type="date"
-                    min={dateOffset(0)}
-                    value={shipDate}
-                    disabled={checkoutLocked}
-                    onChange={(event) => {
-                      if (!checkoutPending.current && !checkoutCommand) {
-                        setShipDate(event.target.value);
-                        setChargeAccountAuthorized(false);
-                      }
-                    }}
-                  />
-                </label>
-                <label className="wide" htmlFor="ship-region">
-                  <span>Destination region</span>
-                  <Input
-                    id="ship-region"
-                    required
-                    minLength={3}
-                    maxLength={80}
-                    value={region}
-                    disabled={checkoutLocked}
-                    onChange={(event) => {
-                      if (!checkoutPending.current && !checkoutCommand) {
-                        setRegion(event.target.value);
-                        setChargeAccountAuthorized(false);
-                      }
-                    }}
-                  />
-                </label>
-              </div>
-              <label className="charge-account-consent">
-                <input
-                  type="checkbox"
-                  checked={chargeAccountAuthorized}
-                  disabled={checkoutLocked || !cartReady}
-                  onChange={(event) =>
-                    !checkoutPending.current &&
-                    !checkoutCommand &&
-                    setChargeAccountAuthorized(event.target.checked)
-                  }
-                />
+          <div className="checkout-scroll">
+            {confirmation ? (
+              <div className="order-success">
                 <span>
-                  <strong>
-                    Charge this order to the {account?.displayName} account
-                  </strong>
-                  <small>
-                    Account terms: {account?.paymentTerms} · {account?.currency}{' '}
-                    billing ledger
-                  </small>
+                  <PackageCheck />
                 </span>
-                <ShieldCheck />
-              </label>
-              {checkoutError ? (
-                <p className="checkout-error" role="alert">
-                  {checkoutError}
+                <p>CHARGE ACCOUNT AUTHORIZED</p>
+                <h2 ref={cartOutcomeHeading} tabIndex={-1}>
+                  Order entered.
+                </h2>
+                <dl>
+                  <div>
+                    <dt>Order</dt>
+                    <dd>{confirmation.orderId}</dd>
+                  </div>
+                  <div>
+                    <dt>Authorization</dt>
+                    <dd>{confirmation.authorizationCode}</dd>
+                  </div>
+                  <div>
+                    <dt>Order total</dt>
+                    <dd>
+                      {formatCurrency(
+                        confirmation.totalCents,
+                        confirmation.currency,
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Requested ship</dt>
+                    <dd>{confirmation.requestedShipDate}</dd>
+                  </div>
+                </dl>
+                <p>
+                  The order has been posted to the {account?.displayName} charge
+                  account and inventory is reserved.
                 </p>
-              ) : null}
-              {checkoutCommand ? (
+                <Link className="order-history-link" href="/orders">
+                  View order history <ArrowRight />
+                </Link>
                 <Button
-                  className="place-order"
-                  size="lg"
-                  type="button"
-                  disabled={submitting || accountStatus !== 'ready'}
-                  onClick={() => void sendOrder(checkoutCommand)}
+                  disabled={checkoutLocked}
+                  onClick={() => {
+                    if (!checkoutPending.current && !checkoutCommand)
+                      setConfirmation(null);
+                  }}
                 >
-                  {submitting ? 'Reserving inventory…' : 'Retry this order'}{' '}
-                  <ArrowRight />
+                  Build another order <ArrowRight />
                 </Button>
-              ) : (
-                <Button
-                  className="place-order"
-                  size="lg"
-                  type="submit"
-                  disabled={
-                    !cartReady || !chargeAccountAuthorized || submitting
-                  }
-                >
-                  Place charge account order <ArrowRight />
+              </div>
+            ) : cartLines.length ? (
+              <form className="checkout-body" onSubmit={submitOrder}>
+                <div className="checkout-lines">
+                  {cartLines.map((line) => (
+                    <div className="checkout-line" key={line.itemNumber}>
+                      <div>
+                        <span>{line.itemNumber}</span>
+                        <strong>{line.name}</strong>
+                        <small>
+                          {line.product
+                            ? `${money(line.product.unitPriceCents)} / ${line.product.unitLabel}`
+                            : 'Price unavailable'}
+                        </small>
+                        {line.issue ? (
+                          <p className="checkout-error">
+                            {line.issue === 'unavailable'
+                              ? 'No longer available. Remove this item to continue.'
+                              : line.issue === 'case_pack'
+                                ? `Order in case packs of ${line.product!.casePack}. Remove and add this item again.`
+                                : `Only ${line.product!.availableQuantity} units available. Reduce the quantity or remove this item.`}
+                          </p>
+                        ) : null}
+                      </div>
+                      {line.product ? (
+                        <QuantityControl
+                          product={line.product}
+                          quantity={line.quantity}
+                          disabled={
+                            checkoutLocked || line.issue === 'case_pack'
+                          }
+                          onChange={(delta) =>
+                            changeQuantity(line.product!, delta)
+                          }
+                        />
+                      ) : (
+                        <span>{line.quantity} units requested</span>
+                      )}
+                      <strong>
+                        {line.product
+                          ? money(line.product.unitPriceCents * line.quantity)
+                          : 'Unavailable'}
+                      </strong>
+                      <Button
+                        className="remove-line"
+                        variant="ghost"
+                        size="icon-sm"
+                        type="button"
+                        aria-label={`Remove ${line.name} from cart`}
+                        disabled={checkoutLocked}
+                        onClick={() => removeFromCart(line.itemNumber)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <div className="checkout-total">
+                  <span>Order total</span>
+                  <strong>{cartTotalLabel}</strong>
+                </div>
+                <div className="checkout-form-grid">
+                  <label htmlFor="po-number">
+                    <span>Purchase-order reference</span>
+                    <Input
+                      id="po-number"
+                      required
+                      minLength={4}
+                      maxLength={40}
+                      pattern="[A-Za-z0-9][A-Za-z0-9-]{3,39}"
+                      value={poNumber}
+                      disabled={checkoutLocked}
+                      onChange={(event) => {
+                        if (!checkoutPending.current && !checkoutCommand) {
+                          setPoNumber(event.target.value);
+                          setChargeAccountAuthorized(false);
+                        }
+                      }}
+                      placeholder="ACCOUNT-PO-260901"
+                    />
+                  </label>
+                  <label htmlFor="ship-date">
+                    <span>Requested ship date</span>
+                    <Input
+                      id="ship-date"
+                      required
+                      type="date"
+                      min={dateOffset(0)}
+                      value={shipDate}
+                      disabled={checkoutLocked}
+                      onChange={(event) => {
+                        if (!checkoutPending.current && !checkoutCommand) {
+                          setShipDate(event.target.value);
+                          setChargeAccountAuthorized(false);
+                        }
+                      }}
+                    />
+                  </label>
+                  <label className="wide" htmlFor="ship-region">
+                    <span>Destination region</span>
+                    <Input
+                      id="ship-region"
+                      required
+                      minLength={3}
+                      maxLength={80}
+                      value={region}
+                      disabled={checkoutLocked}
+                      onChange={(event) => {
+                        if (!checkoutPending.current && !checkoutCommand) {
+                          setRegion(event.target.value);
+                          setChargeAccountAuthorized(false);
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+                <label className="charge-account-consent">
+                  <input
+                    type="checkbox"
+                    checked={chargeAccountAuthorized}
+                    disabled={checkoutLocked || !cartReady}
+                    onChange={(event) =>
+                      !checkoutPending.current &&
+                      !checkoutCommand &&
+                      setChargeAccountAuthorized(event.target.checked)
+                    }
+                  />
+                  <span>
+                    <strong>
+                      Charge this order to the {account?.displayName} account
+                    </strong>
+                    <small>
+                      Account terms: {account?.paymentTerms} ·{' '}
+                      {account?.currency} billing ledger
+                    </small>
+                  </span>
+                  <ShieldCheck />
+                </label>
+                {checkoutError ? (
+                  <p className="checkout-error" role="alert">
+                    {checkoutError}
+                  </p>
+                ) : null}
+                {checkoutCommand ? (
+                  <Button
+                    className="place-order"
+                    size="lg"
+                    type="button"
+                    disabled={submitting || accountStatus !== 'ready'}
+                    onClick={() => void sendOrder(checkoutCommand)}
+                  >
+                    {submitting ? 'Reserving inventory…' : 'Retry this order'}{' '}
+                    <ArrowRight />
+                  </Button>
+                ) : (
+                  <Button
+                    className="place-order"
+                    size="lg"
+                    type="submit"
+                    disabled={
+                      !cartReady || !chargeAccountAuthorized || submitting
+                    }
+                  >
+                    Place charge account order <ArrowRight />
+                  </Button>
+                )}
+              </form>
+            ) : (
+              <div className="empty-cart">
+                <ShoppingBag />
+                <h2 ref={cartOutcomeHeading} tabIndex={-1}>
+                  Queue is empty.
+                </h2>
+                <p>Select whole case packs from the live catalog to begin.</p>
+                <Button onClick={() => setCartOpen(false)}>
+                  Return to catalog
                 </Button>
-              )}
-            </form>
-          ) : (
-            <div className="empty-cart">
-              <ShoppingBag />
-              <h2>Queue is empty.</h2>
-              <p>Select whole case packs from the live catalog to begin.</p>
-              <Button onClick={() => setCartOpen(false)}>
-                Return to catalog
-              </Button>
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </SheetContent>
       </Sheet>
     </main>

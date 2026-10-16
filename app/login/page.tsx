@@ -18,7 +18,12 @@ export default function LoginPage() {
   const [checking, setChecking] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const errorSummary = useRef<HTMLParagraphElement>(null);
   const pageRequest = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (error) errorSummary.current?.focus();
+  }, [error]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -110,6 +115,7 @@ export default function LoginPage() {
             <span>Authorized email</span>
             <Input
               id="access-email"
+              aria-describedby={error ? 'login-error' : undefined}
               type="email"
               autoComplete="username"
               required
@@ -122,6 +128,7 @@ export default function LoginPage() {
             <span>Access phrase</span>
             <Input
               id="access-password"
+              aria-describedby={error ? 'login-error' : undefined}
               type="password"
               autoComplete="current-password"
               required
@@ -131,7 +138,16 @@ export default function LoginPage() {
             />
           </label>
 
-          {error ? <p className="login-error">{error}</p> : null}
+          {error ? (
+            <p
+              className="login-error"
+              id="login-error"
+              ref={errorSummary}
+              tabIndex={-1}
+            >
+              {error}
+            </p>
+          ) : null}
 
           <Button type="submit" size="lg" disabled={checking || submitting}>
             {checking
