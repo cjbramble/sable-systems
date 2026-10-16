@@ -1,6 +1,11 @@
 import { describe, expect, vi } from 'vitest';
 
-import { schemaStatements, SCHEMA_VERSION, SEED_VERSION } from '@/db/schema';
+import {
+  schemaStatements,
+  schemaTables,
+  SCHEMA_VERSION,
+  SEED_VERSION,
+} from '@/db/schema';
 import {
   deleteSupportIncident,
   getSupportIncidentState,
@@ -669,4 +674,33 @@ describe('database initialization', () => {
       { key: 'support_incidents_seed_version', value: '1' },
     ]);
   });
+});
+
+test('does not construct main seed data for an initialized database', async ({
+  initialization,
+  onTestFinished,
+}) => {
+  await initialization.getDatabase();
+  const getDatabase = await initialization.restart();
+  const seed = await import('@/db/seed');
+  const build = vi.spyOn(seed, 'buildSeedStatements');
+  onTestFinished(() => build.mockRestore());
+  await getDatabase();
+  expect(build).not.toHaveBeenCalled();
+});
+
+test('constructs seed data once and keeps the explicit table inventory complete', async ({
+  initialization,
+  onTestFinished,
+}) => {
+  const seed = await import('@/db/seed');
+  const build = vi.spyOn(seed, 'buildSeedStatements');
+  onTestFinished(() => build.mockRestore());
+  const database = await initialization.getDatabase();
+  expect(build).toHaveBeenCalledOnce();
+  const { results } = await database
+    .prepare(`SELECT name FROM sqlite_schema
+    WHERE type = 'table' AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_cf_*' ORDER BY name`)
+    .all<{ name: string }>();
+  expect(results.map(({ name }) => name)).toEqual([...schemaTables].sort());
 });

@@ -3,10 +3,11 @@ import { env } from 'cloudflare:workers';
 import {
   METADATA_TABLE_SQL,
   schemaStatements,
+  schemaTables,
   SCHEMA_VERSION,
   SEED_VERSION,
 } from './schema';
-import { buildSeedStatements } from './seed';
+import { buildSeedStatements, buildSupportSeedStatements } from './seed';
 import {
   hasUnsupportedLegacyLayout,
   planSchemaUpgrades,
@@ -49,8 +50,10 @@ async function initializeDatabase(
   const db = (env as unknown as { DB?: D1Database }).DB;
   if (!db) throw new Error('The DB binding is not configured.');
 
-  const seedStatements = buildSeedStatements();
-  const state = await inspectDatabase(db, seedStatements.length);
+  let cachedSeed: ReturnType<typeof buildSeedStatements> | undefined;
+  const seed = () => (cachedSeed ??= buildSeedStatements());
+  const state = await inspectDatabase(db, () => seed().length);
+  const seedStatements = state.kind === 'ready' ? [] : seed();
   if (await hasUnsupportedLegacyLayout(db)) unsupportedDatabase();
   const upgrades = await planSchemaUpgrades(db);
   const upgradingSchema =
@@ -102,7 +105,7 @@ async function initializeDatabase(
         (upgrades.removesSessionActivity &&
           error.message.includes('no such column') &&
           error.message.includes('last_seen_at'))) &&
-      (await schemaMigrationCompleted(db, seedStatements.length))
+      (await schemaMigrationCompleted(db, () => seed().length))
     )
       return initializeDatabase(false);
     throw error;
@@ -145,7 +148,10 @@ async function initializeDatabase(
   return db;
 }
 
-async function schemaMigrationCompleted(db: D1Database, seedLength: number) {
+async function schemaMigrationCompleted(
+  db: D1Database,
+  seedLength: () => number,
+) {
   try {
     const state = await inspectDatabase(db, seedLength);
     if (state.kind !== 'ready' || state.schemaVersion !== SCHEMA_VERSION)
@@ -180,7 +186,7 @@ function progressStatement(db: D1Database, nextStatement: number) {
 
 async function inspectDatabase(
   db: D1Database,
-  seedLength: number,
+  seedLength: () => number,
 ): Promise<DatabaseState> {
   const tables = await db
     .prepare(`SELECT name FROM sqlite_schema
@@ -217,9 +223,9 @@ async function inspectDatabase(
       typeof nextStatement !== 'number' ||
       !Number.isInteger(nextStatement) ||
       nextStatement < 0 ||
-      nextStatement > seedLength ||
-      (incidentVersion === '1' && nextStatement !== seedLength) ||
-      (nextStatement !== seedLength && nextStatement % BATCH_SIZE !== 0)
+      nextStatement > seedLength() ||
+      (incidentVersion === '1' && nextStatement !== seedLength()) ||
+      (nextStatement !== seedLength() && nextStatement % BATCH_SIZE !== 0)
     )
       unsupportedDatabase();
     return { kind: 'pending', nextStatement };
@@ -236,12 +242,7 @@ async function inspectDatabase(
   }
 
   // Schema-only local databases are safe to seed; unmarked records are not.
-  const knownTables = new Set(
-    schemaStatements.flatMap((sql) => {
-      const match = /^CREATE TABLE IF NOT EXISTS (\w+)/.exec(sql);
-      return match ? [match[1]] : [];
-    }),
-  );
+  const knownTables = new Set<string>(schemaTables);
   for (const { name } of tables.results) {
     if (!knownTables.has(name)) unsupportedDatabase();
     if (await db.prepare(`SELECT 1 FROM "${name}" LIMIT 1`).first())
@@ -263,71 +264,9 @@ async function seedSupportIncidents(db: D1Database) {
   }>();
   if (users.results.length === 0) return;
 
-  const templates = [
-    {
-      suffix: '01',
-      title: 'Priority shipment trace',
-      timestamp: '2026-09-03T08:42:00Z',
-      customer: 'Trace the priority shipment on our latest release.',
-      assistant:
-        'The latest priority release is allocated and queued for carrier handoff. I can provide the order-level milestones if you share the order number.',
-    },
-    {
-      suffix: '02',
-      title: 'Nerveline allocation',
-      timestamp: '2026-08-29T15:18:00Z',
-      customer: 'Check Nerveline hub availability for our account.',
-      assistant:
-        'I can check current Nerveline allocation, inbound quantities, and lead times against your authorized account.',
-    },
-    {
-      suffix: '03',
-      title: '2030 contract releases',
-      timestamp: '2026-08-24T11:06:00Z',
-      customer: 'Show our scheduled contract releases for 2030.',
-      assistant:
-        'Your 2030 releases can be reviewed by requested ship date, allocation state, or customer purchase order.',
-    },
-  ];
-  const statements: D1PreparedStatement[] = [];
-  for (const user of users.results) {
-    for (const template of templates) {
-      const incidentId = `INC-${user.user_id}-${template.suffix}`;
-      statements.push(
-        db
-          .prepare(`INSERT OR IGNORE INTO support_incidents (
-            incident_id, user_id, title, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?)`)
-          .bind(
-            incidentId,
-            user.user_id,
-            template.title,
-            template.timestamp,
-            template.timestamp,
-          ),
-        db
-          .prepare(`INSERT OR IGNORE INTO support_messages (
-            message_id, incident_id, sequence_number, role, content, created_at
-          ) VALUES (?, ?, 1, 'user', ?, ?)`)
-          .bind(
-            `MSG-${user.user_id}-${template.suffix}-01`,
-            incidentId,
-            template.customer,
-            template.timestamp,
-          ),
-        db
-          .prepare(`INSERT OR IGNORE INTO support_messages (
-            message_id, incident_id, sequence_number, role, content, created_at
-          ) VALUES (?, ?, 2, 'assistant', ?, ?)`)
-          .bind(
-            `MSG-${user.user_id}-${template.suffix}-02`,
-            incidentId,
-            template.assistant,
-            template.timestamp,
-          ),
-      );
-    }
-  }
+  const statements = buildSupportSeedStatements(
+    users.results.map(({ user_id }) => user_id),
+  ).map(({ sql, params }) => db.prepare(sql).bind(...params));
   statements.push(
     db
       .prepare('INSERT INTO metadata (key, value) VALUES (?, ?)')

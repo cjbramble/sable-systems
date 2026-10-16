@@ -1,40 +1,40 @@
 import assert from 'node:assert/strict';
 
-import { AS_OF_DATE, buildSeedStatements } from '../db/seed.ts';
+import { AS_OF_DATE, buildSeedRecords } from '../db/seed.ts';
 
-const statements = buildSeedStatements();
-const orders = statements.filter((row) =>
-  row.sql.startsWith('INSERT INTO orders'),
-);
-const orderItems = statements.filter((row) =>
-  row.sql.startsWith('INSERT INTO order_items'),
-);
-const products = statements.filter((row) =>
-  row.sql.includes('INSERT INTO products'),
-);
-const distributors = statements.filter((row) =>
-  row.sql.startsWith('INSERT INTO distributors'),
-);
-const users = statements.filter((row) =>
-  row.sql.startsWith('INSERT INTO users'),
-);
-const credentials = statements.filter((row) =>
-  row.sql.startsWith('INSERT INTO user_credentials'),
-);
+const records = buildSeedRecords();
+const orders = records
+  .filter(({ table }) => table === 'orders')
+  .map(({ values }) => values);
+const orderItems = records
+  .filter(({ table }) => table === 'order_items')
+  .map(({ values }) => values);
+const products = records
+  .filter(({ table }) => table === 'products')
+  .map(({ values }) => values);
+const distributors = records
+  .filter(({ table }) => table === 'distributors')
+  .map(({ values }) => values);
+const users = records
+  .filter(({ table }) => table === 'users')
+  .map(({ values }) => values);
+const credentials = records
+  .filter(({ table }) => table === 'user_credentials')
+  .map(({ values }) => values);
+const returns = records
+  .filter(({ table }) => table === 'returns')
+  .map(({ values }) => values);
 const deliveryEvents = new Map(
-  statements
-    .filter(
-      (row) =>
-        row.sql.startsWith('INSERT INTO order_events') &&
-        row.params[3] === 'delivered',
-    )
-    .map((row) => [row.params[1], row.params[2]]),
+  records
+    .filter(({ table }) => table === 'order_events')
+    .map(({ values }) => values)
+    .filter(({ event_type }) => event_type === 'delivered')
+    .map(({ order_id, occurred_at }) => [order_id, occurred_at]),
 );
-const deliveredShipments = statements.filter(
-  (row) =>
-    row.sql.startsWith('INSERT INTO shipments') &&
-    row.params[2] === 'delivered',
-);
+const deliveredShipments = records
+  .filter(({ table }) => table === 'shipments')
+  .map(({ values }) => values)
+  .filter(({ status }) => status === 'delivered');
 const expectedCustomers = {
   'WHS-0427': 648,
   'WHS-1098': 24,
@@ -50,12 +50,12 @@ const expectedUserByCustomer = {
 const customerCounts = Object.fromEntries(
   Object.keys(expectedCustomers).map((customerId) => [
     customerId,
-    orders.filter((row) => row.params[1] === customerId).length,
+    orders.filter((row) => row.customer_id === customerId).length,
   ]),
 );
-const primaryOrders = orders.filter((row) => row.params[1] === 'WHS-0427');
+const primaryOrders = orders.filter((row) => row.customer_id === 'WHS-0427');
 const futurePrimaryOrders = primaryOrders.filter(
-  (row) => String(row.params[5]) > AS_OF_DATE,
+  (row) => row.requested_ship_date > AS_OF_DATE,
 ).length;
 
 assert.equal(orders.length, 720, 'expected exactly 720 orders');
@@ -64,7 +64,7 @@ assert.equal(users.length, 4, 'expected one user per authorized distributor');
 assert.equal(credentials.length, 4, 'expected credentials for every user');
 assert.ok(
   orders.every(
-    (row) => row.params[2] === expectedUserByCustomer[String(row.params[1])],
+    (row) => row.placed_by_user_id === expectedUserByCustomer[row.customer_id],
   ),
   'expected every order user to belong to its distributor',
 );
@@ -87,15 +87,11 @@ assert.ok(
   'expected about 25% future Calder Pike releases',
 );
 assert.ok(
-  orders.some((row) => row.params[0] === 'SBL-2026-000417'),
+  orders.some((row) => row.order_id === 'SBL-2026-000417'),
   'expected the representative partial-shipment order',
 );
 assert.ok(
-  statements.some(
-    (row) =>
-      row.sql.startsWith('INSERT INTO returns') &&
-      row.params[0] === 'RTN-2022-000014',
-  ),
+  returns.some((row) => row.return_id === 'RTN-2022-000014'),
   'expected the representative historical return',
 );
 assert.equal(
@@ -109,10 +105,12 @@ assert.equal(
   'expected one delivery event per delivered shipment',
 );
 const createdOnByOrder = new Map(
-  orders.map((row) => [row.params[0], row.params[4]]),
+  orders.map((row) => [row.order_id, row.created_on]),
 );
 for (const {
-  params: [, orderId, , , , shippedOn, , deliveredOn],
+  order_id: orderId,
+  shipped_on: shippedOn,
+  delivered_on: deliveredOn,
 } of deliveredShipments) {
   assert.ok(
     createdOnByOrder.has(orderId) &&
@@ -123,7 +121,7 @@ for (const {
     `invalid shipment timeline for ${orderId}`,
   );
   assert.equal(
-    String(deliveryEvents.get(orderId)).slice(0, 10),
+    deliveryEvents.get(orderId)?.slice(0, 10),
     deliveredOn,
     `delivery event must agree with shipment completion for ${orderId}`,
   );
