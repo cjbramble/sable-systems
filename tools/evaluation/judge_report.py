@@ -226,7 +226,7 @@ def new_report(
     cases: list[JudgeCase], metadata: CollectionMetadata
 ) -> CollectionReport:
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "mode": "judge-collection",
         "policy": "advisory",
         "startedAt": datetime.now(UTC).isoformat(),

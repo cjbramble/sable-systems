@@ -41,7 +41,7 @@ def test_controls_withhold_labels_and_report_all_dimensions(
     monkeypatch.setattr(collection, "judge_metadata", lambda: ({}, {}))
     output = tmp_path / "report.json"
     assert (
-        collection.run_collection({"categories": [category], "concurrency": 2}, output)
+        collection.run_collection({"categories": [category], "concurrency": 1}, output)
         == 0
     )
     report = json.loads(output.read_text())

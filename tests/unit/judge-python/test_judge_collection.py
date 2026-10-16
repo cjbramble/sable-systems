@@ -157,7 +157,7 @@ def test_run_writes_reports_continues_after_errors_and_exits_red(monkeypatch, tm
 
     monkeypatch.setattr(collection, "judge_answer", judge)
     path = tmp_path / "run.json"
-    assert collection.run_collection({"concurrency": 2}, path) == 1
+    assert collection.run_collection({"concurrency": 1}, path) == 1
     report = json.loads(path.read_text())
     assert report["summary"]["cases"] == {
         "passed": 1,
@@ -173,7 +173,7 @@ def test_run_writes_reports_continues_after_errors_and_exits_red(monkeypatch, tm
     assert report["requests"]["requestAttempts"] == 0
     original = path.read_bytes()
     with pytest.raises(ValueError, match="already exists"):
-        collection.run_collection({"concurrency": 2}, path)
+        collection.run_collection({"concurrency": 1}, path)
     assert path.read_bytes() == original
 
 
@@ -229,7 +229,7 @@ def test_interruption_preserves_completed_check_and_leaves_rest_pending(
     assert xml.get("skipped") == "1"
 
 
-@pytest.mark.parametrize("concurrency", [0, 5, True, "2"])
+@pytest.mark.parametrize("concurrency", [0, 2, 5, True, "2"])
 def test_invalid_concurrency_fails_before_configuration_or_calls(
     monkeypatch, tmp_path, concurrency
 ):
@@ -243,29 +243,24 @@ def test_invalid_concurrency_fails_before_configuration_or_calls(
     assert not list(tmp_path.iterdir())
 
 
-def test_parallel_execution_preserves_final_case_order(monkeypatch, tmp_path):
-    from threading import Event
-
-    second_started = Event()
+def test_serial_execution_preserves_final_case_order(monkeypatch, tmp_path):
+    visited = []
     cases = collection.load_cases()[:2]
     monkeypatch.setattr(collection, "load_cases", lambda categories: cases)
     monkeypatch.setattr(collection, "judge_metadata", lambda: ({}, {}))
 
     def judge(question, answer, reference):
-        if answer == cases[0]["answer"]:
-            assert second_started.wait(2), (
-                "Second case must run while the first is waiting"
-            )
-        else:
-            second_started.set()
+        visited.append(answer)
         expected = next(
             case["checks"]["answer"] for case in cases if case["answer"] == answer
         )
         return {**expected, "calls": []}
 
     monkeypatch.setattr(collection, "judge_answer", judge)
-    output = tmp_path / "parallel.json"
-    assert collection.run_collection({"concurrency": 2}, output) == 0
+    output = tmp_path / "serial.json"
+    assert collection.run_collection({"concurrency": 1}, output) == 0
     assert [row["id"] for row in json.loads(output.read_text())["results"]] == [
         case["id"] for case in cases
     ]
+
+    assert visited == [case["answer"] for case in cases]

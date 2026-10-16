@@ -4,7 +4,6 @@ import hashlib
 import json
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from evaluator_provenance import evaluator_provenance
@@ -77,7 +76,7 @@ def new_report(
         "judge_errors.py",
     )
     return {
-        "schemaVersion": 4,
+        "schemaVersion": 5,
         "mode": transcript.mode,
         "model": model_metadata,
         "concurrency": transcript.concurrency,
@@ -85,7 +84,7 @@ def new_report(
         "dependencyVersions": provenance.dependency_versions,
         "policy": {
             "mode": "advisory",
-            "metric": "StructuredSupportAssessment",
+            "metric": "DeepEval: Faithfulness, Task completeness, Support policy",
             "strictMode": True,
             "gradingRevision": GRADING_REVISION,
             "assessmentRules": ANSWER_RULES,
@@ -142,19 +141,16 @@ def execute_transcript(
     concurrency: int,
     on_result: Callable[[TranscriptResult], None],
 ) -> list[TranscriptResult]:
-    """Publish completions immediately and return results in planned order."""
-    tasks = [(plan, row) for plan in planned for row in plan.batch.samples]
-    with ThreadPoolExecutor(max_workers=concurrency) as executor:
-        pending = {
-            executor.submit(evaluate_sample, *task): index
-            for index, task in enumerate(tasks)
-        }
-        completed: dict[int, TranscriptResult] = {}
-        for future in as_completed(pending):
-            result = future.result()
-            completed[pending[future]] = result
+    """Checkpoint each sample before entering the next DeepEval run."""
+    if concurrency != 1:
+        raise ValueError("DeepEval runs require concurrency=1")
+    results: list[TranscriptResult] = []
+    for plan in planned:
+        for row in plan.batch.samples:
+            result = evaluate_sample(plan, row)
             on_result(result)
-    return [completed[index] for index in range(len(tasks))]
+            results.append(result)
+    return results
 
 
 def run_transcript(transcript: TranscriptInput, destination: Path) -> int:

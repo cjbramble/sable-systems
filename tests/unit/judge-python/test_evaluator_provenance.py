@@ -87,4 +87,4 @@ def test_both_report_modes_share_dependency_provenance(monkeypatch, tmp_path):
         metadata["collectionSha256"]
         == hashlib.sha256(collection.COLLECTION.read_bytes()).hexdigest()
     )
-    assert report["schemaVersion"] == 4
+    assert report["schemaVersion"] == 5

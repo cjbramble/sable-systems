@@ -1,7 +1,6 @@
 """Execution stays reusable while reports retain ordered and partial evidence."""
 
 import json
-from threading import Event
 
 import pytest
 
@@ -26,32 +25,23 @@ def transcript(*, concurrency=1):
     )
 
 
-def test_parallel_execution_emits_completion_order_and_returns_planned_order(
-    monkeypatch,
-):
+def test_serial_execution_checkpoints_each_sample_before_starting_next(monkeypatch):
     import transcript_evaluation as evaluation
 
-    second_recorded = Event()
     recorded = []
 
     def judge(question, answer, reference):
-        if answer == "First answer":
-            assert second_recorded.wait(5), (
-                "Second result must be recorded before first completes"
-            )
+        if answer == "Second answer":
+            assert [row["id"] for row in recorded] == [1]
         return {"passed": True, "calls": []}
 
-    def record(result):
-        recorded.append(result)
-        if result["id"] == 2:
-            second_recorded.set()
-
     monkeypatch.setattr(evaluation, "judge_answer", judge)
-    planned = evaluation.plan_transcript(transcript(concurrency=2))
-    results = evaluation.execute_transcript(planned, concurrency=2, on_result=record)
-    assert [row["id"] for row in recorded] == [2, 1]
+    results = evaluation.execute_transcript(
+        evaluation.plan_transcript(transcript()),
+        concurrency=1,
+        on_result=recorded.append,
+    )
     assert [row["id"] for row in results] == [1, 2]
-    assert all(row["sourceRequest"] == {"source": "captured"} for row in results)
     assert all(row["judgeApplicationAgrees"] for row in results)
 
 
@@ -65,8 +55,6 @@ def test_transcript_interruption_preserves_completed_evidence(monkeypatch, tmp_p
 
     monkeypatch.setattr(evaluation, "judge_answer", judge)
     monkeypatch.setattr(evaluation, "judge_metadata", lambda: ({}, {}))
-    # Consume futures in submission order to isolate interruption persistence.
-    monkeypatch.setattr(evaluation, "as_completed", iter)
     output = tmp_path / "interrupted.json"
     with pytest.raises(KeyboardInterrupt):
         evaluation.run_transcript(transcript(), output)

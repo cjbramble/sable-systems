@@ -64,7 +64,7 @@ class JudgeResult(RequestEvidence, total=False):
     passed: bool
     reason: str | None
     dimensions: Dimensions
-    assessment: dict[str, object]
+    metrics: list[dict[str, object]]
     reference: str
     claims: list[str]
     verdicts: list[VerdictRecord]

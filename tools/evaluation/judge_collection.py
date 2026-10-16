@@ -3,7 +3,6 @@
 import hashlib
 import time
 from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from evaluator_provenance import evaluator_provenance
@@ -148,19 +147,14 @@ def run_collection(payload: object, destination: str | Path) -> int:
         reporter = CollectionReporter(destination, report, evidence)
         reporter.start()
 
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            futures = [
-                executor.submit(evaluate_case, case, reporter.on_check)
-                for case in cases
-            ]
-            for future in as_completed(futures):
-                result = future.result()
-                status = reporter.on_case(result)
-                print(
-                    f"Judge {result['id']}: "
-                    + ", ".join(f"{n} {s}" for s, n in status.items()),
-                    flush=True,
-                )
+        for case in cases:
+            result = evaluate_case(case, reporter.on_check)
+            status = reporter.on_case(result)
+            print(
+                f"Judge {result['id']}: "
+                + ", ".join(f"{n} {s}" for s, n in status.items()),
+                flush=True,
+            )
     reporter.finish()
     print(
         "Cases: " + ", ".join(f"{n} {s}" for s, n in report["summary"]["cases"].items())

@@ -23,7 +23,7 @@ def _nonempty(value: str) -> str:
 
 
 type NonemptyText = Annotated[str, AfterValidator(_nonempty)]
-type Concurrency = Annotated[int, Field(ge=1, le=4)]
+type Concurrency = Annotated[int, Field(ge=1, le=1)]
 
 
 class StrictInput(BaseModel):

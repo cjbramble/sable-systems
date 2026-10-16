@@ -31,8 +31,8 @@ try {
     throw new Error(
       '--transcript cannot be combined with --category or --list.',
     );
-  if (!/^[1-4]$/.test(values.concurrency))
-    throw new Error('Choose --concurrency 1, 2, 3, or 4.');
+  if (!/^1$/.test(values.concurrency))
+    throw new Error('Choose --concurrency 1; DeepEval runs are serial.');
   const config = values.list
     ? null
     : getSupportModelConfig({
