@@ -495,6 +495,7 @@ export default function ShopPage() {
               key={item}
               type="button"
               className={cn(category === item && 'is-active')}
+              aria-pressed={category === item}
               onClick={() => chooseCategory(item)}
             >
               {item}

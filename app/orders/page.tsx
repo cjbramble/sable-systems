@@ -283,8 +283,11 @@ export default function OrdersPage() {
           </div>
           <form className="orders-search" onSubmit={applySearch}>
             <Search aria-hidden="true" />
-            <span className="sr-only">Search order history</span>
+            <label className="sr-only" htmlFor="order-history-search">
+              Search order history
+            </label>
             <Input
+              id="order-history-search"
               value={searchInput}
               maxLength={80}
               onChange={(event) => setSearchInput(event.target.value)}
