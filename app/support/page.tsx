@@ -1,8 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import {
   KeyboardEvent,
   Fragment,
@@ -16,7 +14,6 @@ import {
 } from 'react';
 import {
   ArrowUp,
-  BadgeCheck,
   Check,
   CircleUserRound,
   Clock3,
@@ -36,6 +33,7 @@ import {
   X,
 } from 'lucide-react';
 
+import { ChatMessage } from '@/components/chat-message';
 import { BrandWordmark } from '@/components/brand-wordmark';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -64,11 +62,7 @@ import {
   type SupportChatMessage,
   type SupportIncident,
 } from '@/lib/support-incidents';
-import {
-  supportDateKey,
-  supportDateLabel,
-  supportTimeLabel,
-} from '@/lib/support-time';
+import { supportDateKey, supportDateLabel } from '@/lib/support-time';
 import { cn } from '@/lib/utils';
 import { reconcileSupportSnapshot } from '@/lib/support-reconciliation';
 import { parseIncidentSnapshot } from '@/lib/support-snapshot';
@@ -839,62 +833,15 @@ export default function SupportPage() {
                       <span>{supportDateLabel(message.createdAt)}</span>
                     </div>
                   ) : null}
-                  <article
-                    className={cn(
-                      'chat-message',
-                      message.role === 'user' && 'chat-message--user',
-                    )}
-                  >
-                    {message.role === 'assistant' ? (
-                      <div className="assistant-avatar">
-                        <Sparkles />
-                      </div>
-                    ) : null}
-                    <div className="chat-message__body">
-                      <div className="chat-message__meta">
-                        <strong>
-                          {message.role === 'assistant'
-                            ? 'COV-E'
-                            : (account?.userDisplayName ?? 'Authorized user')}
-                        </strong>
-                        {message.role === 'assistant' ? (
-                          <BadgeCheck aria-label="Verified assistant" />
-                        ) : null}
-                        {exchange?.request.messageId === message.id ? (
-                          <span>
-                            {exchange.status === 'pending'
-                              ? 'Pending'
-                              : exchange.status === 'failed'
-                                ? 'Not saved'
-                                : 'Save unconfirmed'}
-                          </span>
-                        ) : null}
-                        {message.createdAt ? (
-                          <time dateTime={message.createdAt}>
-                            {supportTimeLabel(message.createdAt)}
-                          </time>
-                        ) : null}
-                      </div>
-                      <div className="message-bubble">
-                        {message.role === 'assistant' ? (
-                          <Markdown
-                            remarkPlugins={[remarkGfm]}
-                            skipHtml
-                            disallowedElements={['img']}
-                          >
-                            {message.content}
-                          </Markdown>
-                        ) : (
-                          <p>{message.content}</p>
-                        )}
-                      </div>
-                    </div>
-                    {message.role === 'user' ? (
-                      <div className="user-avatar">
-                        <CircleUserRound />
-                      </div>
-                    ) : null}
-                  </article>
+                  <ChatMessage
+                    message={message}
+                    authorName={account?.userDisplayName ?? 'Authorized user'}
+                    deliveryStatus={
+                      exchange?.request.messageId === message.id
+                        ? exchange.status
+                        : undefined
+                    }
+                  />
                 </Fragment>
               ))}
 
