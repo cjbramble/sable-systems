@@ -1,3 +1,4 @@
+import { requestLimitResponse } from '@/lib/request-limit-response';
 import {
   authenticateCredentials,
   createSession,
@@ -5,11 +6,7 @@ import {
   parseLoginInput,
 } from '@/db/auth';
 import { getDatabase } from '@/db/database';
-import {
-  consumeRequestQuota,
-  loginQuotaKey,
-  requestLimitResponse,
-} from '@/db/request-limits';
+import { consumeRequestQuota, loginQuotaKey } from '@/db/request-limits';
 import { isLocalDemoRequest } from '@/lib/local-demo';
 
 export const dynamic = 'force-dynamic';

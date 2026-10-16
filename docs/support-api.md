@@ -217,3 +217,12 @@ finishes. Only one check runs at a time, with a five-second deadline including i
 response body. Invalid responses, network failures, and timeouts show offline.
 Hidden tabs pause checks and cancel pending work; returning to the tab checks again.
 The previous observation stays visible until a new check finishes.
+
+The HTTP route owns request trust, bounded body parsing, authentication, and status
+mapping. `answerSupportMessage` accepts the parsed command, authenticated identity,
+database connection, and model transport. It owns replay, authoritative history,
+retrieval, budgeting, quota, generation, validation, and persistence in that order.
+Its results distinguish an answer, quota exhaustion, and a classified failure;
+uncertain saving failures retain no `request_not_saved` code. Incident ownership
+and lifecycle checks remain inside the service's database operations, including
+replay, so other authenticated callers cannot bypass them.

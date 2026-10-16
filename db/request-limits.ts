@@ -32,19 +32,3 @@ export async function loginQuotaKey(email: string) {
     byte.toString(16).padStart(2, '0'),
   ).join('')}`;
 }
-
-export function requestLimitResponse(retryAfter: number, code?: string) {
-  return Response.json(
-    {
-      error: 'Too many requests. Please wait and try again.',
-      ...(code === undefined ? {} : { code }),
-    },
-    {
-      status: 429,
-      headers: {
-        'Retry-After': String(retryAfter),
-        'Cache-Control': 'no-store',
-      },
-    },
-  );
-}

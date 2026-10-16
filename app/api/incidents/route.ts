@@ -1,7 +1,8 @@
+import { requestLimitResponse } from '@/lib/request-limit-response';
 import { parseIncidentId } from '@/lib/chat-request';
 import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
 import { getDatabase } from '@/db/database';
-import { consumeRequestQuota, requestLimitResponse } from '@/db/request-limits';
+import { consumeRequestQuota } from '@/db/request-limits';
 import { deleteSupportIncident, listSupportIncidents } from '@/db/incidents';
 
 export const dynamic = 'force-dynamic';
