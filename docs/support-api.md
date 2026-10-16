@@ -101,6 +101,20 @@ unsupported referral gets one corrective generation attempt; a second failure re
 an unsaved error. Detection covers bounded attribution and direct-denial wording, not
 arbitrary paraphrases, quotation semantics, implicit referrals, or every Markdown form.
 
+Before inference, the server estimates the whole prompt from serialized UTF-8
+message bytes, including policy, encoded records, current question, history, and
+any corrective instruction. It reserves space for the reply and chat template.
+Only older whole conversation messages may be removed; retained history starts
+with a customer message. Authorized records and the current question are never
+truncated. This is a conservative estimate, not exact tokenization; the provider
+can still reject a request for exceeding its context limit.
+
+If mandatory content exceeds the estimate, the API returns an unsaved 422 error
+with a request to shorten the message or ask about one order or product and fewer
+details. An initial overflow consumes no model quota and performs no fetch. A
+corrective request uses the same budget; overflow stops it before a second fetch
+or any save, with only the initial request's quota charge.
+
 Each follow-up clause retains its resolved target even when another clause asks
 for incident history or an order search. Missing or ambiguous targets still prompt
 clarification before inference. Shared requests such as “Show my support incidents

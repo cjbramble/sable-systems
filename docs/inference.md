@@ -19,7 +19,9 @@ server-side, out of Git, and out of browser-visible variables.
 
 Defaults and provider policies live in [lib/openrouter-config.json](../lib/openrouter-config.json).
 Chat pins the DeepInfra FP8 endpoint, disables reasoning, and limits replies to
-600 tokens within an 8,192-token prompt budget. Chat overrides must be supported
+600 tokens within an 8,192-token context budget. The request estimate includes
+serialized messages, a chat-template reserve, and the reply allowance; see
+[request budgeting](support-api.md) for overflow behavior. Chat overrides must be supported
 by that endpoint. The judge uses reasoning and a structured response schema;
 its token budget includes reasoning and the verdict. The judge explicitly asks
 for `high` reasoning effort instead of GLM's `max` default. Effort is a model

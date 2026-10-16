@@ -161,24 +161,31 @@ export async function POST(request: Request) {
     const authorizedContext = context.records;
     const unavailable = unavailableRecordReply(context);
     if (unavailable) return await reply(unavailable);
-    const retryAfter = await consumeRequestQuota(
-      db,
-      `chat:${user.userId}`,
-      30,
-      60,
-    );
-    if (retryAfter)
-      return requestLimitResponse(retryAfter, 'request_not_saved');
-    phase = 'model';
     let correction: string[] | undefined;
     for (let attempt = 1; ; attempt += 1) {
-      const [modelUrl, modelRequest] = createSupportModelRequest({
+      phase = 'model';
+      const model = createSupportModelRequest({
         distributorName: user.distributorDisplayName,
         distributorId: user.distributorId,
         authorizedContext,
         messages: history,
         correction,
       });
+      if (model.kind === 'overflow')
+        return unsavedResponse({ error: model.message }, { status: 422 });
+      if (attempt === 1) {
+        phase = 'loading';
+        const retryAfter = await consumeRequestQuota(
+          db,
+          `chat:${user.userId}`,
+          30,
+          60,
+        );
+        if (retryAfter)
+          return requestLimitResponse(retryAfter, 'request_not_saved');
+      }
+      phase = 'model';
+      const [modelUrl, modelRequest] = model.request;
       const modelResponse = await fetch(modelUrl, modelRequest);
       if (modelResponse.status >= 300 && modelResponse.status < 400) {
         await modelResponse.body?.cancel();

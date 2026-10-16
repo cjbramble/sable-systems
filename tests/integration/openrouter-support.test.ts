@@ -1,3 +1,4 @@
+import { requireSupportModelRequest } from '../fixtures/support-model-request';
 import { afterEach, expect, it, vi } from 'vitest';
 import { POST } from '@/app/api/chat/route';
 import { GET } from '@/app/api/status/route';
@@ -6,10 +7,7 @@ import {
   OPENROUTER_CHAT_URL,
 } from '@/lib/support-model-config.mjs';
 import * as runtime from '@/lib/support-model-runtime';
-import {
-  createSupportModelRequest,
-  extractSupportModelContent,
-} from '@/lib/support-model';
+import { extractSupportModelContent } from '@/lib/support-model';
 import { calderPikeUser } from '../fixtures/users';
 import { test } from '../fixtures/support-integration';
 
@@ -25,7 +23,7 @@ afterEach(() => vi.restoreAllMocks());
 
 it('uses the pinned hosted model with server credentials and no local-only parameters', () => {
   useOpenRouter();
-  const [url, request] = createSupportModelRequest({
+  const [url, request] = requireSupportModelRequest({
     distributorName: calderPikeUser.distributorDisplayName,
     distributorId: calderPikeUser.distributorId,
     authorizedContext: 'Available stock: 312 units.',
@@ -67,7 +65,7 @@ it('uses OpenRouter by default and requires a key without provider switches', ()
   });
   useOpenRouter('');
   expect(() =>
-    createSupportModelRequest({
+    requireSupportModelRequest({
       distributorName: calderPikeUser.distributorDisplayName,
       distributorId: calderPikeUser.distributorId,
       authorizedContext: 'No records.',

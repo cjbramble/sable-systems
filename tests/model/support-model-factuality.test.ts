@@ -1,3 +1,4 @@
+import { requireSupportModelRequest } from '../fixtures/support-model-request';
 import { unsupportedSableResources } from '@/lib/support-resource-claims';
 import { expectRecordFields } from '../assertions/record-fields';
 import { requireSupportRecords } from '../assertions/support-context';
@@ -9,10 +10,7 @@ import { getDatabase } from '@/db/database';
 import { buildSupportContext } from '@/db/support';
 import type { ChatHistoryMessage } from '@/lib/chat-history';
 import { hasGroundedSupportIdentifiers } from '@/lib/support-response';
-import {
-  createSupportModelRequest,
-  extractSupportModelContent,
-} from '@/lib/support-model';
+import { extractSupportModelContent } from '@/lib/support-model';
 import { calderPikeUser, loadActiveUserFixture } from '../fixtures/users';
 import casePackFixture from '../fixtures/judge/case-pack.json';
 import comparisonFixture from '../fixtures/judge/comparison.json';
@@ -41,7 +39,7 @@ async function askSupportModel(
     await buildSupportContext(database, messages, user),
   );
   const authorizedContext = context.records;
-  const [modelUrl, modelRequest] = createSupportModelRequest({
+  const [modelUrl, modelRequest] = requireSupportModelRequest({
     distributorName: user.distributorDisplayName,
     distributorId: user.distributorId,
     authorizedContext,
