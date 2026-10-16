@@ -594,6 +594,9 @@ export default function SupportPage() {
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    // oxlint-disable-next-line typescript/no-deprecated -- IME confirmation can report 229 after isComposing clears.
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)
+      return;
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       void sendMessage();
@@ -813,6 +816,7 @@ export default function SupportPage() {
               <Button
                 className="header-action"
                 variant="outline"
+                aria-label="Start over"
                 onClick={() => newConversation()}
               >
                 <RotateCcw />

@@ -33,7 +33,9 @@ export class OrdersPage {
   }
 
   async submitSearch(query: string) {
-    await this.page.getByPlaceholder('Order ID, PO, or buyer').fill(query);
+    await this.page
+      .getByLabel('Search order history', { exact: true })
+      .fill(query);
     await this.page
       .getByRole('button', { name: 'Search', exact: true })
       .click();
