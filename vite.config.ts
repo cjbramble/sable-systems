@@ -1,3 +1,7 @@
+import {
+  localDatabase,
+  workerCompatibility,
+} from './tools/runtime/worker-settings.ts';
 import tailwindcss from '@tailwindcss/postcss';
 import vinext from 'vinext';
 import { defineConfig } from 'vite';
@@ -8,16 +12,9 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === 'seatbelt';
 
 const localBindingConfig = {
   main: 'vinext/server/fetch-handler',
-  compatibility_date: '2026-05-15',
-  compatibility_flags: ['nodejs_compat'],
-  d1_databases: [
-    {
-      binding: 'DB',
-      database_name: 'customer-support',
-      // Preserve the existing local storage identity; this is not a deployed D1 ID.
-      database_id: '00000000-0000-4000-8000-000000000000',
-    },
-  ],
+  compatibility_date: workerCompatibility.compatibilityDate,
+  compatibility_flags: workerCompatibility.compatibilityFlags,
+  d1_databases: [localDatabase],
 };
 
 export default defineConfig(async ({ command }) => {

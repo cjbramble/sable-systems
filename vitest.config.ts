@@ -1,3 +1,7 @@
+import {
+  localDatabase,
+  workerCompatibility,
+} from './tools/runtime/worker-settings.ts';
 import { EnvHttpProxyAgent, fetch as proxyFetch } from 'undici';
 import { Response as WorkerResponse } from 'miniflare';
 import { cloudflareTest } from '@cloudflare/vitest-plugin';
@@ -33,9 +37,8 @@ export default defineConfig({
         plugins: [
           cloudflareTest({
             miniflare: {
-              compatibilityDate: '2026-05-15',
-              compatibilityFlags: ['nodejs_compat'],
-              d1Databases: ['DB', 'INITIALIZATION_DB'],
+              ...workerCompatibility,
+              d1Databases: [localDatabase.binding, 'INITIALIZATION_DB'],
               bindings: { SABLE_LOCAL_DEMO: 'true', ...modelBindings },
               // Workerd cannot use the cloud HTTP proxy directly. Forward only
               // explicit live OpenRouter requests through the host's proxy.

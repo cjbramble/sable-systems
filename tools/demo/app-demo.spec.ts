@@ -1,3 +1,4 @@
+import { createBuiltApp } from '../runtime/built-app';
 import {
   expect,
   test,
@@ -5,12 +6,11 @@ import {
   type Video,
 } from '@playwright/test';
 import {
-  Miniflare,
-  convertV4MiniflareOptions,
+  type Miniflare,
   Response as WorkerResponse,
   type Request as WorkerRequest,
 } from 'miniflare';
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createProcessScope } from '../../scripts/lib/process-scope.mjs';
@@ -52,70 +52,39 @@ test('landing to checkout to live COV-E order lookup', async ({
   const pause = (ms: number) => delay(ms, undefined, { signal: scope.signal });
 
   try {
-    const serverPath = resolve('dist/server');
-    const files = await readdir(serverPath, { recursive: true });
-    // A disposable production-build instance. No working database is read or written.
-    runtime = new Miniflare(
-      convertV4MiniflareOptions({
-        host: '127.0.0.1',
-        port: 0,
-        cf: false,
-        modulesRoot: serverPath,
-        modules: [
-          'index.js',
-          ...files.filter(
-            (file) => file !== 'index.js' && /\.m?js$/.test(file),
-          ),
-        ].map((file) => ({
-          type: 'ESModule' as const,
-          path: resolve(serverPath, file),
-        })),
-        compatibilityDate: '2026-05-15',
-        compatibilityFlags: ['nodejs_compat'],
-        d1Databases: ['DB'],
-        d1Persist: false,
-        bindings: {
-          SABLE_LOCAL_DEMO: 'true',
-          OPENROUTER_API_KEY: config.apiKey,
-          OPENROUTER_SUPPORT_MODEL: config.model,
-        },
-        assets: {
-          directory: resolve('dist/client'),
-          binding: 'ASSETS',
-          routerConfig: { has_user_worker: true },
-        },
-        outboundService: async (request: WorkerRequest) => {
-          const allowed =
-            (request.method === 'GET' && request.url === OPENROUTER_KEY_URL) ||
-            (request.method === 'POST' && request.url === config.url);
-          if (!allowed)
-            throw new Error(
-              `Unexpected outbound request: ${request.method} ${request.url}`,
-            );
-          const body =
-            request.method === 'POST' ? await request.text() : undefined;
-          const response = await fetch(request.url, {
-            method: request.method,
-            body,
-            headers,
-            signal: AbortSignal.any([
-              scope.signal,
-              AbortSignal.timeout(90_000),
-            ]),
+    runtime = await createBuiltApp({
+      localDemo: true,
+      apiKey: config.apiKey,
+      model: config.model,
+      outboundService: async (request: WorkerRequest) => {
+        const allowed =
+          (request.method === 'GET' && request.url === OPENROUTER_KEY_URL) ||
+          (request.method === 'POST' && request.url === config.url);
+        if (!allowed)
+          throw new Error(
+            `Unexpected outbound request: ${request.method} ${request.url}`,
+          );
+        const body =
+          request.method === 'POST' ? await request.text() : undefined;
+        const response = await fetch(request.url, {
+          method: request.method,
+          body,
+          headers,
+          redirect: 'error',
+          signal: AbortSignal.any([scope.signal, AbortSignal.timeout(90_000)]),
+        });
+        const text = await response.text();
+        if (body)
+          calls.push({
+            request: JSON.parse(body),
+            response: JSON.parse(text),
           });
-          const text = await response.text();
-          if (body)
-            calls.push({
-              request: JSON.parse(body),
-              response: JSON.parse(text),
-            });
-          return new WorkerResponse(text, {
-            status: response.status,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        },
-      }),
-    );
+        return new WorkerResponse(text, {
+          status: response.status,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      },
+    });
     const baseURL = (await runtime.ready).origin;
     const auth = await playwright.request.newContext({ baseURL });
     let storageState;

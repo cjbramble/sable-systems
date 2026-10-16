@@ -1,13 +1,11 @@
 import { test as base } from '@playwright/test';
 import {
-  Miniflare,
-  convertV4MiniflareOptions,
+  type Miniflare,
   Response,
   type Request as WorkerRequest,
 } from 'miniflare';
-import { readdir } from 'node:fs/promises';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { createBuiltApp } from '../../../tools/runtime/built-app';
+import { OPENROUTER_MODEL } from '../../../lib/support-model-config.mjs';
 
 import { LoginPage } from '../pages/login-page';
 import { HomePage } from '../pages/home-page';
@@ -34,9 +32,6 @@ type Fixtures = {
   supportPage: SupportPage;
 };
 
-const projectPath = (path: string) =>
-  fileURLToPath(new URL(`../../../${path}`, import.meta.url));
-
 export const test = base.extend<Fixtures>({
   localDemo: [true, { option: true }],
   modelReply: ['', { option: true }],
@@ -50,77 +45,48 @@ export const test = base.extend<Fixtures>({
     const modelRequests: unknown[] = [];
     let modelMetadata: unknown = { data: { limit_remaining: 1 } };
     const unexpectedRequests: string[] = [];
-    const serverPath = projectPath('dist/server');
-    const files = await readdir(serverPath, { recursive: true });
-    const runtime = new Miniflare(
-      convertV4MiniflareOptions({
-        host: '127.0.0.1',
-        port: 0,
-        cf: false,
-        // Vinext loads chunks dynamically, so register the complete server build
-        // explicitly, with the worker entrypoint first.
-        modulesRoot: serverPath,
-        modules: [
-          'index.js',
-          ...files.filter(
-            (file) => file !== 'index.js' && /\.m?js$/.test(file),
-          ),
-        ].map((file) => ({
-          type: 'ESModule' as const,
-          path: resolve(serverPath, file),
-        })),
-        compatibilityDate: '2026-05-15',
-        compatibilityFlags: ['nodejs_compat'],
-        d1Databases: ['DB'],
-        d1Persist: false,
-        bindings: {
-          SABLE_LOCAL_DEMO: String(localDemo),
-          OPENROUTER_API_KEY: 'browser-test-key',
-        },
-        assets: {
-          directory: projectPath('dist/client'),
-          binding: 'ASSETS',
-          routerConfig: { has_user_worker: true },
-        },
-        // Exercise real app endpoints; replace only worker-to-model transport.
-        outboundService: async (request: WorkerRequest) => {
-          if (
-            request.method === 'GET' &&
-            request.url === 'https://openrouter.ai/api/v1/key'
-          ) {
-            return Response.json(modelMetadata);
-          }
-          if (
-            request.method === 'POST' &&
-            request.url === 'https://openrouter.ai/api/v1/chat/completions'
-          ) {
-            modelRequests.push(await request.json());
-            if (responseSequence !== null) {
-              const planned = responseSequence.shift();
-              if (!planned) {
-                unexpectedRequests.push('Model response sequence exhausted');
-                return new Response(
-                  'No model response configured for this request',
-                  {
-                    status: 502,
-                  },
-                );
-              }
-              return Response.json(planned.body, { status: planned.status });
+    const runtime = await createBuiltApp({
+      localDemo,
+      apiKey: 'browser-test-key',
+      model: OPENROUTER_MODEL,
+      // Exercise real app endpoints; replace only worker-to-model transport.
+      outboundService: async (request: WorkerRequest) => {
+        if (
+          request.method === 'GET' &&
+          request.url === 'https://openrouter.ai/api/v1/key'
+        ) {
+          return Response.json(modelMetadata);
+        }
+        if (
+          request.method === 'POST' &&
+          request.url === 'https://openrouter.ai/api/v1/chat/completions'
+        ) {
+          modelRequests.push(await request.json());
+          if (responseSequence !== null) {
+            const planned = responseSequence.shift();
+            if (!planned) {
+              unexpectedRequests.push('Model response sequence exhausted');
+              return new Response(
+                'No model response configured for this request',
+                {
+                  status: 502,
+                },
+              );
             }
-            return Response.json({
-              choices: [
-                { finish_reason: 'stop', message: { content: modelReply } },
-              ],
-            });
+            return Response.json(planned.body, { status: planned.status });
           }
-          unexpectedRequests.push(`${request.method} ${request.url}`);
-          return new Response('Unexpected outbound request blocked by test', {
-            status: 502,
+          return Response.json({
+            choices: [
+              { finish_reason: 'stop', message: { content: modelReply } },
+            ],
           });
-        },
-      }),
-    );
+        }
+        unexpectedRequests.push(`${request.method} ${request.url}`);
+        return new Response('Unexpected outbound request blocked by test', {
+          status: 502,
+        });
+      },
+    });
     try {
       const url = await runtime.ready;
       const database = await runtime.getD1Database('DB');
