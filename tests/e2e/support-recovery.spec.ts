@@ -283,7 +283,8 @@ test('reviews a competing saved revision before releasing an uncertain older com
     page.getByText('Save unconfirmed', { exact: true }),
   ).toBeVisible();
   await supportPage.messageInput.fill(newerDraft);
-  const competingMessage = 'Trace the shipment from another tab.';
+  // Use a model-backed question rather than deterministic shipment clarification.
+  const competingMessage = 'Help me with a question from another tab.';
   expect(
     (
       await page.request.post(`${app.url}/api/chat`, {
