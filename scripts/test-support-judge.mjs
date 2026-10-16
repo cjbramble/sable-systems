@@ -87,6 +87,13 @@ try {
   evaluation.child.stdin.end(JSON.stringify(payload));
   const result = await evaluation.exited;
   await evaluation.closed;
+  if (result.error) {
+    if (result.error.code === 'ENOENT')
+      console.error(
+        'The judge interpreter is unavailable. Run npm run setup:judge to prepare it.',
+      );
+    console.error(result.error);
+  }
   await scope.stop(exitStatus(result));
 } catch (error) {
   if (!scope.stopping) console.error(error);

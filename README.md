@@ -319,6 +319,9 @@ npm run test:judge -- --transcript reports/model-runs/<run>.log
 ```
 
 Transcript mode retains its separate JSON/JSONL reporting and advisory verdicts.
+Both modes record installed DeepEval/Pydantic versions and the dependency lockfile
+hash alongside evaluator source hashes. JUnit renders XML-forbidden characters as
+visible escapes; JSON and JSONL retain the original evidence.
 HTTP 429s and incomplete HTTP 200 bodies share up to three retries. Other failures
 are recorded without retrying until passing. Use `--category` to select judge
 cases; historical `--suite`, holdout, and pilot modes are no longer supported.

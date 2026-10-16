@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import {
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -41,18 +42,35 @@ export function launchFixture(scenario: string) {
   );
   const script = scenario.startsWith('dev-')
     ? 'dev.mjs'
-    : 'test-support-model.mjs';
+    : scenario.startsWith('judge-')
+      ? 'test-support-judge.mjs'
+      : 'test-support-model.mjs';
+  if (scenario === 'judge-permission-failure') {
+    const bin = join(directory, 'tools/evaluation/.venv/bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'python'), 'not executable', { mode: 0o600 });
+  }
   const child = spawn(
     process.execPath,
-    ['--import', here('./preload.mjs'), here(`../../../scripts/${script}`)],
+    [
+      '--import',
+      here('./preload.mjs'),
+      here(`../../../scripts/${script}`),
+      ...(scenario.startsWith('judge-') &&
+      !scenario.includes('interrupt') &&
+      !scenario.includes('exit-failure')
+        ? ['--list']
+        : []),
+    ],
     {
       cwd: directory,
       detached: true,
       env: {
         ...process.env,
-        OPENROUTER_API_KEY: scenario.includes('missing-key')
-          ? ''
-          : 'launcher-test-key',
+        OPENROUTER_API_KEY:
+          scenario.includes('missing-key') || scenario === 'judge-list'
+            ? ''
+            : 'launcher-test-key',
         LAUNCHER_TEST_CASE: scenario,
       },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
