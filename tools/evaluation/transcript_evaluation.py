@@ -129,6 +129,7 @@ def new_report(
     model_metadata, generation = judge_metadata()
     provenance = evaluator_provenance(
         "openrouter_judge.py",
+        "openrouter_jev.py",
         "openrouter_transport.py",
         "judge_runtime.py",
         "judge_settings.py",

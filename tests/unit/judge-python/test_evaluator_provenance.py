@@ -58,7 +58,8 @@ def test_both_report_modes_share_dependency_provenance(monkeypatch, tmp_path):
     )
     report = evaluation.new_report(transcript, evaluation.plan_transcript(transcript))
     expected_versions = {
-        name: importlib.metadata.version(name) for name in ("deepeval", "pydantic")
+        name: importlib.metadata.version(name)
+        for name in ("deepeval", "pydantic", "typesafe-sdk", "httpx2")
     }
     assert (
         metadata["dependencyVersions"]

@@ -9,7 +9,7 @@ from evaluator_provenance import evaluator_provenance
 from judge_errors import error_calls, error_message
 from judge_inputs import CollectionInput, CollectionOptions
 from judge_report import CollectionReporter, new_report
-from judge_settings import ROOT, judge_metadata
+from judge_settings import ROOT, faithfulness_settings, judge_metadata
 from judge_types import (
     CaseResult,
     CheckKind,
@@ -126,6 +126,7 @@ def run_collection(payload: object, destination: str | Path) -> int:
         "request_summary.py",
         "support_grading.py",
         "openrouter_judge.py",
+        "openrouter_jev.py",
         "openrouter_transport.py",
         "judge_runtime.py",
         "judge_settings.py",
@@ -135,6 +136,7 @@ def run_collection(payload: object, destination: str | Path) -> int:
     )
     metadata: CollectionMetadata = {
         "model": model,
+        "faithfulness": faithfulness_settings(),
         "generation": generation,
         "gradingRevision": GRADING_REVISION,
         "retryPolicy": RETRY_POLICY,

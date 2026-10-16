@@ -2,9 +2,11 @@
 
 import json
 import re
+from contextlib import nullcontext
 from typing import cast
 
 from judge_errors import JudgeError
+from judge_settings import faithfulness_settings
 from judge_types import (
     ClaimCoverage,
     ClaimMatch,
@@ -12,6 +14,7 @@ from judge_types import (
     JudgeResult,
     VerdictRecord,
 )
+from openrouter_jev import jev_model
 from openrouter_judge import OpenRouterJudge
 
 # The adapter installs privacy settings before importing the framework.
@@ -146,7 +149,7 @@ class SupportFaithfulnessTemplate(FaithfulnessTemplate):
                 ),
             )
             + "\n"
-            + CLAIM_RULES
+            + CLAIM_RULES.replace("idk", "borderline")
         )
 
 
@@ -214,9 +217,13 @@ def _validate_inputs(question: str, answer: str, reference: str) -> None:
         raise ValueError("Question, answer and expected facts must be nonempty strings")
 
 
-def _faithfulness(judge: OpenRouterJudge) -> FaithfulnessMetric:
+def _faithfulness(
+    judge: OpenRouterJudge, system_one_model: object = None
+) -> FaithfulnessMetric:
     return FaithfulnessMetric(
         model=judge,
+        eval_mode="hybrid" if system_one_model is not None else "llm",
+        system_one_model=system_one_model,
         strict_mode=True,
         penalize_ambiguous_claims=True,
         async_mode=False,
@@ -354,23 +361,44 @@ def judge_answer(
 def judge_claims(question: str, answer: str, reference: str) -> JudgeResult:
     """Diagnose standalone claim extraction and support against a curated inventory."""
     _validate_inputs(question, answer, reference)
+    settings = faithfulness_settings()
     judge = OpenRouterJudge()
-    metric = _faithfulness(judge)
     try:
-        data = _evaluate(
-            LLMTestCase(
-                input=question, actual_output=answer, retrieval_context=[reference]
-            ),
-            [metric],
-        )
+        with (
+            jev_model(judge)
+            if settings["mode"] == "hybrid"
+            else nullcontext() as system_one
+        ):
+            metric = _faithfulness(judge, system_one)
+            data = _evaluate(
+                LLMTestCase(
+                    input=question, actual_output=answer, retrieval_context=[reference]
+                ),
+                [metric],
+            )
         if not metric.claims or any(not claim.strip() for claim in metric.claims):
             raise ValueError("Claim calibration requires nonempty extracted claims")
         if len(metric.claims) != len(metric.verdicts):
             raise ValueError("DeepEval returned an incomplete verdict inventory")
         result = _result(data, judge, reference)
+        result["faithfulness"] = {
+            **settings,
+            "confidence": metric.confidence,
+            "fallbackReason": metric.system_one_fallback_reason,
+            "nativeVerdicts": [
+                item.model_dump(mode="json") for item in metric.verdicts
+            ],
+        }
         result["claims"] = metric.claims
         result["verdicts"] = cast(
-            list[VerdictRecord], [item.model_dump() for item in metric.verdicts]
+            list[VerdictRecord],
+            [
+                {
+                    "verdict": "idk" if item.verdict == "borderline" else item.verdict,
+                    "reason": item.reason,
+                }
+                for item in metric.verdicts
+            ],
         )
         return result
     except Exception as error:

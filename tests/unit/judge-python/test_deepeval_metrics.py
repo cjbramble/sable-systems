@@ -45,7 +45,7 @@ def model(monkeypatch):
 
 @pytest.mark.parametrize("verdict", ["no", "idk"])
 def test_standalone_faithfulness_rejects_contradictions_and_unknowns(model, verdict):
-    model["verdicts"][0]["verdict"] = verdict
+    model["verdicts"][0]["verdict"] = "borderline" if verdict == "idk" else verdict
     result = grading.judge_claims("Stock?", "47 units.", "47 units available.")
     assert not result["passed"]
     assert result["verdicts"][0]["verdict"] == verdict
@@ -100,7 +100,10 @@ def test_empty_extraction_cannot_pass_claim_calibration(model):
 
 def test_direct_claim_reports_worst_verdict_for_compound_statement(model):
     model["claims"] = ["47 units.", "Delivery tomorrow."]
-    model["verdicts"] = [{"verdict": "yes"}, {"verdict": "idk", "reason": "No date."}]
+    model["verdicts"] = [
+        {"verdict": "yes"},
+        {"verdict": "borderline", "reason": "No date."},
+    ]
     result = grading.judge_direct_claim(
         "Stock and date?", "47 units. Delivery tomorrow.", "47 units available."
     )

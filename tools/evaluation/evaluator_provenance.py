@@ -24,7 +24,8 @@ def evaluator_provenance(*source_names: str) -> EvaluatorProvenance:
     ).hexdigest()
     return EvaluatorProvenance(
         dependency_versions={
-            name: importlib.metadata.version(name) for name in ("deepeval", "pydantic")
+            name: importlib.metadata.version(name)
+            for name in ("deepeval", "pydantic", "typesafe-sdk", "httpx2")
         },
         source_sha256=sources,
     )

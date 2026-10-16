@@ -11,6 +11,7 @@ type Dimensions = dict[Dimension, bool]
 
 class RequestRecord(TypedDict, total=False):
     request: dict[str, object]
+    endpoint: str
     logicalRequest: int
     attempt: int
     httpStatus: int
@@ -70,6 +71,7 @@ class JudgeResult(RequestEvidence, total=False):
     claims: list[str]
     verdicts: list[VerdictRecord]
     claimCoverage: ClaimCoverage
+    faithfulness: dict[str, object]
 
 
 class ExpectedCheck(TypedDict):
@@ -149,6 +151,7 @@ class CollectionMetadata(TypedDict):
     concurrency: int
     collectionSha256: str
     sourceSha256: dict[str, str]
+    faithfulness: dict[str, object]
 
 
 class CollectionReport(TypedDict):

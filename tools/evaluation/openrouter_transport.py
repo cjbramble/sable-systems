@@ -5,6 +5,7 @@ import json
 import os
 import random
 import time
+from collections.abc import Callable
 from contextlib import closing
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
@@ -114,6 +115,23 @@ def request_verdict[Response: BaseModel](
     requests: list[RequestRecord],
 ) -> Response:
     """Send a schema-bound request, retaining every attempt in caller-owned evidence."""
+    return request_response(
+        body,
+        requests,
+        "/api/v1/chat/completions",
+        lambda raw, record, key: parse_verdict(raw, schema, record, key),
+    )
+
+
+def request_response[Response](
+    body: dict[str, object],
+    requests: list[RequestRecord],
+    endpoint: str,
+    parse: Callable[[bytes, RequestRecord, str], Response],
+) -> Response:
+    """Share bounded transport between chat and native System One requests."""
+    if endpoint not in ("/api/v1/chat/completions", "/api/v1/systemone"):
+        raise ValueError("Unsupported judge endpoint")
     headers = {"Content-Type": "application/json"}
     key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     if not key:
@@ -152,18 +170,17 @@ def request_verdict[Response: BaseModel](
         with closing(connection), request_scope(destination):
             record: RequestRecord = {
                 "request": body,
+                "endpoint": endpoint,
                 "logicalRequest": logical_request,
                 "attempt": attempt,
             }
             requests.append(record)
             try:
-                connection.request(
-                    "POST", "/api/v1/chat/completions", json.dumps(body), headers
-                )
+                connection.request("POST", endpoint, json.dumps(body), headers)
                 response = connection.getresponse()
                 record["httpStatus"] = response.status
                 raw = read_response(response, record, key)
-                return parse_verdict(raw, schema, record, key)
+                return parse(raw, record, key)
             except Exception as error:
                 record["errorType"] = type(error).__name__
                 incomplete = (

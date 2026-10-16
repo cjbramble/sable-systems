@@ -9,6 +9,7 @@ from judge_types import GenerationSettings, ModelMetadata, ReasoningSettings
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULTS = json.loads((ROOT / "lib/openrouter-config.json").read_text())
 LUNA_MODELS = ("openai/gpt-6-luna", "openai/gpt-6-luna-pro")
+JEV_MODEL = "typesafe/jev-1.14"
 GENERATION: GenerationSettings = {
     "temperature": 0,
     "top_p": 1,
@@ -73,3 +74,10 @@ def judge_config() -> tuple[str, str, GenerationSettings]:
 def judge_metadata() -> tuple[ModelMetadata, GenerationSettings]:
     provider, model, generation = judge_config()
     return {"provider": provider, "alias": model}, generation
+
+
+def faithfulness_settings() -> dict[str, object]:
+    mode = os.environ.get("OPENROUTER_FAITHFULNESS_MODE", "").strip() or "llm"
+    if mode not in ("llm", "hybrid"):
+        raise ValueError("OPENROUTER_FAITHFULNESS_MODE must be llm or hybrid")
+    return {"mode": mode, "systemOneModel": JEV_MODEL if mode == "hybrid" else None}
