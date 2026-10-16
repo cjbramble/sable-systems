@@ -149,15 +149,16 @@ def test_alternate_model_keeps_its_own_default_effort(monkeypatch, transport):
     assert transport["request"][2]["reasoning"] == {"enabled": True}
 
 
-def test_luna_pro_omits_unsupported_sampling_parameters(monkeypatch, transport):
-    monkeypatch.setenv("OPENROUTER_JUDGE_MODEL", "openai/gpt-6-luna-pro")
+@pytest.mark.parametrize("model", ["openai/gpt-6-luna", "openai/gpt-6-luna-pro"])
+def test_luna_omits_unsupported_sampling_parameters(monkeypatch, transport, model):
+    monkeypatch.setenv("OPENROUTER_JUDGE_MODEL", model)
     monkeypatch.setenv("OPENROUTER_JUDGE_REASONING_EFFORT", "high")
     judge = openrouter_judge.OpenRouterJudge()
     judge.generate("Evaluate", Verdict)
     body = transport["request"][2]
     assert "temperature" not in body
     assert "top_p" not in body
-    assert body["model"] == "openai/gpt-6-luna-pro"
+    assert body["model"] == model
     assert body["reasoning"] == {"enabled": True, "effort": "high"}
     assert body["max_tokens"] == 16384
     assert body["provider"]["require_parameters"] is True
@@ -165,13 +166,14 @@ def test_luna_pro_omits_unsupported_sampling_parameters(monkeypatch, transport):
     assert judge_settings.judge_metadata()[1] == judge.generation
 
 
+@pytest.mark.parametrize("model", ["openai/gpt-6-luna", "openai/gpt-6-luna-pro"])
 def test_luna_claim_schema_closes_nested_objects_and_requires_nullable_fields(
-    monkeypatch, transport
+    monkeypatch, transport, model
 ):
     from deepeval.metrics.faithfulness.schema import Verdicts
 
     original = Verdicts.model_json_schema()
-    monkeypatch.setenv("OPENROUTER_JUDGE_MODEL", "openai/gpt-6-luna-pro")
+    monkeypatch.setenv("OPENROUTER_JUDGE_MODEL", model)
     transport["content"] = '{"verdicts":[{"verdict":"yes","reason":null}]}'
     result = openrouter_judge.OpenRouterJudge().generate("Evaluate", Verdicts)
     wire = transport["request"][2]["response_format"]["json_schema"]["schema"]
