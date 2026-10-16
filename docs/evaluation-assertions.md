@@ -21,12 +21,17 @@ An available quantity cannot be replaced by a reserved or requested quantity.
   replace the required affirmative status.
 - Numeric availability labels such as “Available to promise: 312”, or quantities
   such as “312 units are available”. Negative, conflicting, or malformed quantities
-  fail. Positive stock cannot also be described as unavailable or out of stock;
-  negated denials such as “not out of stock” are allowed.
-- Explicit record IDs and kind labels identify the subject. Subsequent pronouns
-  and wrapped fields retain it; relational qualifiers such as “for this order”
-  do not change the subject. A linked shipment's status cannot supply an order's
-  missing status; a different product's quantity cannot supply the requested stock.
+  fail. Positive stock cannot also be described as unavailable, never/no longer
+  available, or not in stock (including contractions such as “isn’t in stock”).
+  Negated denials such as “not out of stock” are allowed.
+- Explicit record IDs and noun-like kind labels identify the subject; action verbs
+  such as “order it” or “return it” do not switch it. Subsequent pronouns and wrapped
+  fields retain the subject. Value-first facts can name it afterward, as in
+  “312 units available for this product”; “for another product” cannot supply the
+  requested quantity. An explicit leading subject retains ownership in relational
+  wording such as “Shipment … is delayed for this order”. A linked shipment's status
+  cannot supply an order's missing status. Qualifiers do not cross sentence or
+  conjunction boundaries.
 - Bold, italic, inline-code, and curly-apostrophe variants preserve these decisions.
   Simple ID/status table rows are supported; arbitrary tables are not interpreted.
 
