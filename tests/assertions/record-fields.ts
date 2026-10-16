@@ -6,7 +6,7 @@ type ExpectedField =
   | { oneOf: readonly string[] }
   | { usdCents: number };
 
-// Only remove paired presentation markers at word boundaries. In particular,
+// Only remove paired presentation markers around complete labels or values.
 // punctuation inside a number must not turn a malformed amount into a valid one.
 function plainField(field: string) {
   expect(field, 'Unexpected presentation marker').not.toContain('\uE000');
@@ -14,14 +14,20 @@ function plainField(field: string) {
   let text = field
     .trim()
     .replace(/^[-+*]\s+/, '')
-    .replace(/(?<!`)(`+)(?!`)(.*?)\1(?!`)/g, (_span, _ticks, value: string) => {
-      literals.push(value);
-      return `\uE000${literals.length - 1}\uE000`;
-    });
+    .replace(
+      /(?<![^\s:*_])(`+)(?!`)(.*?)\1(?=[\s:*_]|$)/g,
+      (_span, _ticks, value: string) => {
+        literals.push(value);
+        return `\uE000${literals.length - 1}\uE000`;
+      },
+    );
   let previous: string;
   do {
     previous = text;
-    text = text.replace(/(?<!\w)(\*\*|__|[*_])(\S(?:.*?\S)?)\1(?!\w)/g, '$2');
+    text = text.replace(
+      /(?<![^\s:])(\*\*|__|[*_])(\S(?:.*?\S)?)\1(?=\s|:|$)/g,
+      '$2',
+    );
   } while (text !== previous);
   // Code contents are literal, even when the code span itself is emphasized.
   return text.replace(

@@ -52,7 +52,8 @@ between fields. Missing, repeated, unknown, negated, or qualified fields fail;
 extra prose also fails this explicitly requested format.
 
 Fields may be on separate lines or separated by semicolons, in any order. Paired
-Markdown emphasis/code and bullets are accepted. Labels and text values ignore
+Markdown emphasis/code around complete labels or values and bullets are accepted.
+Formatting within numeric tokens is rejected. Labels and text values ignore
 case and whitespace; status spelling alternatives are listed explicitly. Identifier
 punctuation is preserved. USD values require valid grouping and zero to two decimal
 places and are compared in cents. This contract evaluates a single labeled record,

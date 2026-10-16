@@ -34,6 +34,7 @@ describe('labeled record facts', () => {
     answer.replace('SBL-2026-000901', '`SBL-2026-000901`'),
     answer.replace('SBL-2026-000901', '**`SBL-2026-000901`**'),
     answer.replace('$1,234.50', '``$1,234.50``'),
+    answer.replace('Order total: $1,234.50', '**Order total**:**$1,234.50**'),
     `\n ${answer.replaceAll(': ', ':   ')}\n`,
   ])('accepts equivalent presentation: %s', (text) => {
     expect(() => expectRecordFields(text, fields)).not.toThrow();
@@ -60,6 +61,12 @@ describe('labeled record facts', () => {
     answer.replace('$1,234.50', '$-1,234.50'),
     answer.replace('$1,234.50', '$1,23,4.50'),
     answer.replace('$1,234.50', '$1,234.500'),
+    answer.replace('$1,234.50', '$1,*234*.50'),
+    answer.replace('$1,234.50', '$1,234.*50*'),
+    answer.replace('$1,234.50', '$1,**234**.50'),
+    answer.replace('$1,234.50', '$1,_234_.50'),
+    answer.replace('$1,234.50', '$1,`234`.50'),
+    answer.replace('$1,234.50', '$1,234.`50`'),
     answer.replace('$1,234.50', '$1,234.51'),
     answer.replace('$1,234.50', '$1,234.50 million'),
     answer.replace('$1,234.50', '$1,234.50 and $56'),
