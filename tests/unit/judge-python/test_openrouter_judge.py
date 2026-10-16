@@ -149,6 +149,22 @@ def test_alternate_model_keeps_its_own_default_effort(monkeypatch, transport):
     assert transport["request"][2]["reasoning"] == {"enabled": True}
 
 
+def test_luna_pro_omits_unsupported_sampling_parameters(monkeypatch, transport):
+    monkeypatch.setenv("OPENROUTER_JUDGE_MODEL", "openai/gpt-6-luna-pro")
+    monkeypatch.setenv("OPENROUTER_JUDGE_REASONING_EFFORT", "high")
+    judge = openrouter_judge.OpenRouterJudge()
+    judge.generate("Evaluate", Verdict)
+    body = transport["request"][2]
+    assert "temperature" not in body
+    assert "top_p" not in body
+    assert body["model"] == "openai/gpt-6-luna-pro"
+    assert body["reasoning"] == {"enabled": True, "effort": "high"}
+    assert body["max_tokens"] == 16384
+    assert body["provider"]["require_parameters"] is True
+    assert body["provider"]["zdr"] is True
+    assert judge_settings.judge_metadata()[1] == judge.generation
+
+
 @pytest.mark.parametrize("effort", ["medium", "xhigh"])
 def test_alternate_model_can_use_standard_explicit_efforts(
     monkeypatch, transport, effort

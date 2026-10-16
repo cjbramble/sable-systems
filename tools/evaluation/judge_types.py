@@ -120,8 +120,8 @@ class ReasoningSettings(TypedDict):
 
 
 class GenerationSettings(TypedDict):
-    temperature: int
-    top_p: int
+    temperature: NotRequired[int]
+    top_p: NotRequired[int]
     max_tokens: int
     stream: bool
     reasoning: NotRequired[ReasoningSettings]

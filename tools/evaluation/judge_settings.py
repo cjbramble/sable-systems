@@ -55,6 +55,10 @@ def judge_config() -> tuple[str, str, GenerationSettings]:
             "OPENROUTER_JUDGE_MAX_TOKENS must be an integer from 256 to 32768"
         )
     generation = GENERATION.copy()
+    # Luna Pro's OpenRouter endpoints do not accept sampling parameters.
+    if model == "openai/gpt-6-luna-pro":
+        generation.pop("temperature", None)
+        generation.pop("top_p", None)
     generation.update(
         {
             "max_tokens": max_tokens,

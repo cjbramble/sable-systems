@@ -32,6 +32,10 @@ The implicit `high` setting applies to the default GLM judge. Other model
 overrides keep their provider's default effort unless explicitly configured;
 an explicit effort must be supported by the selected model.
 
+For `openai/gpt-6-luna-pro`, the judge omits `temperature` and `top_p` because
+its OpenRouter endpoints do not support those parameters. The model alias selects
+pro reasoning mode; the same DeepEval metrics and provider privacy policy apply.
+
 Both configurations disable provider fallback, require supported parameters,
 deny data collection, and request zero data retention. The judge lets OpenRouter
 select a compatible endpoint. Unsupported settings fail rather than switching
