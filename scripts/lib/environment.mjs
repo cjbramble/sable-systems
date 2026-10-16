@@ -1,3 +1,4 @@
+// @ts-check
 import { existsSync } from 'node:fs';
 
 // Existing shell/Cloud secrets take precedence over the local, ignored file.

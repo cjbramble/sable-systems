@@ -1,3 +1,4 @@
+// @ts-check
 import { closeSync, mkdirSync, openSync, writeSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
@@ -54,10 +55,13 @@ async function runVitest() {
         stdio: ['inherit', 'pipe', 'pipe'],
       },
     );
-    for (const [source, destination] of [
+    /** @type {[import('node:stream').Readable | null, NodeJS.WriteStream][]} */
+    const streams = [
       [test.child.stdout, process.stdout],
       [test.child.stderr, process.stderr],
-    ]) {
+    ];
+    for (const [source, destination] of streams) {
+      if (!source) throw new Error('Vitest output pipe was not created');
       source.on('data', (chunk) => {
         writeSync(transcript, chunk);
         destination.write(chunk);

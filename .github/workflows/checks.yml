@@ -1,0 +1,77 @@
+name: Repository checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    name: Offline checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          version: 0.12.19
+          python-version: 3.12.14
+          enable-cache: true
+          cache-dependency-glob: tools/evaluation/uv.lock
+      - run: npm ci
+      - run: npm run setup:judge
+      - name: Check offline source, tests, data, and build
+        shell: bash
+        run: |
+          mkdir -p reports/ci
+          set -o pipefail
+          npm run check 2>&1 | tee reports/ci/offline.log
+      - name: Preserve failure output
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: offline-failure
+          path: reports/ci/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  browser:
+    name: Browser checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.19.0
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Build once and run controlled browser journeys
+        shell: bash
+        run: |
+          mkdir -p reports/ci
+          set -o pipefail
+          npm run test:e2e 2>&1 | tee reports/ci/browser.log
+      - name: Preserve browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: browser-failure
+          path: |
+            reports/ci/
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore

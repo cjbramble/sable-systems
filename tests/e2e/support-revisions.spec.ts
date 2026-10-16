@@ -3,8 +3,9 @@ import { SupportPage } from './pages/support-page';
 
 const title = 'Priority shipment trace';
 const otherTitle = 'Nerveline allocation';
-const firstMessage = 'Trace the shipment from the first tab.';
-const rejectedMessage = 'Check the delivery from the second tab.';
+// Keep these generic so the revision test exercises model-backed replies.
+const firstMessage = 'Help me with a question from the first tab.';
+const rejectedMessage = 'Help me with a question from the second tab.';
 const reply = 'Which shipment should I trace?';
 
 test.use({ modelReply: reply });
