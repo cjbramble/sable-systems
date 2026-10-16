@@ -1,3 +1,4 @@
+import { expectRecordFields } from '../assertions/record-fields';
 import { requireSupportRecords } from '../assertions/support-context';
 import { expectFiveNormalGenerationSamples } from '../fixtures/model-sampling';
 import { describe, expect, it, vi } from 'vitest';
@@ -30,6 +31,7 @@ import {
   itemNumberPattern,
   incidentIdPattern,
   expectClaimsToComeFromContext,
+  usdCents,
 } from '../assertions/context-claims';
 
 async function askSupportModel(
@@ -82,7 +84,7 @@ describe('support model factuality', () => {
         {
           role: 'user',
           content:
-            'Give only the available-to-promise quantity for SBL-RPC-12 and the date these inventory records were retrieved, in YYYY-MM-DD format. Use the retrieval date, not the latest inventory update date.',
+            'For SBL-RPC-12, give only these label: value fields, one per line: Item number, Available to promise, Retrieval date, Latest update date. Use YYYY-MM-DD dates and distinguish when records were retrieved from when inventory was last updated.',
         },
       ]);
       expect(
@@ -97,9 +99,12 @@ describe('support model factuality', () => {
         'Inventory retrieved at: 2026-09-12T15:00:00.000Z. Latest inventory record update: 2026-09-02T09:00:00Z.',
       );
       console.info('Inventory retrieval date response:', answer);
-      expect(answer).toMatch(/\b312\b/);
-      expect(answer).toContain('2026-09-12');
-      expect(answer).not.toContain('2026-09-02');
+      expectRecordFields(answer, {
+        'Item number': 'SBL-RPC-12',
+        'Available to promise': '312',
+        'Retrieval date': '2026-09-12',
+        'Latest update date': '2026-09-02',
+      });
     } finally {
       vi.useRealTimers();
     }
@@ -127,7 +132,7 @@ describe('support model factuality', () => {
           [
             {
               role: 'user',
-              content: `Find customer PO ${scenario.po}. Give only the order ID, status, and total if authorized; otherwise explain that it cannot be located in my account.`,
+              content: `Find customer PO ${scenario.po}. If authorized, give only these label: value fields, one per line: Order ID, Status, Order total. Otherwise explain that it cannot be located in my account.`,
             },
           ],
           scenario.user,
@@ -141,9 +146,18 @@ describe('support model factuality', () => {
             'Order: SBL-2026-000417; customer PO: REVIEW-CUSTOM-PO; status: partially_shipped.',
           );
           expect(authorizedContext).toContain('Order total: $78,320.00.');
-          expect(answer).toContain(orderId);
-          expect(answer).toMatch(/partially[_ -]shipped/i);
-          expect(answer).toMatch(/\$78,320(?:\.00)?/);
+          expectRecordFields(answer, {
+            'Order ID': orderId,
+            Status: {
+              oneOf: [
+                'partially shipped',
+                'partially_shipped',
+                'partially-shipped',
+              ],
+            },
+            'Order total': { usdCents: 7_832_000 },
+          });
+          expectClaimsToComeFromContext(answer, authorizedContext);
         } else {
           expect(authorizedContext).toContain(
             `No order matching ${scenario.po} is available within`,
@@ -231,7 +245,7 @@ describe('support model factuality', () => {
       {
         role: 'user',
         content:
-          'What is the status and total of customer PO CPD-PO-260417? Include the order ID and customer PO.',
+          'For customer PO CPD-PO-260417, give only these label: value fields, one per line: Order ID, Customer PO, Status, Order total.',
       },
     ];
     const { answer, authorizedContext } = await askSupportModel(messages);
@@ -242,12 +256,14 @@ describe('support model factuality', () => {
       'Order: SBL-2026-000417; customer PO: CPD-PO-260417; status: partially_shipped.',
     );
     expect(authorizedContext).toContain('Order total: $78,320.00.');
-    expect([...claimsMatching(answer, orderIdPattern)]).toEqual([
-      'SBL-2026-000417',
-    ]);
-    expect(answer).toContain('CPD-PO-260417');
-    expect(answer).toMatch(/partially[_ -]shipped/i);
-    expect(answer).toContain('$78,320.00');
+    expectRecordFields(answer, {
+      'Order ID': 'SBL-2026-000417',
+      'Customer PO': 'CPD-PO-260417',
+      Status: {
+        oneOf: ['partially shipped', 'partially_shipped', 'partially-shipped'],
+      },
+      'Order total': { usdCents: 7_832_000 },
+    });
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
@@ -285,14 +301,12 @@ describe('support model factuality', () => {
         orderId: 'SBL-2026-000417',
         total: '$78,320.00',
         otherOrderId: externalOrderId,
-        otherTotal: meridianTotal,
       },
       {
         user: meridianUser,
         orderId: externalOrderId,
         total: meridianTotal,
         otherOrderId: 'SBL-2026-000417',
-        otherTotal: '$78,320.00',
       },
     ];
 
@@ -317,7 +331,7 @@ describe('support model factuality', () => {
           [
             {
               role: 'user',
-              content: `What is the order ID and total for customer PO ${sharedPO}? Include the customer PO.`,
+              content: `For customer PO ${sharedPO}, give only these label: value fields, one per line: Order ID, Customer PO, Order total.`,
             },
           ],
           scenario.user,
@@ -329,12 +343,11 @@ describe('support model factuality', () => {
         expect(authorizedContext).toContain(`Order: ${scenario.orderId};`);
         expect(authorizedContext).toContain(`Order total: ${scenario.total}.`);
         expect(authorizedContext).not.toContain(scenario.otherOrderId);
-        expect([...claimsMatching(answer, orderIdPattern)]).toEqual([
-          scenario.orderId,
-        ]);
-        expect(answer).toContain(sharedPO);
-        expect(answer).toContain(scenario.total);
-        expect(answer).not.toContain(scenario.otherTotal);
+        expectRecordFields(answer, {
+          'Order ID': scenario.orderId,
+          'Customer PO': sharedPO,
+          'Order total': { usdCents: usdCents(scenario.total) },
+        });
         expectClaimsToComeFromContext(
           answer,
           authorizedContext,
@@ -408,7 +421,8 @@ No order matching MCS-PO-500000 is available within Calder Pike Distribution's a
       { role: 'assistant', content: 'What would you like to know about it?' },
       {
         role: 'user',
-        content: 'What is the total for that order? Include the order ID.',
+        content:
+          'What is the total for that order? Give only these label: value fields, one per line: Order ID, Order total.',
       },
     ];
     const { answer, authorizedContext } = await askSupportModel(messages);
@@ -417,12 +431,10 @@ No order matching MCS-PO-500000 is available within Calder Pike Distribution's a
 
     expect(authorizedContext).toContain('Order total: $78,320.00.');
     expect(authorizedContext).not.toContain('SBL-2026-000418');
-    expect([...claimsMatching(answer, orderIdPattern)]).toEqual([
-      'SBL-2026-000417',
-    ]);
-    expect(answer).toContain('$78,320.00');
-    expect(answer).not.toContain('CPD-PO-260418');
-    expect(answer).not.toMatch(/\$118,?000(?:\.00)?\b/);
+    expectRecordFields(answer, {
+      'Order ID': 'SBL-2026-000417',
+      'Order total': { usdCents: 7_832_000 },
+    });
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
@@ -436,7 +448,7 @@ No order matching MCS-PO-500000 is available within Calder Pike Distribution's a
       {
         role: 'user',
         content:
-          'For that order total question, use SBL-2026-000418 instead. Include the order ID.',
+          'For that order total question, use SBL-2026-000418 instead. Give only these label: value fields, one per line: Order ID, Order total.',
       },
     ];
     const { answer, authorizedContext } = await askSupportModel(messages);
@@ -445,12 +457,10 @@ No order matching MCS-PO-500000 is available within Calder Pike Distribution's a
 
     expect(authorizedContext).toContain('Order total: $118,000.00.');
     expect(authorizedContext).not.toContain('SBL-2026-000417');
-    expect([...claimsMatching(answer, orderIdPattern)]).toEqual([
-      'SBL-2026-000418',
-    ]);
-    expect(answer).toContain('$118,000.00');
-    expect(answer).not.toContain('CPD-PO-260417');
-    expect(answer).not.toMatch(/\$78,?320(?:\.00)?\b/);
+    expectRecordFields(answer, {
+      'Order ID': 'SBL-2026-000418',
+      'Order total': { usdCents: 11_800_000 },
+    });
     expectClaimsToComeFromContext(answer, authorizedContext);
   }, 120_000);
 
