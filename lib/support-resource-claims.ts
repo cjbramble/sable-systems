@@ -9,10 +9,7 @@ const RESOURCE_CLAIMS = [
     `\\b(?:SABLE(?:\\s+Systems)?|COV-E|our|my)(?:['’]s?)?(?:-authorized|-certified)?\\s+((?:[\\w-]+\\s+){0,4}?${RESOURCE_WORD})\\b`,
     'gi',
   ),
-  new RegExp(
-    `\\brecords\\s+(?:(?:do|does)\\s+not\\s+)?(?:provide|include|name|list|describe|contain|show|offer|mention|for)\\s+(?:(?:an?|the|any)\\s+)?((?:[\\w-]+\\s+){0,4}?${RESOURCE_WORD})\\b`,
-    'gi',
-  ),
+  new RegExp(`\\brecords\\b[^.!?\\n]{0,60}?\\b(${RESOURCE_WORD})\\b`, 'gi'),
 ];
 
 function presentationText(content: string) {
@@ -45,7 +42,7 @@ function isDenied(text: string, resourceStart: number, end: number) {
     /\b(?:no|without)\s+(?:(?:verified|provided|known)\s+)?(?:SABLE(?:\s+Systems)?|COV-E|our|my)(?:'s?)?\s*$/i.test(
       prefix,
     ) ||
-    /\b(?:do not|does not|don't|doesn't|cannot|can't|unable to)\s+(?:provide|include|name|list|verify|confirm|offer|contact|refer you to)\s+(?:(?!(?:contact|consult|ask|see|follow|refer)\b)\w[\w'-]*\s+){0,5}$/i.test(
+    /\b(?:do not|does not|don't|doesn't|cannot|can't|unable to)\s+(?:provide|include|name|list|verify|confirm|offer)\s+(?:(?!(?:contact|consult|ask|see|follow|refer)\b)\w[\w'-]*\s+){0,5}$/i.test(
       prefix,
     ) ||
     /^\s+(?:is|are|was|were)\s+(?:not|never)\s+(?:listed|provided|available|verified|named|included)\b/i.test(
@@ -83,7 +80,15 @@ export function unsupportedSableResources(
         ),
     );
     for (const match of [...owned, ...records]) {
-      const [phrase, resource] = match;
+      const [phrase, kind] = match;
+      // Detection retains broad records attribution. Only the bounded direct
+      // noun phrase supplies a name for an explicit verified-fact comparison.
+      const resource = /^records\b/i.test(phrase)
+        ? phrase.replace(
+            /^records\s+(?:(?:do|does)\s+not\s+)?\w+\s+(?:(?:an?|the|any)\s+)?/i,
+            '',
+          )
+        : kind;
       if (
         !verified.has(resourceName(resource)) &&
         !isDenied(

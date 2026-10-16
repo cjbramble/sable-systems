@@ -43,6 +43,16 @@ describe('SABLE resource guard', () => {
 
   for (const [kind, unsupported, phrase] of [
     [
+      'CONTACT',
+      'If you cannot contact the SABLE returns specialist by phone, email them.',
+      'SABLE returns specialist',
+    ],
+    [
+      'ATTRIBUTION',
+      'The records identify a returns specialist who can reopen it.',
+      'records identify a returns specialist',
+    ],
+    [
       'FORMATTED',
       'Please contact **SABLE Systems** Medical Operations Division.',
       'SABLE Systems Medical Operations Division',

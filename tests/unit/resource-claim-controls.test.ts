@@ -25,6 +25,14 @@ describe('resource claim polarity and presentation', () => {
     'I cannot provide help - contact our returns specialist.',
     'Do not contact outsiders - contact our returns specialist.',
     'I cannot provide help please contact our returns specialist.',
+    'If you cannot contact the SABLE returns specialist by phone, email them.',
+    "If you can't contact our returns specialist, visit them.",
+    'The records identify a returns specialist who can reopen it.',
+    'The records recommend a returns specialist.',
+    'The records reference an internal returns handbook.',
+    'The records describe how to contact a returns specialist.',
+    "I can't refer you to our returns specialist.",
+    'Do not contact a SABLE Systems returns specialist; none is verified.',
   ])('rejects an unverified positive claim: %s', (answer) => {
     expect(unsupportedSableResources(answer).length).toBeGreaterThan(0);
   });
@@ -35,11 +43,10 @@ describe('resource claim polarity and presentation', () => {
     'The records do not provide a SABLE Systems **returns specialist**.',
     'No SABLE Systems returns handbook is provided.',
     'I cannot verify a SABLE Systems returns specialist.',
-    "I can't refer you to our returns specialist.",
+    "I can't verify our returns specialist.",
     'SABLE Systems returns handbook is not listed in the records.',
     'The records do not include any returns handbook.',
     'There is no SABLE Systems Medical Operations Division in the records.',
-    'Do not contact a SABLE Systems returns specialist; none is verified.',
     'I cannot reopen the return. Consult a qualified professional outside SABLE Systems.',
     'Please consult a licensed medical professional.',
     'No internal contact is provided. I can report the current status.',

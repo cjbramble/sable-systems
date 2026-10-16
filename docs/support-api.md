@@ -89,7 +89,9 @@ Internal resource referrals are checked separately from record identifiers. Mark
 emphasis, inline code, and inline link labels do not hide SABLE/COV-E attribution.
 “Our” and “my” resource claims also refer to internal resources. Direct denials such
 as “the records do not provide a SABLE returns specialist” are allowed, as is advice
-to consult an outside qualified professional. Denials apply locally to their resource;
+to consult an outside qualified professional. Inability to contact a resource or
+refer someone to it does not establish that the resource is absent or unverified.
+Denials apply locally to their resource;
 they cannot excuse a later referral. The original accepted answer is returned and saved.
 
 Only explicit verified resource facts can authorize an internal name; prose mentions
