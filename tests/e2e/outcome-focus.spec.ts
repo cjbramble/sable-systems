@@ -21,6 +21,10 @@ for (const keyboard of [false, true]) {
     const error = page.locator('.login-error');
     await expect(error).toContainText('credentials were not recognized');
     await expect(error).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(email).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(password).toBeFocused();
     await expect(email).toHaveAccessibleDescription(
       'The supplied access credentials were not recognized.',
     );

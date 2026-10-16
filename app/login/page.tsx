@@ -111,6 +111,17 @@ export default function LoginPage() {
             Use the credentials issued to your distribution account.
           </p>
 
+          {error ? (
+            <p
+              className="login-error"
+              id="login-error"
+              ref={errorSummary}
+              tabIndex={-1}
+            >
+              {error}
+            </p>
+          ) : null}
+
           <label htmlFor="access-email">
             <span>Authorized email</span>
             <Input
@@ -137,17 +148,6 @@ export default function LoginPage() {
               onChange={(event) => setPassword(event.target.value)}
             />
           </label>
-
-          {error ? (
-            <p
-              className="login-error"
-              id="login-error"
-              ref={errorSummary}
-              tabIndex={-1}
-            >
-              {error}
-            </p>
-          ) : null}
 
           <Button type="submit" size="lg" disabled={checking || submitting}>
             {checking
