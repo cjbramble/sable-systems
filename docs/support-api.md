@@ -84,6 +84,23 @@ their requested namespaces, but do not verify record identities or imply that
 records are missing. A single incident-list request receives a server-built reply;
 a mixed request uses the scoped facts for all selected parts. Incident titles are
 customer-written labels and cannot verify record identities or SABLE resources.
+
+Internal resource referrals are checked separately from record identifiers. Markdown
+emphasis, inline code, and inline link labels do not hide SABLE/COV-E attribution.
+“Our” and “my” resource claims also refer to internal resources. Direct denials such
+as “the records do not provide a SABLE returns specialist” are allowed, as is advice
+to consult an outside qualified professional. Inability to contact a resource or
+refer someone to it does not establish that the resource is absent or unverified.
+Denials apply locally to their resource;
+they cannot excuse a later referral. The original accepted answer is returned and saved.
+
+Only explicit verified resource facts can authorize an internal name; prose mentions
+in records, events, customer requests, or incident titles cannot. The current database
+has no structured internal-resource catalog, so it supplies no such allowances. An
+unsupported referral gets one corrective generation attempt; a second failure returns
+an unsaved error. Detection covers bounded attribution and direct-denial wording, not
+arbitrary paraphrases, quotation semantics, implicit referrals, or every Markdown form.
+
 Each follow-up clause retains its resolved target even when another clause asks
 for incident history or an order search. Missing or ambiguous targets still prompt
 clarification before inference. Shared requests such as “Show my support incidents

@@ -1,3 +1,4 @@
+import { unsupportedSableResources } from '@/lib/support-resource-claims';
 import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { consumeRequestQuota, requestLimitResponse } from '@/db/request-limits';
@@ -24,11 +25,9 @@ import {
 import { BodyTooLargeError, readJsonBody } from '@/lib/json-body';
 import { formatIncidentListReply } from '@/lib/support-incidents';
 import { classifySupportQueries } from '@/lib/support-query';
-import { renderSupportContextPart } from '@/lib/support-outcomes';
 import {
   hasGroundedSupportIdentifiers,
   unavailableRecordReply,
-  unsupportedSableResources,
 } from '@/lib/support-response';
 import {
   createSupportModelRequest,
@@ -160,11 +159,6 @@ export async function POST(request: Request) {
     const context = await buildSupportContext(db, history, user);
     if (context.kind === 'clarification') return await reply(context.message);
     const authorizedContext = context.records;
-    // Incident titles are customer-written labels, not evidence of SABLE resources.
-    const resourceEvidence = context.parts
-      .filter((part) => part.kind !== 'incidents')
-      .map(renderSupportContextPart)
-      .join('\n');
     const unavailable = unavailableRecordReply(context);
     if (unavailable) return await reply(unavailable);
     const retryAfter = await consumeRequestQuota(
@@ -277,7 +271,7 @@ export async function POST(request: Request) {
         );
       }
 
-      const invented = unsupportedSableResources(content, resourceEvidence);
+      const invented = unsupportedSableResources(content);
       if (invented.length) {
         // Invented SABLE resources are intermittent: ask the model once more,
         // naming what to remove, before returning a retryable error. Nothing
