@@ -244,6 +244,25 @@ requests. Interrupted runs retain partial evidence. Ordinary unit/integration
 and browser tests use dummy credentials and mocked responses; they do not
 forward your real key or incur inference charges.
 
+### Automated checks and supported tooling
+
+Pull requests and pushes to `main` run separate **Offline checks** and **Browser
+checks** jobs on Ubuntu 24.04, using Node 24.19.0. Offline checks install the
+locked Python environment with uv 0.12.19 and Python 3.12.14. Browser checks use
+the Chromium revision matched to the locked Playwright version and build once.
+Neither job receives model credentials or runs billed inference. Failed jobs
+retain logs and browser traces/screenshots for seven days.
+
+The tested automation platform is Linux/POSIX. Windows process-group behavior
+is not covered, and Python npm commands use POSIX environment assignments.
+The package's Node minimum is a compatibility requirement, not a tested matrix.
+
+`npm run typecheck:launchers` checks the three launchers, their process/environment
+helpers, and model configuration with Node types. These files opt in with
+`@ts-check`; imported JavaScript outside that list remains unchecked unless it
+opts in separately. Generated output and ignored reports are excluded from the
+application type-check inputs.
+
 ### Commands
 
 | Command                       | Runs                                                                                             |
@@ -253,6 +272,7 @@ forward your real key or incur inference charges.
 | `npm run test:model`          | Live chatbot factuality tests, repeated sampling, then advisory judging (billed with OpenRouter) |
 | `npm run test:judge`          | 132 judge cases with HTML, JUnit XML, and JSON reports (billed with OpenRouter)                  |
 | `npm run test:python`         | Judge-adapter unit tests; no model server required                                               |
+| `npm run typecheck:launchers` | Check launcher JavaScript and shared Node helpers                                                |
 | `npm run typecheck:python`    | Check Python evaluator types                                                                     |
 | `npm run lint:python`         | Python lint and import-order checks                                                              |
 | `npm run format:python`       | Format Python files                                                                              |

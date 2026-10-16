@@ -1,0 +1,18 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["esnext"],
+    "types": ["node"],
+    "checkJs": false,
+    "incremental": false
+  },
+  "include": [],
+  "files": [
+    "dev.mjs",
+    "test-support-model.mjs",
+    "test-support-judge.mjs",
+    "lib/process-scope.mjs",
+    "lib/environment.mjs",
+    "../lib/support-model-config.mjs"
+  ]
+}

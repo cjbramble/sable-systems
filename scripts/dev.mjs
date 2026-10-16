@@ -1,3 +1,4 @@
+// @ts-check
 import { createProcessScope, exitStatus } from './lib/process-scope.mjs';
 import { loadLocalEnvironment } from './lib/environment.mjs';
 import {

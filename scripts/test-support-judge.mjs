@@ -1,3 +1,4 @@
+// @ts-check
 import { createHash, randomUUID } from 'node:crypto';
 import defaults from '../lib/openrouter-config.json' with { type: 'json' };
 import { readFileSync } from 'node:fs';
@@ -40,6 +41,9 @@ try {
           process.env.OPENROUTER_JUDGE_MODEL?.trim() || defaults.judgeModel,
       });
   if (config) supportModelHeaders(config);
+  /** @type {{mode: string, categories: string[], list: boolean, concurrency: number,
+   * batches: Record<string, NonNullable<ReturnType<ReturnType<typeof getSamplingScenario>['parseTranscript']>>>,
+   * sourceTranscript?: string, sourceSha256?: string}} */
   const payload = {
     mode: values.transcript ? 'transcript' : 'collection',
     categories: values.category || [],
@@ -81,8 +85,10 @@ try {
       },
     },
   );
+  if (!evaluation.child.stdin)
+    throw new Error('Judge input pipe was not created');
   evaluation.child.stdin.on('error', (error) => {
-    if (error.code !== 'EPIPE') console.error(error);
+    if (!('code' in error) || error.code !== 'EPIPE') console.error(error);
   });
   evaluation.child.stdin.end(JSON.stringify(payload));
   const result = await evaluation.exited;
