@@ -45,4 +45,18 @@ if (role === 'vitest') {
     );
   }
 }
+if (role === 'judge') {
+  let input = '';
+  process.stdin.on('data', (chunk) => {
+    input += chunk;
+  });
+  process.stdin.on('end', () => {
+    const payload = JSON.parse(input);
+    if (scenario === 'judge-list') {
+      if (!payload.list) process.exit(9);
+      process.stdout.write('judge scenarios listed\n', () => process.exit(0));
+    }
+    if (scenario === 'judge-exit-failure') process.exit(7);
+  });
+}
 setInterval(() => {}, 1000);

@@ -5,6 +5,37 @@ describe.skipIf(process.platform === 'win32')(
   'inference launcher process ownership',
   { timeout: 12000 },
   () => {
+    test('reports how to install a missing judge interpreter', async () => {
+      const app = launchFixture('judge-missing-interpreter');
+      await app.stopped(1);
+      expect(app.output).toContain('npm run setup:judge');
+      expect(app.output).toContain('ENOENT');
+    });
+    test('preserves permission errors from judge startup', async () => {
+      const app = launchFixture('judge-permission-failure');
+      await app.stopped(1);
+      expect(app.output).toContain('EACCES');
+    });
+    test('lists judge scenarios without credentials', async () => {
+      const app = launchFixture('judge-list');
+      await app.stopped(0);
+      expect(app.output).toContain('judge scenarios listed');
+      expect(app.output).not.toContain('launcher-test-key');
+    });
+    test('propagates judge evaluation failure', async () => {
+      const app = launchFixture('judge-exit-failure');
+      await app.stopped(7);
+    });
+    test.for(['SIGINT', 'SIGTERM'] as const)(
+      'stops interrupted judge evaluation: %s',
+      async (signal) => {
+        const app = launchFixture('judge-interrupt');
+        await app.ready('judge');
+        app.child.kill(signal);
+        await app.stopped(signal === 'SIGINT' ? 130 : 143);
+      },
+    );
+
     test.for(['dev-normal', 'test-normal'])(
       'runs using OpenRouter only: %s',
       async (scenario) => {

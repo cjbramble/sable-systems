@@ -121,6 +121,23 @@ def render_html(report: CollectionReport) -> str:
     )
 
 
+def xml_text(value: str) -> str:
+    """Render forbidden XML 1.0 characters visibly, preserving raw evidence elsewhere."""
+    characters = []
+    for character in value:
+        codepoint = ord(character)
+        if (
+            character in "\t\n\r"
+            or 0x20 <= codepoint <= 0xD7FF
+            or 0xE000 <= codepoint <= 0xFFFD
+            or 0x10000 <= codepoint <= 0x10FFFF
+        ):
+            characters.append(character)
+        else:
+            characters.append(f"\\u{codepoint:04x}")
+    return "".join(characters)
+
+
 def render_junit(report: CollectionReport) -> str:
     summary = report["summary"]["checks"]
     root = ET.Element(
@@ -181,6 +198,10 @@ def render_junit(report: CollectionReport) -> str:
                 },
                 indent=2,
             )
+    for node in root.iter():
+        node.attrib = {name: xml_text(value) for name, value in node.attrib.items()}
+        if node.text is not None:
+            node.text = xml_text(node.text)
     ET.indent(root)
     return ET.tostring(root, encoding="unicode", xml_declaration=True) + "\n"
 

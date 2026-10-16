@@ -23,6 +23,7 @@ select = ["E4", "E7", "E9", "F", "I", "UP"]
 [tool.ruff.lint.isort]
 known-first-party = [
   "evaluate_support",
+  "evaluator_provenance",
   "judge_collection",
   "judge_errors",
   "judge_runtime",

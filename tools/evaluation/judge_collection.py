@@ -6,6 +6,7 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from evaluator_provenance import evaluator_provenance
 from judge_errors import error_calls, error_message
 from judge_inputs import CollectionInput, CollectionOptions
 from judge_report import CollectionReporter, new_report
@@ -116,6 +117,19 @@ def run_collection(payload: object, destination: str | Path) -> int:
             raise ValueError(f"Report already exists: {path}")
     concurrency = options.concurrency
     model, generation = judge_metadata()
+    provenance = evaluator_provenance(
+        "judge_collection.py",
+        "judge_report.py",
+        "request_summary.py",
+        "support_grading.py",
+        "openrouter_judge.py",
+        "openrouter_transport.py",
+        "judge_runtime.py",
+        "judge_settings.py",
+        "judge_inputs.py",
+        "judge_types.py",
+        "judge_errors.py",
+    )
     metadata: CollectionMetadata = {
         "model": model,
         "generation": generation,
@@ -123,24 +137,9 @@ def run_collection(payload: object, destination: str | Path) -> int:
         "retryPolicy": RETRY_POLICY,
         "concurrency": concurrency,
         "collectionSha256": hashlib.sha256(COLLECTION.read_bytes()).hexdigest(),
-        "sourceSha256": {
-            name: hashlib.sha256(
-                Path(__file__).with_name(name).read_bytes()
-            ).hexdigest()
-            for name in (
-                "judge_collection.py",
-                "judge_report.py",
-                "request_summary.py",
-                "support_grading.py",
-                "openrouter_judge.py",
-                "openrouter_transport.py",
-                "judge_runtime.py",
-                "judge_settings.py",
-                "judge_inputs.py",
-                "judge_types.py",
-                "judge_errors.py",
-            )
-        },
+        "sourceSha256": provenance.source_sha256,
+        "dependencyVersions": provenance.dependency_versions,
+        "deepevalVersion": provenance.dependency_versions["deepeval"],
     }
     report = new_report(cases, metadata)
     destination.parent.mkdir(parents=True, exist_ok=True)

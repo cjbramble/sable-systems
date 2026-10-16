@@ -139,6 +139,8 @@ class RetryPolicy(TypedDict):
 
 
 class CollectionMetadata(TypedDict):
+    dependencyVersions: dict[str, str]
+    deepevalVersion: str
     model: ModelMetadata
     generation: GenerationSettings
     gradingRevision: int
@@ -208,6 +210,7 @@ class TranscriptPolicy(TypedDict):
 
 
 class TranscriptReport(TypedDict):
+    dependencyVersions: dict[str, str]
     schemaVersion: int
     mode: str
     model: ModelMetadata

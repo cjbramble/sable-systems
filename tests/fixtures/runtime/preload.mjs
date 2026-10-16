@@ -10,11 +10,19 @@ const originalSpawn = childProcess.spawn;
 process.channel?.unref();
 
 childProcess.spawn = (command, args, options) => {
-  const role = command === 'npm' ? 'web-wrapper' : 'vitest';
+  const role =
+    command === 'npm'
+      ? 'web-wrapper'
+      : scenario.startsWith('judge-')
+        ? 'judge'
+        : 'vitest';
   send({ event: 'spawn-request', role, command, args });
   const failSpawn = scenario.endsWith('spawn-failure');
   const child =
-    role === 'web-wrapper' || failSpawn
+    role === 'web-wrapper' ||
+    failSpawn ||
+    scenario === 'judge-missing-interpreter' ||
+    scenario === 'judge-permission-failure'
       ? originalSpawn(
           failSpawn ? '/nonexistent/launcher-test-command' : command,
           args,

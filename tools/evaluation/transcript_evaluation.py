@@ -1,13 +1,13 @@
 """Plan and execute judging of captured chatbot samples."""
 
 import hashlib
-import importlib.metadata
 import json
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from evaluator_provenance import evaluator_provenance
 from judge_errors import error_calls, error_message
 from judge_inputs import (
     FixtureInput,
@@ -62,12 +62,27 @@ def new_report(
     transcript: TranscriptInput, planned: list[PlannedScenario]
 ) -> TranscriptReport:
     model_metadata, generation = judge_metadata()
+    provenance = evaluator_provenance(
+        "openrouter_judge.py",
+        "openrouter_transport.py",
+        "judge_runtime.py",
+        "judge_settings.py",
+        "evaluate_support.py",
+        "transcript_evaluation.py",
+        "transcript_report.py",
+        "request_summary.py",
+        "support_grading.py",
+        "judge_inputs.py",
+        "judge_types.py",
+        "judge_errors.py",
+    )
     return {
         "schemaVersion": 4,
         "mode": transcript.mode,
         "model": model_metadata,
         "concurrency": transcript.concurrency,
-        "deepevalVersion": importlib.metadata.version("deepeval"),
+        "deepevalVersion": provenance.dependency_versions["deepeval"],
+        "dependencyVersions": provenance.dependency_versions,
         "policy": {
             "mode": "advisory",
             "metric": "StructuredSupportAssessment",
@@ -77,31 +92,7 @@ def new_report(
         },
         "generation": generation,
         "retryPolicy": RETRY_POLICY,
-        "evaluatorSha256": {
-            **{
-                name: hashlib.sha256(
-                    Path(__file__).with_name(name).read_bytes()
-                ).hexdigest()
-                for name in (
-                    "openrouter_judge.py",
-                    "openrouter_transport.py",
-                    "judge_runtime.py",
-                    "judge_settings.py",
-                    "evaluate_support.py",
-                    "transcript_evaluation.py",
-                    "transcript_report.py",
-                    "request_summary.py",
-                    "support_grading.py",
-                    "judge_inputs.py",
-                    "judge_types.py",
-                    "judge_errors.py",
-                    "uv.lock",
-                )
-            },
-            "openrouter-config.json": hashlib.sha256(
-                (ROOT / "lib/openrouter-config.json").read_bytes()
-            ).hexdigest(),
-        },
+        "evaluatorSha256": provenance.source_sha256,
         "sourceTranscript": transcript.sourceTranscript,
         "sourceSha256": transcript.sourceSha256,
         "coverage": {
