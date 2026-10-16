@@ -27,12 +27,32 @@ async function expectStartupFailure(
   await expect(attempt.then(() => undefined)).rejects.toThrow(message);
 }
 
+function upgradedRows(table: string, rows: unknown[]) {
+  return rows.map((row) => {
+    const values = row as Record<string, unknown>;
+    if (table === 'sessions') {
+      const { last_seen_at: _unused, ...session } = values;
+      return session;
+    }
+    return ['support_incidents', 'support_messages'].includes(table)
+      ? { revision: 0, ...values }
+      : values;
+  });
+}
+
 describe('database initialization', () => {
-  test.for(['recover', 'unrelated failure', 'retry failure'] as const)(
-    'handles concurrent revision migrations without hiding errors: %s',
-    async (scenario, { initialization }) => {
+  test.for(
+    (['12', '13'] as const).flatMap((version) =>
+      ['recover', 'unrelated failure', 'retry failure'].map((scenario) => ({
+        version,
+        scenario,
+      })),
+    ),
+  )(
+    'handles concurrent schema $version migrations without hiding errors: $scenario',
+    async ({ version, scenario }, { initialization }) => {
       const { database, getDatabase, restart } = initialization;
-      await seedHistoricalDatabase(database, '12');
+      await seedHistoricalDatabase(database, version);
       await addUserRecords(database);
       await database
         .prepare(
@@ -43,7 +63,7 @@ describe('database initialization', () => {
       // Separate module caches model two cold Workers sharing the same D1 DB.
       const secondWorker = await restart();
       expect(secondWorker).not.toBe(getDatabase);
-      const revisionStatements = new WeakSet<D1PreparedStatement>();
+      const alterationStatements = new WeakSet<D1PreparedStatement>();
       const schemaStatements = new WeakSet<D1PreparedStatement>();
       const prepare = database.prepare.bind(database);
       const prepareSpy = vi
@@ -53,9 +73,10 @@ describe('database initialization', () => {
           if (
             /^ALTER TABLE support_(incidents|messages)\s+ADD COLUMN revision/.test(
               sql,
-            )
+            ) ||
+            sql === 'ALTER TABLE sessions DROP COLUMN last_seen_at'
           )
-            revisionStatements.add(statement);
+            alterationStatements.add(statement);
           if (sql.startsWith('CREATE TABLE IF NOT EXISTS support_incidents'))
             schemaStatements.add(statement);
           return statement;
@@ -69,7 +90,7 @@ describe('database initialization', () => {
         winnerCommitted.resolve();
       }, 2_000);
       let schemaAttempts = 0;
-      let revisionAttempts = 0;
+      let alterationAttempts = 0;
       const injected = new Error(`Injected ${scenario}`);
       const duplicateErrors: unknown[] = [];
       const batch = database.batch.bind(database);
@@ -80,12 +101,12 @@ describe('database initialization', () => {
             return batch(statements);
           schemaAttempts += 1;
           if (
-            !statements.some((statement) => revisionStatements.has(statement))
+            !statements.some((statement) => alterationStatements.has(statement))
           ) {
             if (scenario === 'retry failure') throw injected;
             return batch(statements);
           }
-          if (++revisionAttempts === 1) {
+          if (++alterationAttempts === 1) {
             await bothPlanned.promise;
             try {
               return await batch(statements);
@@ -112,7 +133,7 @@ describe('database initialization', () => {
         expect(first).not.toBe(second);
         const outcomes = await settled;
         expect(timedOut).toBe(false);
-        expect(revisionAttempts).toBe(2);
+        expect(alterationAttempts).toBe(2);
         expect(
           outcomes.filter(({ status }) => status === 'fulfilled'),
         ).toHaveLength(scenario === 'recover' ? 2 : 1);
@@ -126,16 +147,16 @@ describe('database initialization', () => {
           expect(duplicateErrors).toHaveLength(1);
           expect(duplicateErrors[0]).toBeInstanceOf(Error);
           expect((duplicateErrors[0] as Error).message).toContain(
-            'duplicate column name: revision',
+            version === '12'
+              ? 'duplicate column name: revision'
+              : 'last_seen_at',
           );
         }
         const after = await databaseSnapshot(database);
         for (const [table, rows] of Object.entries(before.tables))
           if (table !== 'metadata')
             expect(after.tables[table], table).toEqual(
-              ['support_incidents', 'support_messages'].includes(table)
-                ? rows.map((row) => ({ ...(row as object), revision: 0 }))
-                : rows,
+              upgradedRows(table, rows),
             );
         expect(after.tables.metadata).toContainEqual({
           key: 'schema_version',
@@ -177,7 +198,7 @@ describe('database initialization', () => {
     const before = await databaseSnapshot(database);
     await database
       .prepare(`CREATE TRIGGER fail_revision_upgrade BEFORE UPDATE ON metadata
-      WHEN NEW.key = 'schema_version' AND NEW.value = '13'
+      WHEN NEW.key = 'schema_version' AND NEW.value = '${SCHEMA_VERSION}'
       BEGIN SELECT RAISE(ABORT, 'revision upgrade interrupted'); END`)
       .run();
     try {
@@ -277,11 +298,7 @@ describe('database initialization', () => {
     const after = await databaseSnapshot(database);
     for (const [table, rows] of Object.entries(before.tables))
       if (table !== 'metadata')
-        expect(after.tables[table], table).toEqual(
-          ['support_incidents', 'support_messages'].includes(table)
-            ? rows.map((row) => ({ ...(row as object), revision: 0 }))
-            : rows,
-        );
+        expect(after.tables[table], table).toEqual(upgradedRows(table, rows));
     expect(after.tables.checkout_commands).toEqual([]);
     const input = checkoutCommand('RECOVERY-MIGRATION');
     const user = await loadActiveUserFixture(database, 'USR-MCS-001');
@@ -305,24 +322,27 @@ describe('database initialization', () => {
     expect(await databaseSnapshot(database)).toEqual(saved);
   });
 
-  test('refuses a prior-schema initialization checkpoint without modifying it', async ({
-    initialization,
-  }) => {
-    const { database, getDatabase } = initialization;
-    await database.batch([
-      ...historicalSchemaStatements('9').map((sql) => database.prepare(sql)),
-      database.prepare('INSERT INTO metadata VALUES (?, ?)').bind(
-        'initialization_progress',
-        JSON.stringify({
-          version: `9/${SEED_VERSION}/75/1`,
-          nextStatement: 0,
-        }),
-      ),
-    ]);
-    const before = await databaseSnapshot(database);
-    await expectStartupFailure(getDatabase(), /unsupported database/i);
-    expect(await databaseSnapshot(database)).toEqual(before);
-  });
+  test.for(['9', '13'] as const)(
+    'refuses schema %s initialization checkpoint without modifying it',
+    async (version, { initialization }) => {
+      const { database, getDatabase } = initialization;
+      await database.batch([
+        ...historicalSchemaStatements(version).map((sql) =>
+          database.prepare(sql),
+        ),
+        database.prepare('INSERT INTO metadata VALUES (?, ?)').bind(
+          'initialization_progress',
+          JSON.stringify({
+            version: `${version}/${SEED_VERSION}/75/1`,
+            nextStatement: 0,
+          }),
+        ),
+      ]);
+      const before = await databaseSnapshot(database);
+      await expectStartupFailure(getDatabase(), /unsupported database/i);
+      expect(await databaseSnapshot(database)).toEqual(before);
+    },
+  );
   test('seeds once for concurrent callers and preserves current records after restart', async ({
     initialization,
   }) => {
@@ -378,7 +398,7 @@ describe('database initialization', () => {
     },
   );
 
-  test.for(['6', '7', '8', '9', '10', '11', '12'] as const)(
+  test.for(['6', '7', '8', '9', '10', '11', '12', '13'] as const)(
     'upgrades historical schema %s without reseeding or losing records',
     async (version, { initialization }) => {
       const { database, getDatabase, restart } = initialization;
@@ -401,11 +421,7 @@ describe('database initialization', () => {
       const after = await databaseSnapshot(database);
       for (const [table, rows] of Object.entries(before.tables)) {
         if (table !== 'metadata')
-          expect(after.tables[table], table).toEqual(
-            ['support_incidents', 'support_messages'].includes(table)
-              ? rows.map((row) => ({ ...(row as object), revision: 0 }))
-              : rows,
-          );
+          expect(after.tables[table], table).toEqual(upgradedRows(table, rows));
       }
       expect(
         await database
@@ -486,67 +502,6 @@ describe('database initialization', () => {
         .bind(incidentId)
         .first(),
     ).toBeNull();
-  });
-
-  test('adds request quotas when upgrading schema 8 and preserves all existing records', async ({
-    initialization,
-  }) => {
-    const { database, getDatabase, restart } = initialization;
-    await getDatabase();
-    await addUserRecords(database);
-    await database.batch([
-      database.prepare('DROP TABLE request_limits'),
-      database.prepare(
-        "UPDATE metadata SET value = '8' WHERE key = 'schema_version'",
-      ),
-    ]);
-    const before = await databaseSnapshot(database);
-    await (
-      await restart()
-    )();
-    const after = await databaseSnapshot(database);
-    for (const [table, rows] of Object.entries(before.tables)) {
-      if (table !== 'metadata')
-        expect(after.tables[table], table).toEqual(rows);
-    }
-    expect(after.tables.request_limits).toEqual([]);
-    expect(after.tables.metadata).toContainEqual({
-      key: 'schema_version',
-      value: SCHEMA_VERSION,
-    });
-  });
-
-  test('adds the missing schema-8 history tables to a supported legacy database', async ({
-    initialization,
-  }) => {
-    const { database, getDatabase, restart } = initialization;
-    await getDatabase();
-    await addUserRecords(database);
-    await database.batch([
-      database.prepare('DROP TABLE support_messages'),
-      database.prepare('DROP TABLE support_incidents'),
-      database.prepare('DROP INDEX idx_orders_customer_created'),
-      database.prepare(
-        "DELETE FROM metadata WHERE key = 'support_incidents_seed_version'",
-      ),
-      database.prepare(
-        "UPDATE metadata SET value = '6' WHERE key = 'schema_version'",
-      ),
-    ]);
-    const before = await databaseSnapshot(database);
-    await (
-      await restart()
-    )();
-    const after = await databaseSnapshot(database);
-    for (const [table, rows] of Object.entries(before.tables)) {
-      if (table !== 'metadata')
-        expect(after.tables[table], table).toEqual(rows);
-    }
-    expect(after.tables.support_incidents).toHaveLength(12);
-    expect(after.tables.support_messages).toHaveLength(24);
-    expect(
-      after.objects.some(({ name }) => name === 'idx_orders_customer_created'),
-    ).toBe(true);
   });
 
   test.for(['without metadata', 'with empty metadata'])(

@@ -1,0 +1,53 @@
+// Schemas 6 and later already have distributor accounts, attributed orders,
+// credentials, and sessions. Earlier compatibility conversions are unsupported.
+export async function hasUnsupportedLegacyLayout(db: D1Database) {
+  const legacy = await db
+    .prepare(`SELECT name FROM sqlite_schema
+    WHERE type = 'table' AND name IN ('wholesalers', 'simulated_payments') LIMIT 1`)
+    .first();
+  if (legacy) return true;
+  const columns = await db
+    .prepare('PRAGMA table_info(orders)')
+    .all<{ name: string }>();
+  return (
+    columns.results.length > 0 &&
+    !columns.results.some(({ name }) => name === 'placed_by_user_id')
+  );
+}
+
+const REVISION_TABLES = ['support_incidents', 'support_messages'] as const;
+
+async function columnsOf(db: D1Database, table: string) {
+  const { results } = await db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all<{ name: string }>();
+  return results.map(({ name }) => name);
+}
+
+// CREATE IF NOT EXISTS handles newly introduced tables. Existing tables need
+// these explicit alterations, committed with the schema version in one batch.
+export async function planSchemaUpgrades(db: D1Database) {
+  const statements: string[] = [];
+  for (const table of REVISION_TABLES) {
+    const columns = await columnsOf(db, table);
+    if (columns.length && !columns.includes('revision')) {
+      statements.push(`ALTER TABLE ${table}
+        ADD COLUMN revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0)`);
+    }
+  }
+  const addsRevisions = statements.length > 0;
+  const removesSessionActivity = (await columnsOf(db, 'sessions')).includes(
+    'last_seen_at',
+  );
+  if (removesSessionActivity)
+    statements.push('ALTER TABLE sessions DROP COLUMN last_seen_at');
+  return { statements, addsRevisions, removesSessionActivity };
+}
+
+export async function schemaAlterationsCompleted(db: D1Database) {
+  for (const table of REVISION_TABLES) {
+    if (!(await columnsOf(db, table)).includes('revision')) return false;
+  }
+  const sessions = await columnsOf(db, 'sessions');
+  return sessions.includes('expires_at') && !sessions.includes('last_seen_at');
+}

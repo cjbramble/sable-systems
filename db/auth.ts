@@ -104,14 +104,13 @@ export async function createSession(
       .bind(nowIso),
     db
       .prepare(`INSERT INTO sessions (
-        session_id, token_hash, user_id, created_at, last_seen_at, expires_at,
+        session_id, token_hash, user_id, created_at, expires_at,
         revoked_at, user_agent
-      ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`)
+      ) VALUES (?, ?, ?, ?, ?, NULL, ?)`)
       .bind(
         sessionId,
         tokenHash,
         userId,
-        nowIso,
         nowIso,
         expires.toISOString(),
         request.headers.get('user-agent')?.slice(0, 240) ?? null,

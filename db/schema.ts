@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = '13';
+export const SCHEMA_VERSION = '14';
 export const SEED_VERSION = 'sable-distribution-2026-09-02-v7';
 
 export const METADATA_TABLE_SQL = `CREATE TABLE IF NOT EXISTS metadata (
@@ -30,7 +30,6 @@ export const SESSIONS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT NOT NULL UNIQUE,
   user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
   created_at TEXT NOT NULL,
-  last_seen_at TEXT NOT NULL,
   expires_at TEXT NOT NULL,
   revoked_at TEXT,
   user_agent TEXT

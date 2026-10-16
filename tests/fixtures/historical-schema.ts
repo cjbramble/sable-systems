@@ -282,6 +282,28 @@ const additions12 = [
 ) STRICT`,
 ];
 
+// Frozen replacements from schema 13 (conversation revisions).
+const replacements13 = [
+  `CREATE TABLE IF NOT EXISTS support_incidents (
+  incident_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 120),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0)
+) STRICT`,
+  `CREATE TABLE IF NOT EXISTS support_messages (
+  message_id TEXT PRIMARY KEY,
+  incident_id TEXT NOT NULL REFERENCES support_incidents(incident_id) ON DELETE CASCADE,
+  sequence_number INTEGER NOT NULL CHECK (sequence_number > 0),
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  content TEXT NOT NULL CHECK (length(content) BETWEEN 1 AND 8000),
+  created_at TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+  UNIQUE (incident_id, sequence_number)
+) STRICT`,
+];
+
 export type HistoricalSchemaVersion =
   | '6'
   | '7'
@@ -289,7 +311,8 @@ export type HistoricalSchemaVersion =
   | '9'
   | '10'
   | '11'
-  | '12';
+  | '12'
+  | '13';
 
 export function historicalSchemaStatements(version: HistoricalSchemaVersion) {
   return [
@@ -299,7 +322,16 @@ export function historicalSchemaStatements(version: HistoricalSchemaVersion) {
         !/^CREATE TABLE IF NOT EXISTS (shipment_items|return_items) /.test(sql),
     ),
     ...(Number(version) >= 7 ? additions7 : []),
-    ...(Number(version) >= 8 ? additions8 : []),
+    ...(Number(version) >= 13 ? replacements13 : []),
+    ...(Number(version) >= 8
+      ? additions8.filter(
+          (sql) =>
+            Number(version) < 13 ||
+            !/^CREATE TABLE IF NOT EXISTS support_(incidents|messages) /.test(
+              sql,
+            ),
+        )
+      : []),
     ...(Number(version) >= 9 ? additions9 : []),
     ...(Number(version) >= 10 ? replacements10 : []),
     ...(Number(version) >= 11 ? additions11 : []),

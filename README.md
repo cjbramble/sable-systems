@@ -123,10 +123,16 @@ interrupted initialization resumes from the last committed batch.
 
 Database setup and supported upgrades run automatically; no manual SQL step is required.
 
-Schema versions 6–12 upgrade to 13 with the current `SEED_VERSION`. Shipment and
+Schema versions 6–13 upgrade to 14 with the current `SEED_VERSION`. Shipment and
 return lines must reference their parent's order. Startup audits legacy relationships
 before upgrading; mismatches stop startup without changes and require explicit repair.
 Schema changes and the version marker commit together, preserving valid records.
+Schema 14 removes the unused session `last_seen_at` field; token hashes, expiry,
+and revocation remain unchanged. Pre-v6 layouts and mixed schemas with legacy
+wholesaler/payment tables or missing order attribution are unsupported.
+Interrupted seed checkpoints from older schema versions are rejected without
+changes; preserve their data and finish setup with the matching application version
+before upgrading.
 Unsupported versions or populated databases without version metadata stop startup without
 modifying records. Preserve the database and inspect its metadata before migration.
 

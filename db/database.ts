@@ -1,17 +1,17 @@
 import { env } from 'cloudflare:workers';
 
 import {
-  ACCOUNT_CHARGES_INDEX_SQL,
-  ACCOUNT_CHARGES_TABLE_SQL,
   METADATA_TABLE_SQL,
-  SESSIONS_TABLE_SQL,
-  USER_CREDENTIALS_TABLE_SQL,
-  USERS_TABLE_SQL,
   schemaStatements,
   SCHEMA_VERSION,
   SEED_VERSION,
 } from './schema';
 import { buildSeedStatements } from './seed';
+import {
+  hasUnsupportedLegacyLayout,
+  planSchemaUpgrades,
+  schemaAlterationsCompleted,
+} from './schema-upgrades';
 import {
   auditOrderLineParents,
   hasLegacyOrderLineTables,
@@ -19,7 +19,6 @@ import {
 } from './order-line-migration';
 
 const BATCH_SIZE = 75;
-const SUPPORT_REVISION_TABLES = ['support_incidents', 'support_messages'];
 const INITIALIZATION_KEY = 'initialization_progress';
 // Change this protocol if batch boundaries or the seed statement order change.
 const INITIALIZATION_VERSION = `${SCHEMA_VERSION}/${SEED_VERSION}/${BATCH_SIZE}/1`;
@@ -31,6 +30,7 @@ const SUPPORTED_SCHEMA_VERSIONS = new Set([
   '10',
   '11',
   '12',
+  '13',
   SCHEMA_VERSION,
 ]);
 let initialization: Promise<D1Database> | null = null;
@@ -44,13 +44,15 @@ export function getDatabase(): Promise<D1Database> {
 }
 
 async function initializeDatabase(
-  retryRevisionMigration = true,
+  retrySchemaMigration = true,
 ): Promise<D1Database> {
   const db = (env as unknown as { DB?: D1Database }).DB;
   if (!db) throw new Error('The DB binding is not configured.');
 
   const seedStatements = buildSeedStatements();
   const state = await inspectDatabase(db, seedStatements.length);
+  if (await hasUnsupportedLegacyLayout(db)) unsupportedDatabase();
+  const upgrades = await planSchemaUpgrades(db);
   const upgradingSchema =
     state.kind === 'ready' && state.schemaVersion !== SCHEMA_VERSION;
   const needsOrderLineMigration =
@@ -72,32 +74,12 @@ async function initializeDatabase(
     ]);
   }
 
-  await migrateDistributorTable(db);
-  await migrateChargeAccountTable(db);
-  await migrateDistributorUsers(db);
-  await migrateAuthTables(db);
   const schemaBatch = schemaStatements.map((sql) => db.prepare(sql));
   if (needsOrderLineMigration)
     schemaBatch.push(
       ...orderLineMigrationStatements.map((sql) => db.prepare(sql)),
     );
-  let needsRevisionMigration = false;
-  for (const table of SUPPORT_REVISION_TABLES) {
-    const columns = await db
-      .prepare(`PRAGMA table_info(${table})`)
-      .all<{ name: string }>();
-    // Missing tables are created above with revisions already present.
-    if (
-      columns.results.length &&
-      !columns.results.some(({ name }) => name === 'revision')
-    ) {
-      needsRevisionMigration = true;
-      schemaBatch.push(
-        db.prepare(`ALTER TABLE ${table}
-        ADD COLUMN revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0)`),
-      );
-    }
-  }
+  schemaBatch.push(...upgrades.statements.map((sql) => db.prepare(sql)));
   if (upgradingSchema)
     schemaBatch.push(
       db
@@ -112,12 +94,15 @@ async function initializeDatabase(
     // Another Worker may commit after our column inspection. Rebuild once from
     // fresh state only when it completed this migration; retain other failures.
     if (
-      retryRevisionMigration &&
+      retrySchemaMigration &&
       upgradingSchema &&
-      needsRevisionMigration &&
       error instanceof Error &&
-      error.message.includes('duplicate column name: revision') &&
-      (await revisionMigrationCompleted(db, seedStatements.length))
+      ((upgrades.addsRevisions &&
+        error.message.includes('duplicate column name: revision')) ||
+        (upgrades.removesSessionActivity &&
+          error.message.includes('no such column') &&
+          error.message.includes('last_seen_at'))) &&
+      (await schemaMigrationCompleted(db, seedStatements.length))
     )
       return initializeDatabase(false);
     throw error;
@@ -160,19 +145,12 @@ async function initializeDatabase(
   return db;
 }
 
-async function revisionMigrationCompleted(db: D1Database, seedLength: number) {
+async function schemaMigrationCompleted(db: D1Database, seedLength: number) {
   try {
     const state = await inspectDatabase(db, seedLength);
     if (state.kind !== 'ready' || state.schemaVersion !== SCHEMA_VERSION)
       return false;
-    for (const table of SUPPORT_REVISION_TABLES) {
-      const columns = await db
-        .prepare(`PRAGMA table_info(${table})`)
-        .all<{ name: string }>();
-      if (!columns.results.some(({ name }) => name === 'revision'))
-        return false;
-    }
-    return true;
+    return await schemaAlterationsCompleted(db);
   } catch {
     // A failed recovery inspection must not replace the original batch error.
     return false;
@@ -356,66 +334,4 @@ async function seedSupportIncidents(db: D1Database) {
       .bind(markerKey, '1'),
   );
   await db.batch(statements);
-}
-
-async function migrateDistributorTable(db: D1Database) {
-  const legacyTable = await db
-    .prepare(
-      "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'wholesalers'",
-    )
-    .first<{ name: string }>();
-  const distributorTable = await db
-    .prepare(
-      "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'distributors'",
-    )
-    .first<{ name: string }>();
-  if (legacyTable && !distributorTable) {
-    await db.prepare('PRAGMA foreign_keys = ON').run();
-    await db.prepare('ALTER TABLE wholesalers RENAME TO distributors').run();
-  }
-}
-
-async function migrateChargeAccountTable(db: D1Database) {
-  const legacyTable = await db
-    .prepare(
-      "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'simulated_payments'",
-    )
-    .first<{ name: string }>();
-  if (!legacyTable) return;
-
-  await db.batch([
-    db.prepare(ACCOUNT_CHARGES_TABLE_SQL),
-    db.prepare(`INSERT OR IGNORE INTO account_charges (
-      charge_id, order_id, charge_method, status, amount_cents, currency,
-      authorization_code, authorized_at
-    ) SELECT payment_id, order_id, 'charge_account', status, amount_cents,
-      currency, authorization_code, authorized_at FROM simulated_payments`),
-    db.prepare('DROP INDEX IF EXISTS idx_payments_order'),
-    db.prepare('DROP TABLE simulated_payments'),
-    db.prepare(ACCOUNT_CHARGES_INDEX_SQL),
-  ]);
-}
-
-async function migrateDistributorUsers(db: D1Database) {
-  await db.prepare(USERS_TABLE_SQL).run();
-  const columns = await db
-    .prepare('PRAGMA table_info(orders)')
-    .all<{ name: string }>();
-  if (
-    columns.results.length > 0 &&
-    !columns.results.some((column) => column.name === 'placed_by_user_id')
-  ) {
-    await db
-      .prepare(
-        'ALTER TABLE orders ADD COLUMN placed_by_user_id TEXT REFERENCES users(user_id)',
-      )
-      .run();
-  }
-}
-
-async function migrateAuthTables(db: D1Database) {
-  await db.batch([
-    db.prepare(USER_CREDENTIALS_TABLE_SQL),
-    db.prepare(SESSIONS_TABLE_SQL),
-  ]);
 }
