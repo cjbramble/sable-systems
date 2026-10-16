@@ -1,3 +1,4 @@
+import { unsupportedSableResources } from '@/lib/support-resource-claims';
 import { expectRecordFields } from '../assertions/record-fields';
 import { requireSupportRecords } from '../assertions/support-context';
 import { expectFiveNormalGenerationSamples } from '../fixtures/model-sampling';
@@ -7,10 +8,7 @@ import type { AuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { buildSupportContext } from '@/db/support';
 import type { ChatHistoryMessage } from '@/lib/chat-history';
-import {
-  hasGroundedSupportIdentifiers,
-  unsupportedSableResources,
-} from '@/lib/support-response';
+import { hasGroundedSupportIdentifiers } from '@/lib/support-response';
 import {
   createSupportModelRequest,
   extractSupportModelContent,
@@ -1309,9 +1307,7 @@ No return matching ${unknownReturnId} is available within Calder Pike Distributi
         console.info(`Read-only ${scenario.name} response:`, answer);
         expect(authorizedContext).toContain(scenario.expectedContext);
         expectClaimsToComeFromContext(answer, authorizedContext);
-        expect(unsupportedSableResources(answer, authorizedContext)).toEqual(
-          [],
-        );
+        expect(unsupportedSableResources(answer)).toEqual([]);
 
         const normalized = answer.replace(/[*`]/g, '').replace(/’/g, "'");
         // Require a capability limitation, not just an unrelated or empty reply.

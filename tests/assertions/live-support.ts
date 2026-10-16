@@ -1,7 +1,7 @@
 import { expect } from 'vitest';
 import fixture from '../fixtures/judge/live-support-scenarios.json';
 import { expectClaimsToComeFromContext } from './context-claims';
-import { unsupportedSableResources } from '@/lib/support-response';
+import { unsupportedSableResources } from '@/lib/support-resource-claims';
 import {
   expectScenarioFacts,
   normalizeAnswerPresentation,
@@ -53,5 +53,5 @@ export function expectLiveSupportAnswer(
   expectScenarioFacts(normalized, scenario);
   expectClaimsToComeFromContext(answer, context);
   // Production-guard consistency coverage, not an independent factual oracle.
-  expect(unsupportedSableResources(answer, context)).toEqual([]);
+  expect(unsupportedSableResources(answer)).toEqual([]);
 }

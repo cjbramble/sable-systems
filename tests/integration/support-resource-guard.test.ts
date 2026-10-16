@@ -14,7 +14,44 @@ const question =
 // An invented SABLE resource is intermittent, so the server asks the model
 // once more. Nothing invented is returned or saved.
 describe('SABLE resource guard', () => {
+  test('saves a formatted denial unchanged without a corrective request', async ({
+    supportApi: fixture,
+  }) => {
+    const incidentId = 'INC-RESOURCE-DENIAL';
+    const supported =
+      'The records do not provide a **SABLE Systems** returns specialist. I cannot reopen or authorize this return.';
+    await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+    const session = await fixture.session(calderPikeUser);
+    const model = fixture.mockModel(supported, supported);
+    const response = await chat(
+      session.request({
+        expectedRevision: 0,
+        incidentId,
+        messageId: 'MSG-RESOURCE-DENIAL',
+        message: 'Reopen return RTN-2022-000014 and authorize it again.',
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ message: supported });
+    expect(model).toHaveBeenCalledOnce();
+    expect(
+      (await fixture.messageContents(incidentId)).results.map(
+        (row) => (row as { content: string }).content,
+      ),
+    ).toContain(supported);
+  });
+
   for (const [kind, unsupported, phrase] of [
+    [
+      'FORMATTED',
+      'Please contact **SABLE Systems** Medical Operations Division.',
+      'SABLE Systems Medical Operations Division',
+    ],
+    [
+      'INTERNAL',
+      'Please contact our returns specialist to reopen it.',
+      'our returns specialist',
+    ],
     [
       'ROLE',
       'Please ask the SABLE Systems certified returns specialist to reopen it.',

@@ -1,10 +1,10 @@
+import { unsupportedSableResources } from '@/lib/support-resource-claims';
 import { describe, expect, onTestFinished, vi } from 'vitest';
 import { POST as chat } from '@/app/api/chat/route';
 import { buildSupportContext } from '@/db/support';
 import {
   hasGroundedSupportIdentifiers,
   unavailableRecordReply,
-  unsupportedSableResources,
 } from '@/lib/support-response';
 import { requireSupportRecords } from '../assertions/support-context';
 import { test } from '../fixtures/support-integration';
@@ -254,7 +254,6 @@ describe('compound request omissions', () => {
       expect(
         unsupportedSableResources(
           'Please contact SABLE Systems Medical Operations Division for assistance.',
-          context.records,
         ),
       ).toEqual(['SABLE Systems Medical Operations Division']);
       expect(context.records).toContain('SBL-RPC-12');
