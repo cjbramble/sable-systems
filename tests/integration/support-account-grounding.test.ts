@@ -17,7 +17,6 @@ describe('support account grounding', () => {
 
     expect(classifySupportQuery(messages)).toEqual({
       kind: 'account',
-      includeCharges: true,
     });
 
     const database = await getDatabase();

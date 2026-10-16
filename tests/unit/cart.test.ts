@@ -14,7 +14,6 @@ const product: CatalogProduct = {
   leadTimeDays: 2,
   warrantyMonths: 12,
   availableQuantity: 312,
-  inboundQuantity: 0,
   restockDate: null,
 };
 const cable = {

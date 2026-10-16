@@ -10,7 +10,7 @@ import {
 } from './support-model-config.mjs';
 import { supportModelConfig } from './support-model-runtime';
 
-export const SUPPORT_RECORDS_SOURCE = 'authorized_support_records';
+const SUPPORT_RECORDS_SOURCE = 'authorized_support_records';
 
 type SupportModelGeneration = {
   temperature: number;
@@ -73,7 +73,6 @@ export function createSupportModelRequest({
       kind: 'ready';
       request: [string, RequestInit];
       estimatedTokens: number;
-      droppedHistoryMessages: number;
     } {
   const config = supportModelConfig();
   const settings = { ...defaultGeneration, ...generation };
@@ -96,7 +95,6 @@ export function createSupportModelRequest({
   return {
     kind: 'ready',
     estimatedTokens: budget.estimatedTokens,
-    droppedHistoryMessages: budget.droppedHistoryMessages,
     request: [
       config.url,
       {

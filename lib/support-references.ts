@@ -36,7 +36,7 @@ export type ReferenceOccurrence = {
   end: number;
 };
 
-export type ParsedSupportReferences = {
+type ParsedSupportReferences = {
   occurrences: ReferenceOccurrence[];
   remainder: string;
 };

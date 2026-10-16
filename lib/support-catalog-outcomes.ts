@@ -39,14 +39,14 @@ export type InventoryAdvisoryOutcome = {
   verifiedReferences: VerifiedSupportReference[];
 };
 
-export type UnknownProductsOutcome = {
+type UnknownProductsOutcome = {
   kind: 'unknown_products';
   outcome: 'unavailable';
   // Requested item numbers may be echoed without verifying any record.
   requestedItemNumbers: string[];
 };
 
-export type OmittedProductsOutcome = {
+type OmittedProductsOutcome = {
   kind: 'omitted_products';
   outcome: 'omitted';
   // Unanswered targets are echo allowances, not missing or verified products.

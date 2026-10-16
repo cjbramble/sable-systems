@@ -7,12 +7,12 @@ import {
 import { reconcileSupportSnapshot } from './support-reconciliation';
 
 type ExchangeCommand = { request: SupportCommand; createdAt: string };
-export type SupportExchange = ExchangeCommand &
+type SupportExchange = ExchangeCommand &
   (
     | { status: 'pending'; wasUncertain: boolean }
     | { status: 'failed' | 'uncertain'; error: string }
   );
-export type SupportRecovery = {
+type SupportRecovery = {
   message: string | null;
   status: 'stale' | 'ready';
   error?: string;

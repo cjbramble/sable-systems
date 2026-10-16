@@ -1,6 +1,6 @@
 import type { OrderStatus } from './contracts.ts';
 
-export type SupportOrderStatus = OrderStatus | 'active';
+type SupportOrderStatus = OrderStatus | 'active';
 export type SupportOrderStatusFilter =
   | {
       kind: 'filter';

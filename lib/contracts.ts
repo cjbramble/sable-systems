@@ -62,7 +62,6 @@ export type CatalogProduct = {
   leadTimeDays: number;
   warrantyMonths: number;
   availableQuantity: number | null;
-  inboundQuantity: number;
   restockDate: string | null;
 };
 
@@ -92,12 +91,10 @@ export type OrderHistoryEntry = {
   status: OrderStatus;
   currency: string;
   orderTotalCents: number;
-  shippingRegion: string;
   placedByUserId: string;
   placedByName: string;
   lineCount: number;
   unitCount: number;
-  shippedQuantity: number;
 };
 
 export type OrderHistoryResponse = {

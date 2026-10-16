@@ -9,10 +9,10 @@ export function claimsMatching(value: string, pattern: RegExp) {
 export const orderIdPattern = /\bSBL-\d{4}-\d{6}\b/g;
 export const itemNumberPattern =
   /\bSBL-(?!\d{4}-\d{6}\b)[A-Z0-9]+(?:-[A-Z0-9]+)+\b/g;
-export const shipmentIdPattern = /\bSHP-\d{4}-\d{6}\b/g;
-export const returnIdPattern = /\bRTN-\d{4}-\d{6}\b/g;
+const shipmentIdPattern = /\bSHP-\d{4}-\d{6}\b/g;
+const returnIdPattern = /\bRTN-\d{4}-\d{6}\b/g;
 export const incidentIdPattern = /\bINC-[A-Za-z0-9-]{6,100}\b/g;
-export const trackingReferencePattern = /\bAST-\d{10}\b/g;
+const trackingReferencePattern = /\bAST-\d{10}\b/g;
 const factualClaimPatterns = [
   orderIdPattern,
   itemNumberPattern,

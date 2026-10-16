@@ -6,7 +6,7 @@ import {
   usdCents,
 } from './context-claims';
 
-export type ComparisonProductFacts = {
+type ComparisonProductFacts = {
   item: string;
   name: string;
   unit: string;

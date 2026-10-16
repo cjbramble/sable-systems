@@ -190,10 +190,3 @@ export function getSamplingScenario(name = 'case-pack') {
     throw new Error(`Unknown sampling scenario: ${name}`);
   return samplingScenarios[name];
 }
-
-// Model judging must never rescue a failed factual assertion.
-export function combinedSamplingPassed(samples) {
-  return (
-    samples.length === 5 && samples.every((sample) => sample.passed === true)
-  );
-}

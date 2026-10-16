@@ -113,7 +113,7 @@ The database initializes automatically with four distributors, catalog inventory
 orders dated 2021–2031, shipments, returns, account records, and support incidents.
 
 - Database state and runtime files: `.wrangler/`
-- Model server logs: `reports/server-logs/`
+- Hosted-model run artifacts: `reports/model-runs/` and `reports/judge-runs/`
 - Schema and seed definitions: [db/schema.ts](db/schema.ts) and [db/seed.ts](db/seed.ts)
 
 Runtime directories are Git-ignored. Existing records are preserved on startup;

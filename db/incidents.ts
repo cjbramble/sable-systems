@@ -124,7 +124,7 @@ async function assertIncidentWritable(
   if (state === 'deleted') throw new IncidentDeletedError();
 }
 
-export async function getSupportIncidentRevision(
+async function getSupportIncidentRevision(
   db: D1Database,
   user: AuthenticatedUser,
   incidentId: string,
@@ -137,7 +137,7 @@ export async function getSupportIncidentRevision(
   return incident?.revision ?? 0;
 }
 
-export async function hasSupportMessageIdConflict(
+async function hasSupportMessageIdConflict(
   db: D1Database,
   incidentId: string,
   messageId: string,
@@ -224,7 +224,7 @@ type SavedSupportExchange = {
   revision: number | null;
 };
 
-export function supportReply(exchange: SavedSupportExchange): SupportReply {
+function supportReply(exchange: SavedSupportExchange): SupportReply {
   if (
     exchange.assistantMessage === null ||
     exchange.assistantCreatedAt === null ||
@@ -240,7 +240,7 @@ export function supportReply(exchange: SavedSupportExchange): SupportReply {
   };
 }
 
-export async function getSavedSupportExchange(
+async function getSavedSupportExchange(
   db: D1Database,
   user: AuthenticatedUser,
   incidentId: string,

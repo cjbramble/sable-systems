@@ -6,9 +6,9 @@ import type {
   OrderStatus,
 } from '@/lib/contracts';
 
-export const ORDER_HISTORY_PAGE_SIZE = 25;
+const ORDER_HISTORY_PAGE_SIZE = 25;
 
-export const ORDER_HISTORY_FILTERS = [
+const ORDER_HISTORY_FILTERS = [
   'all',
   'active',
   'scheduled',
@@ -24,12 +24,10 @@ type OrderRow = {
   status: OrderStatus;
   currency: string;
   order_total_cents: number;
-  shipping_region: string;
   placed_by_user_id: string;
   placed_by_name: string;
   line_count: number;
   unit_count: number;
-  shipped_quantity: number;
 };
 
 type CountRow = {
@@ -39,7 +37,7 @@ type CountRow = {
   fulfilled_orders: number;
 };
 
-export type OrderHistoryInput = {
+type OrderHistoryInput = {
   page: number;
   status: OrderHistoryFilter;
   query: string;
@@ -104,17 +102,15 @@ export async function getOrderHistory(
   const rowsStatement = db
     .prepare(`SELECT
       o.order_id, o.customer_po_number, o.created_on, o.requested_ship_date,
-      o.status, o.currency, o.order_total_cents, o.shipping_region,
+      o.status, o.currency, o.order_total_cents,
       o.placed_by_user_id, u.display_name AS placed_by_name,
       COALESCE(lines.line_count, 0) AS line_count,
-      COALESCE(lines.unit_count, 0) AS unit_count,
-      COALESCE(lines.shipped_quantity, 0) AS shipped_quantity
+      COALESCE(lines.unit_count, 0) AS unit_count
     FROM orders o
     JOIN users u ON u.user_id = o.placed_by_user_id
     LEFT JOIN (
       SELECT order_id, COUNT(*) AS line_count,
-        SUM(ordered_quantity) AS unit_count,
-        SUM(shipped_quantity) AS shipped_quantity
+        SUM(ordered_quantity) AS unit_count
       FROM order_items
       GROUP BY order_id
     ) lines ON lines.order_id = o.order_id
@@ -164,12 +160,10 @@ export async function getOrderHistory(
         status: row.status,
         currency: row.currency,
         orderTotalCents: Number(row.order_total_cents),
-        shippingRegion: row.shipping_region,
         placedByUserId: row.placed_by_user_id,
         placedByName: row.placed_by_name,
         lineCount: Number(row.line_count),
         unitCount: Number(row.unit_count),
-        shippedQuantity: Number(row.shipped_quantity),
       }),
     ),
     page: input.page,

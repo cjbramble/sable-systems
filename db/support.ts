@@ -184,7 +184,7 @@ async function authorizedContextForIntent(
     case 'incidents':
       return lookupSupportIncidentHistory(db, user);
     case 'account':
-      return lookupSupportAccount(db, user, intent.includeCharges);
+      return lookupSupportAccount(db, user);
     case 'catalog':
       return lookupSupportProductRequest(db, intent, matches);
     case 'summary': {
