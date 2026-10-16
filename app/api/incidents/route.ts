@@ -1,6 +1,7 @@
+import { isTrustedMutation } from '@/lib/request-origin';
 import { requestLimitResponse } from '@/lib/request-limit-response';
 import { parseIncidentId } from '@/lib/chat-request';
-import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
+import { getAuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { consumeRequestQuota } from '@/db/request-limits';
 import { deleteSupportIncident, listSupportIncidents } from '@/db/incidents';

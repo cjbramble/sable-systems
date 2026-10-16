@@ -1,8 +1,8 @@
+import { isTrustedMutation } from '@/lib/request-origin';
 import { requestLimitResponse } from '@/lib/request-limit-response';
 import {
   authenticateCredentials,
   createSession,
-  isTrustedMutation,
   parseLoginInput,
 } from '@/db/auth';
 import { getDatabase } from '@/db/database';

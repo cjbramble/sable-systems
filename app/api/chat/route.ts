@@ -1,4 +1,5 @@
-import { getAuthenticatedUser, isTrustedMutation } from '@/db/auth';
+import { isTrustedMutation } from '@/lib/request-origin';
+import { getAuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import {
   answerSupportMessage,
