@@ -117,7 +117,9 @@ orders dated 2021–2031, shipments, returns, account records, and support incid
 - Schema and seed definitions: [db/schema.ts](db/schema.ts) and [db/seed.ts](db/seed.ts)
 
 Runtime directories are Git-ignored. Existing records are preserved on startup;
-interrupted initialization resumes from the last committed batch.
+interrupted initialization resumes from the last committed batch. Ready databases
+skip main seed construction. Named records and their serialized order are checked
+against the existing resume sequence.
 
 ### Data maintenance
 

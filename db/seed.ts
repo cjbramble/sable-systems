@@ -1,9 +1,9 @@
+import {
+  serializeSeedRecord,
+  type SeedRecord,
+  type SeedStatement,
+} from './seed-records.ts';
 import type { OrderStatus } from '../lib/contracts.ts';
-
-export type SeedStatement = {
-  sql: string;
-  params: Array<string | number | null>;
-};
 
 type ProductSeed = {
   itemNumber: string;
@@ -43,8 +43,8 @@ type OrderSeed = {
   eventDescription?: string;
 };
 
-export const PRIMARY_CUSTOMER_ID = 'WHS-0427';
-export const PRIMARY_USER_ID = 'USR-CPD-001';
+const PRIMARY_CUSTOMER_ID = 'WHS-0427';
+const PRIMARY_USER_ID = 'USR-CPD-001';
 export const AS_OF_DATE = '2026-09-02';
 
 const userIdByCustomer: Record<string, string> = {
@@ -54,7 +54,7 @@ const userIdByCustomer: Record<string, string> = {
   'WHS-5830': 'USR-HIX-001',
 };
 
-export const products: ProductSeed[] = [
+const products: ProductSeed[] = [
   product(
     'SBL-M14-CW',
     'Monarch M14 Compute Wafer',
@@ -446,22 +446,26 @@ const representativeOrders: OrderSeed[] = [
 ];
 
 export function buildSeedStatements(): SeedStatement[] {
-  const statements: SeedStatement[] = [];
-  insertReferenceData(statements);
+  return buildSeedRecords().map(serializeSeedRecord);
+}
+
+export function buildSeedRecords(): SeedRecord[] {
+  const records: SeedRecord[] = [];
+  appendReferenceRecords(records);
 
   const orders = [
     ...representativeOrders,
     ...generatePrimaryOrders(636),
     ...generateOtherDistributorOrders(),
   ];
-  for (const row of orders) insertOrder(statements, row);
+  for (const row of orders) appendOrderRecords(records, row);
 
-  insertRepresentativeReturn(statements);
-  statements.push({
-    sql: 'INSERT INTO metadata (key, value) VALUES (?, ?)',
-    params: ['as_of_date', AS_OF_DATE],
+  appendReturnRecords(records);
+  records.push({
+    table: 'metadata',
+    values: { key: 'as_of_date', value: AS_OF_DATE },
   });
-  return statements;
+  return records;
 }
 
 function product(
@@ -527,176 +531,168 @@ function order(
   };
 }
 
-function insertReferenceData(statements: SeedStatement[]) {
+function appendReferenceRecords(records: SeedRecord[]) {
   const distributors = [
-    [
-      'WHS-0427',
-      'Calder Pike Distribution Cooperative',
-      'Calder Pike Distribution',
-      'Obsidian Preferred',
-      'active',
-      'Net 45',
-      'USD',
-      'North Atlantic Trade District',
-    ],
-    [
-      'WHS-1098',
-      'Meridian Civic Supply Limited',
-      'Meridian Civic Supply',
-      'Standard',
-      'active',
-      'Net 30',
-      'USD',
-      'Meridian Corridor',
-    ],
-    [
-      'WHS-2714',
-      'Northline Prosthetics Cooperative',
-      'Northline Prosthetics Cooperative',
-      'Preferred',
-      'active',
-      'Net 45',
-      'USD',
-      'Great Lakes District',
-    ],
-    [
-      'WHS-5830',
-      'Halcyon Industrial Exchange Incorporated',
-      'Halcyon Industrial Exchange',
-      'Standard',
-      'active',
-      'Net 30',
-      'USD',
-      'Pacific Trade Zone',
-    ],
+    {
+      customer_id: 'WHS-0427',
+      legal_name: 'Calder Pike Distribution Cooperative',
+      display_name: 'Calder Pike Distribution',
+      account_tier: 'Obsidian Preferred',
+      account_status: 'active',
+      payment_terms: 'Net 45',
+      currency: 'USD',
+      region: 'North Atlantic Trade District',
+    },
+    {
+      customer_id: 'WHS-1098',
+      legal_name: 'Meridian Civic Supply Limited',
+      display_name: 'Meridian Civic Supply',
+      account_tier: 'Standard',
+      account_status: 'active',
+      payment_terms: 'Net 30',
+      currency: 'USD',
+      region: 'Meridian Corridor',
+    },
+    {
+      customer_id: 'WHS-2714',
+      legal_name: 'Northline Prosthetics Cooperative',
+      display_name: 'Northline Prosthetics Cooperative',
+      account_tier: 'Preferred',
+      account_status: 'active',
+      payment_terms: 'Net 45',
+      currency: 'USD',
+      region: 'Great Lakes District',
+    },
+    {
+      customer_id: 'WHS-5830',
+      legal_name: 'Halcyon Industrial Exchange Incorporated',
+      display_name: 'Halcyon Industrial Exchange',
+      account_tier: 'Standard',
+      account_status: 'active',
+      payment_terms: 'Net 30',
+      currency: 'USD',
+      region: 'Pacific Trade Zone',
+    },
   ];
-  for (const params of distributors)
-    statements.push({
-      sql: 'INSERT INTO distributors VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      params,
-    });
+  for (const values of distributors)
+    records.push({ table: 'distributors', values: values });
 
   const users = [
-    [
-      PRIMARY_USER_ID,
-      PRIMARY_CUSTOMER_ID,
-      'Mara Venn',
-      'mara.venn@calderpike.example',
-      'account_admin',
-      'active',
-      '2021-01-04',
-      '2026-09-02T08:42:00Z',
-    ],
-    [
-      'USR-MCS-001',
-      'WHS-1098',
-      'Imani Kade',
-      'imani.kade@meridiancivic.example',
-      'account_admin',
-      'active',
-      '2021-02-15',
-      '2026-08-29T13:05:00Z',
-    ],
-    [
-      'USR-NPC-001',
-      'WHS-2714',
-      'Rowan Sato',
-      'rowan.sato@northline.example',
-      'account_admin',
-      'active',
-      '2021-03-08',
-      '2026-08-31T16:20:00Z',
-    ],
-    [
-      'USR-HIX-001',
-      'WHS-5830',
-      'Lena Orr',
-      'lena.orr@halcyonexchange.example',
-      'account_admin',
-      'active',
-      '2021-04-19',
-      '2026-08-27T10:15:00Z',
-    ],
+    {
+      user_id: PRIMARY_USER_ID,
+      distributor_id: PRIMARY_CUSTOMER_ID,
+      display_name: 'Mara Venn',
+      email: 'mara.venn@calderpike.example',
+      role: 'account_admin',
+      status: 'active',
+      created_on: '2021-01-04',
+      last_login_at: '2026-09-02T08:42:00Z',
+    },
+    {
+      user_id: 'USR-MCS-001',
+      distributor_id: 'WHS-1098',
+      display_name: 'Imani Kade',
+      email: 'imani.kade@meridiancivic.example',
+      role: 'account_admin',
+      status: 'active',
+      created_on: '2021-02-15',
+      last_login_at: '2026-08-29T13:05:00Z',
+    },
+    {
+      user_id: 'USR-NPC-001',
+      distributor_id: 'WHS-2714',
+      display_name: 'Rowan Sato',
+      email: 'rowan.sato@northline.example',
+      role: 'account_admin',
+      status: 'active',
+      created_on: '2021-03-08',
+      last_login_at: '2026-08-31T16:20:00Z',
+    },
+    {
+      user_id: 'USR-HIX-001',
+      distributor_id: 'WHS-5830',
+      display_name: 'Lena Orr',
+      email: 'lena.orr@halcyonexchange.example',
+      role: 'account_admin',
+      status: 'active',
+      created_on: '2021-04-19',
+      last_login_at: '2026-08-27T10:15:00Z',
+    },
   ];
-  for (const params of users)
-    statements.push({
-      sql: 'INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      params,
-    });
+  for (const values of users) records.push({ table: 'users', values: values });
 
   const credentials = [
-    [
-      PRIMARY_USER_ID,
-      '1lIuQK9XkwWkY0c0AE4ZXg',
-      'RSZ-1tPotPr5bdAasAm06V-Qa4mC_m5Lj5khmqATtdE',
-      210000,
-      '2026-09-02T10:30:00Z',
-    ],
-    [
-      'USR-MCS-001',
-      'Wt9n8uox9Upi6cBE_ye-6g',
-      'UrIMz0NH1Hhy8E5yDuElml5XW3z8E_KKnbvQmtG3AsM',
-      210000,
-      '2026-09-02T10:30:00Z',
-    ],
-    [
-      'USR-NPC-001',
-      'g8JLxlQzzW2g424PDxucig',
-      'kQ99m_A5Z6uyu145H3Kq50iDLIaVskUN5KovMkapyZY',
-      210000,
-      '2026-09-02T10:30:00Z',
-    ],
-    [
-      'USR-HIX-001',
-      'gd8bi2Giq_dEaikXJ3kGaA',
-      'Yehzp-jylkN6Zz74bgfGGr9on7GoyCeqV5ht6mVHilA',
-      210000,
-      '2026-09-02T10:30:00Z',
-    ],
+    {
+      user_id: PRIMARY_USER_ID,
+      password_salt: '1lIuQK9XkwWkY0c0AE4ZXg',
+      password_hash: 'RSZ-1tPotPr5bdAasAm06V-Qa4mC_m5Lj5khmqATtdE',
+      password_iterations: 210000,
+      password_updated_at: '2026-09-02T10:30:00Z',
+    },
+    {
+      user_id: 'USR-MCS-001',
+      password_salt: 'Wt9n8uox9Upi6cBE_ye-6g',
+      password_hash: 'UrIMz0NH1Hhy8E5yDuElml5XW3z8E_KKnbvQmtG3AsM',
+      password_iterations: 210000,
+      password_updated_at: '2026-09-02T10:30:00Z',
+    },
+    {
+      user_id: 'USR-NPC-001',
+      password_salt: 'g8JLxlQzzW2g424PDxucig',
+      password_hash: 'kQ99m_A5Z6uyu145H3Kq50iDLIaVskUN5KovMkapyZY',
+      password_iterations: 210000,
+      password_updated_at: '2026-09-02T10:30:00Z',
+    },
+    {
+      user_id: 'USR-HIX-001',
+      password_salt: 'gd8bi2Giq_dEaikXJ3kGaA',
+      password_hash: 'Yehzp-jylkN6Zz74bgfGGr9on7GoyCeqV5ht6mVHilA',
+      password_iterations: 210000,
+      password_updated_at: '2026-09-02T10:30:00Z',
+    },
   ];
-  for (const params of credentials)
-    statements.push({
-      sql: 'INSERT INTO user_credentials VALUES (?, ?, ?, ?, ?)',
-      params,
-    });
+  for (const values of credentials)
+    records.push({ table: 'user_credentials', values: values });
 
   for (const row of products) {
-    statements.push({
-      sql: `INSERT INTO products (
-        item_number, product_name, category, fulfillment_type, unit_price_cents,
-        unit_label, case_pack, lead_time_days, warranty_months, active_from, active_to, search_terms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      params: [
-        row.itemNumber,
-        row.name,
-        row.category,
-        row.fulfillmentType,
-        row.unitPriceCents,
-        row.unitLabel,
-        row.casePack,
-        row.leadTimeDays,
-        row.warrantyMonths,
-        row.activeFrom,
-        row.activeTo,
-        row.searchTerms,
-      ],
+    records.push({
+      table: 'products',
+      values: {
+        item_number: row.itemNumber,
+        product_name: row.name,
+        category: row.category,
+        fulfillment_type: row.fulfillmentType,
+        unit_price_cents: row.unitPriceCents,
+        unit_label: row.unitLabel,
+        case_pack: row.casePack,
+        lead_time_days: row.leadTimeDays,
+        warranty_months: row.warrantyMonths,
+        active_from: row.activeFrom,
+        active_to: row.activeTo,
+        search_terms: row.searchTerms,
+      },
     });
   }
 
   const locations = [
-    [
-      'ATL-01',
-      'Atlantic Stack Fulfillment Hub',
-      'North Atlantic Trade District',
-    ],
-    ['GLK-02', 'Great Lakes Technical Depot', 'Great Lakes District'],
-    ['PAC-03', 'Pacific Rim Bonded Yard', 'Pacific Trade Zone'],
+    {
+      location_id: 'ATL-01',
+      location_name: 'Atlantic Stack Fulfillment Hub',
+      service_region: 'North Atlantic Trade District',
+    },
+    {
+      location_id: 'GLK-02',
+      location_name: 'Great Lakes Technical Depot',
+      service_region: 'Great Lakes District',
+    },
+    {
+      location_id: 'PAC-03',
+      location_name: 'Pacific Rim Bonded Yard',
+      service_region: 'Pacific Trade Zone',
+    },
   ];
-  for (const params of locations)
-    statements.push({
-      sql: 'INSERT INTO fulfillment_locations VALUES (?, ?, ?)',
-      params,
-    });
+  for (const values of locations)
+    records.push({ table: 'fulfillment_locations', values: values });
 
   for (const row of products.filter(
     (item) => item.fulfillmentType === 'physical',
@@ -725,18 +721,18 @@ function insertReferenceData(statements: SeedStatement[]) {
       reservedRemaining -= reserved;
       quarantineRemaining -= quarantined;
       inboundRemaining -= inbound;
-      statements.push({
-        sql: 'INSERT INTO inventory_balances VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        params: [
-          row.itemNumber,
-          locationIds[index],
-          available + reserved + quarantined,
-          reserved,
-          quarantined,
-          inbound,
-          row.restockDate,
-          `${AS_OF_DATE}T09:00:00Z`,
-        ],
+      records.push({
+        table: 'inventory_balances',
+        values: {
+          item_number: row.itemNumber,
+          location_id: locationIds[index],
+          on_hand_quantity: available + reserved + quarantined,
+          reserved_quantity: reserved,
+          quarantined_quantity: quarantined,
+          inbound_quantity: inbound,
+          expected_restock_date: row.restockDate,
+          updated_at: `${AS_OF_DATE}T09:00:00Z`,
+        },
       });
     }
   }
@@ -849,7 +845,7 @@ function generatedStatus(
   return active[index % active.length];
 }
 
-function insertOrder(statements: SeedStatement[], row: OrderSeed) {
+function appendOrderRecords(records: SeedRecord[], row: OrderSeed) {
   const plannedShippedOn = addDays(
     row.requestedShipDate,
     row.status === 'delivered' ? -2 : 0,
@@ -892,59 +888,57 @@ function insertOrder(statements: SeedStatement[], row: OrderSeed) {
     (total, item) => total + item.catalog.unitPriceCents * item.quantity,
     0,
   );
-  statements.push({
-    sql: `INSERT INTO orders (
-      order_id, customer_id, placed_by_user_id, customer_po_number, created_on,
-      requested_ship_date, status, currency, order_total_cents, shipping_region
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    params: [
-      row.orderId,
-      row.customerId,
-      row.placedByUserId,
-      row.customerPoNumber,
-      row.createdOn,
-      row.requestedShipDate,
-      row.status,
-      'USD',
-      totalCents,
-      row.shippingRegion,
-    ],
+  records.push({
+    table: 'orders',
+    values: {
+      order_id: row.orderId,
+      customer_id: row.customerId,
+      placed_by_user_id: row.placedByUserId,
+      customer_po_number: row.customerPoNumber,
+      created_on: row.createdOn,
+      requested_ship_date: row.requestedShipDate,
+      status: row.status,
+      currency: 'USD',
+      order_total_cents: totalCents,
+      shipping_region: row.shippingRegion,
+    },
   });
   for (const item of itemRows) {
-    statements.push({
-      sql: 'INSERT INTO order_items VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      params: [
-        row.orderId,
-        item.lineNumber,
-        item.catalog.itemNumber,
-        item.catalog.name,
-        item.catalog.unitPriceCents,
-        item.quantity,
-        item.allocated,
-        item.shipped,
-        item.cancelled,
-      ],
+    records.push({
+      table: 'order_items',
+      values: {
+        order_id: row.orderId,
+        line_number: item.lineNumber,
+        item_number: item.catalog.itemNumber,
+        product_name_snapshot: item.catalog.name,
+        unit_price_cents: item.catalog.unitPriceCents,
+        ordered_quantity: item.quantity,
+        allocated_quantity: item.allocated,
+        shipped_quantity: item.shipped,
+        cancelled_quantity: item.cancelled,
+      },
     });
   }
-  statements.push({
-    sql: 'INSERT INTO order_events VALUES (?, ?, ?, ?, ?)',
-    params: [
-      `EVT-${row.orderId}-001`,
-      row.orderId,
-      `${row.createdOn}T14:00:00Z`,
-      'order_created',
-      `Purchase order ${row.customerPoNumber} entered the SABLE fulfillment network.`,
-    ],
+  records.push({
+    table: 'order_events',
+    values: {
+      event_id: `EVT-${row.orderId}-001`,
+      order_id: row.orderId,
+      occurred_at: `${row.createdOn}T14:00:00Z`,
+      event_type: 'order_created',
+      customer_safe_description: `Purchase order ${row.customerPoNumber} entered the SABLE fulfillment network.`,
+    },
   });
-  statements.push({
-    sql: 'INSERT INTO order_events VALUES (?, ?, ?, ?, ?)',
-    params: [
-      `EVT-${row.orderId}-002`,
-      row.orderId,
-      `${statusDate}T09:00:00Z`,
-      row.status,
-      row.eventDescription ?? statusDescription(row.status),
-    ],
+  records.push({
+    table: 'order_events',
+    values: {
+      event_id: `EVT-${row.orderId}-002`,
+      order_id: row.orderId,
+      occurred_at: `${statusDate}T09:00:00Z`,
+      event_type: row.status,
+      customer_safe_description:
+        row.eventDescription ?? statusDescription(row.status),
+    },
   });
 
   if (shipmentTimeline) {
@@ -956,23 +950,28 @@ function insertOrder(statements: SeedStatement[], row: OrderSeed) {
             row.orderId === 'SBL-2026-000417'
           ? 'delayed'
           : 'in_transit';
-    statements.push({
-      sql: 'INSERT INTO shipments VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      params: [
-        shipmentId,
-        row.orderId,
-        shipmentStatus,
-        'Astra Freight Systems',
-        `AST-${row.orderId.replaceAll('-', '').slice(3)}`,
-        shipmentTimeline.shippedOn,
-        shipmentTimeline.estimatedDeliveryDate,
-        shipmentTimeline.deliveredOn,
-      ],
+    records.push({
+      table: 'shipments',
+      values: {
+        shipment_id: shipmentId,
+        order_id: row.orderId,
+        status: shipmentStatus,
+        carrier_name: 'Astra Freight Systems',
+        tracking_reference: `AST-${row.orderId.replaceAll('-', '').slice(3)}`,
+        shipped_on: shipmentTimeline.shippedOn,
+        estimated_delivery_date: shipmentTimeline.estimatedDeliveryDate,
+        delivered_on: shipmentTimeline.deliveredOn,
+      },
     });
     for (const item of itemRows.filter((candidate) => candidate.shipped > 0)) {
-      statements.push({
-        sql: 'INSERT INTO shipment_items VALUES (?, ?, ?, ?)',
-        params: [shipmentId, row.orderId, item.lineNumber, item.shipped],
+      records.push({
+        table: 'shipment_items',
+        values: {
+          shipment_id: shipmentId,
+          order_id: row.orderId,
+          line_number: item.lineNumber,
+          shipped_quantity: item.shipped,
+        },
       });
     }
   }
@@ -1008,22 +1007,28 @@ function quantitiesForStatus(
   return { allocated: 0, shipped: 0, cancelled: 0 };
 }
 
-function insertRepresentativeReturn(statements: SeedStatement[]) {
-  statements.push({
-    sql: 'INSERT INTO returns VALUES (?, ?, ?, ?, ?, ?, ?)',
-    params: [
-      'RTN-2022-000014',
-      'SBL-2022-000118',
-      'closed',
-      'sealed_surplus',
-      '2022-07-08',
-      '2022-07-09',
-      '2022-07-21',
-    ],
+function appendReturnRecords(records: SeedRecord[]) {
+  records.push({
+    table: 'returns',
+    values: {
+      return_id: 'RTN-2022-000014',
+      order_id: 'SBL-2022-000118',
+      status: 'closed',
+      reason_code: 'sealed_surplus',
+      requested_on: '2022-07-08',
+      authorized_on: '2022-07-09',
+      received_on: '2022-07-21',
+    },
   });
-  statements.push({
-    sql: 'INSERT INTO return_items VALUES (?, ?, ?, ?, ?)',
-    params: ['RTN-2022-000014', 'SBL-2022-000118', 1, 12, 'restock'],
+  records.push({
+    table: 'return_items',
+    values: {
+      return_id: 'RTN-2022-000014',
+      order_id: 'SBL-2022-000118',
+      line_number: 1,
+      return_quantity: 12,
+      disposition: 'restock',
+    },
   });
 }
 
@@ -1051,4 +1056,78 @@ function addDays(value: string, days: number) {
   const date = new Date(`${value}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+// Support history uses its own transactional marker, independent of main seed offsets.
+export function buildSupportSeedStatements(
+  userIds: readonly string[],
+): SeedStatement[] {
+  const templates = [
+    {
+      suffix: '01',
+      title: 'Priority shipment trace',
+      timestamp: '2026-09-03T08:42:00Z',
+      customer: 'Trace the priority shipment on our latest release.',
+      assistant:
+        'The latest priority release is allocated and queued for carrier handoff. I can provide the order-level milestones if you share the order number.',
+    },
+    {
+      suffix: '02',
+      title: 'Nerveline allocation',
+      timestamp: '2026-08-29T15:18:00Z',
+      customer: 'Check Nerveline hub availability for our account.',
+      assistant:
+        'I can check current Nerveline allocation, inbound quantities, and lead times against your authorized account.',
+    },
+    {
+      suffix: '03',
+      title: '2030 contract releases',
+      timestamp: '2026-08-24T11:06:00Z',
+      customer: 'Show our scheduled contract releases for 2030.',
+      assistant:
+        'Your 2030 releases can be reviewed by requested ship date, allocation state, or customer purchase order.',
+    },
+  ];
+  const statements: SeedStatement[] = [];
+  for (const userId of userIds) {
+    for (const template of templates) {
+      const incidentId = `INC-${userId}-${template.suffix}`;
+      statements.push(
+        {
+          sql: `INSERT OR IGNORE INTO support_incidents
+            (incident_id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+          params: [
+            incidentId,
+            userId,
+            template.title,
+            template.timestamp,
+            template.timestamp,
+          ],
+        },
+        {
+          sql: `INSERT OR IGNORE INTO support_messages
+            (message_id, incident_id, sequence_number, role, content, created_at)
+            VALUES (?, ?, 1, 'user', ?, ?)`,
+          params: [
+            `MSG-${userId}-${template.suffix}-01`,
+            incidentId,
+            template.customer,
+            template.timestamp,
+          ],
+        },
+        {
+          sql: `INSERT OR IGNORE INTO support_messages
+            (message_id, incident_id, sequence_number, role, content, created_at)
+            VALUES (?, ?, 2, 'assistant', ?, ?)`,
+          params: [
+            `MSG-${userId}-${template.suffix}-02`,
+            incidentId,
+            template.assistant,
+            template.timestamp,
+          ],
+        },
+      );
+    }
+  }
+  return statements;
 }

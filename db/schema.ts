@@ -286,3 +286,28 @@ export const schemaStatements = [
     ON inventory_balances(item_number)`,
   ACCOUNT_CHARGES_INDEX_SQL,
 ] as const;
+
+// Tables owned by this schema; used to reject unmarked foreign database layouts.
+export const schemaTables = [
+  'metadata',
+  'distributors',
+  'users',
+  'user_credentials',
+  'sessions',
+  'request_limits',
+  'support_incidents',
+  'support_incident_deletions',
+  'support_messages',
+  'products',
+  'fulfillment_locations',
+  'inventory_balances',
+  'orders',
+  'order_items',
+  'order_events',
+  'shipments',
+  'shipment_items',
+  'returns',
+  'return_items',
+  'account_charges',
+  'checkout_commands',
+] as const;
