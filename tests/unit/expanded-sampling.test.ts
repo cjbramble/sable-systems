@@ -1,6 +1,10 @@
 import { expect, it, vi } from 'vitest';
 import { expectFiveNormalGenerationSamples } from '../fixtures/model-sampling';
 import {
+  expectLiveSupportAnswer,
+  liveSupportScenarios,
+} from '../assertions/live-support';
+import {
   getSamplingScenario,
   listSamplingScenarios,
 } from '../../tools/evaluation/sampling-results.mjs';
@@ -73,7 +77,12 @@ it('retains current request, full history and authorized reference for a topic s
   ).toThrow('context');
 });
 
-it('retains all five independent requests even when an application assertion fails', async () => {
+it('retains every original answer when one sample contradicts the requested status', async () => {
+  const scenario = liveSupportScenarios.find(
+    ({ id }) => id === 'order-status',
+  )!;
+  const valid = '**SBL-2026-000417** is partially shipped.';
+  const contradiction = `${valid} The order is not partially shipped.`;
   const evidence: Array<[string, string]> = [];
   const requests: string[] = [];
   vi.spyOn(console, 'info').mockImplementation((label, row) =>
@@ -87,8 +96,7 @@ it('retains all five independent requests even when an application assertion fai
           {
             finish_reason: 'stop',
             message: {
-              content:
-                requests.length === 2 ? 'Wrong answer' : 'Correct answer',
+              content: requests.length === 2 ? contradiction : valid,
             },
           },
         ],
@@ -98,10 +106,11 @@ it('retains all five independent requests even when an application assertion fai
   try {
     await expect(
       expectFiveNormalGenerationSamples({
-        messages: [{ role: 'user', content: 'Give the status.' }],
-        authorizedContext: 'Authorized records.',
+        messages: [{ role: 'user', content: scenario.messages[0].content }],
+        authorizedContext: scenario.contextIncludes.join('\n'),
         logPrefix: 'Offline producer control',
-        checkResponse: (answer) => expect(answer).toBe('Correct answer'),
+        checkResponse: (answer, context) =>
+          expectLiveSupportAnswer(scenario, answer, context),
       }),
     ).rejects.toThrow('Every sample must pass');
     expect(requests).toHaveLength(5);
@@ -116,7 +125,14 @@ it('retains all five independent requests even when an application assertion fai
       true,
       true,
     ]);
-    expect(samples[1].answer).toBe('Wrong answer');
+    expect(samples.map((sample) => sample.answer)).toEqual([
+      valid,
+      contradiction,
+      valid,
+      valid,
+      valid,
+    ]);
+    expect(samples[1].failure.error).toContain('Denied expected status');
     expect(samples[1].failure.phase).toBe('factuality');
     expect(JSON.parse(evidence.at(-1)![1]).passed).toBe(4);
   } finally {

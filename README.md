@@ -254,7 +254,8 @@ run `npm run setup:judge` first. `npm run format` formats both application and P
 files. Browser and live-model suites run separately. `npm test` covers only the
 application unit/integration tests.
 Database tests use disposable local databases. Browser tests use controlled
-model responses.
+model responses. See [answer evaluation assertions](docs/evaluation-assertions.md)
+for the supported wording, independent controls, and limits of factuality checks.
 
 ### Judge evaluations
 

@@ -38,6 +38,8 @@ export function usdCents(value: string) {
   return cents;
 }
 
+// Token membership is supplemental evidence only. It does not establish which
+// entity or field an amount, date, or identifier describes.
 export function expectClaimsToComeFromContext(
   answer: string,
   context: string,
