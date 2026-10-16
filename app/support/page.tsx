@@ -17,7 +17,6 @@ import {
   Check,
   CircleUserRound,
   Clock3,
-  Headphones,
   History,
   LogOut,
   Menu,
@@ -1102,7 +1101,7 @@ export default function SupportPage() {
               type="button"
               onClick={() => void sendMessage('Help me trace an order')}
             >
-              <span className="topic-icon topic-icon--blue">
+              <span className="topic-icon">
                 <Clock3 />
               </span>
               <span>
@@ -1115,7 +1114,7 @@ export default function SupportPage() {
               type="button"
               onClick={() => void sendMessage('Help me start a return')}
             >
-              <span className="topic-icon topic-icon--coral">
+              <span className="topic-icon">
                 <RotateCcw />
               </span>
               <span>
@@ -1130,7 +1129,7 @@ export default function SupportPage() {
                 void sendMessage('Show current inventory advisories')
               }
             >
-              <span className="topic-icon topic-icon--mint">
+              <span className="topic-icon">
                 <CircleUserRound />
               </span>
               <span>
@@ -1139,21 +1138,6 @@ export default function SupportPage() {
               </span>
               <ArrowUp />
             </button>
-          </div>
-
-          <div className="service-card">
-            <div className="service-card__icon">
-              <Headphones />
-            </div>
-            <div>
-              <span className="service-card__status">
-                <i /> Biological escalation available
-              </span>
-              <h3>Request a liaison</h3>
-              <p>
-                COV-E will flag incidents requiring a Morrow Vale specialist.
-              </p>
-            </div>
           </div>
 
           <div className="trust-list">

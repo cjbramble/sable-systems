@@ -34,7 +34,7 @@ export type SupportQueryIntent =
       yearField?: 'created' | 'requested';
     }
   | { kind: 'incidents' }
-  | { kind: 'account'; includeCharges: boolean }
+  | { kind: 'account' }
   | {
       kind: 'catalog';
       message: string;
@@ -61,12 +61,12 @@ function classifyCurrentTopic(latest: string): SupportQueryIntent {
   const normalized = latest.toLowerCase();
   const items = itemReferences(latest);
   const category = requestedCategory(normalized);
-  const includeCharges =
+  const asksAboutAccount =
     /\b(charge|billing|authorization|payment|terms|currency|account tier|region)\b/.test(
       normalized,
     );
-  if (includeCharges && items.length === 0 && !category)
-    return { kind: 'account', includeCharges: true };
+  if (asksAboutAccount && items.length === 0 && !category)
+    return { kind: 'account' };
 
   const yearMatch = normalized.match(/\b(20\d{2})\b/);
   const year = yearMatch ? Number(yearMatch[1]) : undefined;

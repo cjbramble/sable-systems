@@ -9,7 +9,7 @@ const order = {
   namespace: 'order_id',
   identifier: 'SBL-2022-000118',
 };
-const account = { kind: 'account', includeCharges: true };
+const account = { kind: 'account' };
 
 describe('ordered compound request coverage', () => {
   it.each([

@@ -6,7 +6,7 @@ export const METADATA_TABLE_SQL = `CREATE TABLE IF NOT EXISTS metadata (
   value TEXT NOT NULL
 ) STRICT`;
 
-export const USERS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS users (
+const USERS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS users (
   user_id TEXT PRIMARY KEY,
   distributor_id TEXT NOT NULL REFERENCES distributors(customer_id),
   display_name TEXT NOT NULL,
@@ -17,7 +17,7 @@ export const USERS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS users (
   last_login_at TEXT
 ) STRICT`;
 
-export const USER_CREDENTIALS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS user_credentials (
+const USER_CREDENTIALS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS user_credentials (
   user_id TEXT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
   password_salt TEXT NOT NULL,
   password_hash TEXT NOT NULL,
@@ -25,7 +25,7 @@ export const USER_CREDENTIALS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS user_crede
   password_updated_at TEXT NOT NULL
 ) STRICT`;
 
-export const SESSIONS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS sessions (
+const SESSIONS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS sessions (
   session_id TEXT PRIMARY KEY,
   token_hash TEXT NOT NULL UNIQUE,
   user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
@@ -35,22 +35,22 @@ export const SESSIONS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS sessions (
   user_agent TEXT
 ) STRICT`;
 
-export const SESSIONS_USER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_sessions_user_expiry
+const SESSIONS_USER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_sessions_user_expiry
   ON sessions(user_id, expires_at)`;
 
-export const REQUEST_LIMITS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS request_limits (
+const REQUEST_LIMITS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS request_limits (
   quota_key TEXT PRIMARY KEY,
   attempts INTEGER NOT NULL CHECK (attempts > 0),
   expires_at INTEGER NOT NULL
 ) STRICT`;
 
-export const ORDER_USER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_orders_placed_by_user
+const ORDER_USER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_orders_placed_by_user
   ON orders(placed_by_user_id)`;
 
-export const ORDER_HISTORY_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_orders_customer_created
+const ORDER_HISTORY_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_orders_customer_created
   ON orders(customer_id, created_on DESC, order_id DESC)`;
 
-export const SUPPORT_INCIDENTS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS support_incidents (
+const SUPPORT_INCIDENTS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS support_incidents (
   incident_id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
   title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 120),
@@ -61,12 +61,12 @@ export const SUPPORT_INCIDENTS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS support_i
 
 // Retain only identity, even after an account is removed, so stale requests
 // cannot reuse a deleted incident ID. Conversation content is still deleted.
-export const SUPPORT_INCIDENT_DELETIONS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS support_incident_deletions (
+const SUPPORT_INCIDENT_DELETIONS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS support_incident_deletions (
   incident_id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL
 ) STRICT`;
 
-export const SUPPORT_MESSAGES_TABLE_SQL = `CREATE TABLE IF NOT EXISTS support_messages (
+const SUPPORT_MESSAGES_TABLE_SQL = `CREATE TABLE IF NOT EXISTS support_messages (
   message_id TEXT PRIMARY KEY,
   incident_id TEXT NOT NULL REFERENCES support_incidents(incident_id) ON DELETE CASCADE,
   sequence_number INTEGER NOT NULL CHECK (sequence_number > 0),
@@ -77,10 +77,10 @@ export const SUPPORT_MESSAGES_TABLE_SQL = `CREATE TABLE IF NOT EXISTS support_me
   UNIQUE (incident_id, sequence_number)
 ) STRICT`;
 
-export const SUPPORT_INCIDENTS_USER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_support_incidents_user_updated
+const SUPPORT_INCIDENTS_USER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_support_incidents_user_updated
   ON support_incidents(user_id, updated_at DESC)`;
 
-export const ORDER_USER_INSERT_TRIGGER_SQL = `CREATE TRIGGER IF NOT EXISTS orders_validate_user_insert
+const ORDER_USER_INSERT_TRIGGER_SQL = `CREATE TRIGGER IF NOT EXISTS orders_validate_user_insert
   BEFORE INSERT ON orders
   FOR EACH ROW
   WHEN NEW.placed_by_user_id IS NULL OR NOT EXISTS (
@@ -93,7 +93,7 @@ export const ORDER_USER_INSERT_TRIGGER_SQL = `CREATE TRIGGER IF NOT EXISTS order
     SELECT RAISE(ABORT, 'order user must be active and belong to distributor');
   END`;
 
-export const ORDER_USER_UPDATE_TRIGGER_SQL = `CREATE TRIGGER IF NOT EXISTS orders_validate_user_update
+const ORDER_USER_UPDATE_TRIGGER_SQL = `CREATE TRIGGER IF NOT EXISTS orders_validate_user_update
   BEFORE UPDATE OF placed_by_user_id, customer_id ON orders
   FOR EACH ROW
   WHEN NEW.placed_by_user_id IS NULL OR NOT EXISTS (
@@ -106,7 +106,7 @@ export const ORDER_USER_UPDATE_TRIGGER_SQL = `CREATE TRIGGER IF NOT EXISTS order
     SELECT RAISE(ABORT, 'order user must be active and belong to distributor');
   END`;
 
-export const ACCOUNT_CHARGES_TABLE_SQL = `CREATE TABLE IF NOT EXISTS account_charges (
+const ACCOUNT_CHARGES_TABLE_SQL = `CREATE TABLE IF NOT EXISTS account_charges (
   charge_id TEXT PRIMARY KEY,
   order_id TEXT NOT NULL UNIQUE REFERENCES orders(order_id) ON DELETE CASCADE,
   charge_method TEXT NOT NULL CHECK (charge_method = 'charge_account'),
@@ -117,10 +117,10 @@ export const ACCOUNT_CHARGES_TABLE_SQL = `CREATE TABLE IF NOT EXISTS account_cha
   authorized_at TEXT NOT NULL
 ) STRICT`;
 
-export const ACCOUNT_CHARGES_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_account_charges_order
+const ACCOUNT_CHARGES_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_account_charges_order
   ON account_charges(order_id)`;
 
-export const CHECKOUT_COMMANDS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS checkout_commands (
+const CHECKOUT_COMMANDS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS checkout_commands (
   command_id TEXT PRIMARY KEY,
   order_id TEXT UNIQUE REFERENCES orders(order_id) ON DELETE CASCADE,
   intent_json TEXT NOT NULL CHECK (json_valid(intent_json)),

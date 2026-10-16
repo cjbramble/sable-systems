@@ -11,22 +11,19 @@ import type {
 export async function lookupSupportAccount(
   db: D1Database,
   user: AuthenticatedUser,
-  includeCharges: boolean,
 ): Promise<AccountLookupOutcome> {
   const summary = await getAccountSummary(db, user);
-  const charges = includeCharges
-    ? (
-        await db
-          .prepare(`SELECT c.order_id, c.status, c.amount_cents, c.currency,
-          c.authorization_code, c.authorized_at
-          FROM account_charges c
-          JOIN orders o ON o.order_id = c.order_id
-          WHERE o.customer_id = ?
-          ORDER BY c.authorized_at DESC LIMIT 8`)
-          .bind(user.distributorId)
-          .all<SupportAccountCharge>()
-      ).results
-    : [];
+  const charges = (
+    await db
+      .prepare(`SELECT c.order_id, c.status, c.amount_cents, c.currency,
+        c.authorization_code, c.authorized_at
+        FROM account_charges c
+        JOIN orders o ON o.order_id = c.order_id
+        WHERE o.customer_id = ?
+        ORDER BY c.authorized_at DESC LIMIT 8`)
+      .bind(user.distributorId)
+      .all<SupportAccountCharge>()
+  ).results;
   return {
     kind: 'account',
     outcome: 'found',

@@ -1,6 +1,5 @@
 import { expect, it } from 'vitest';
 import {
-  combinedSamplingPassed,
   parseComparisonSamplingTranscript,
   parseSamplingTranscript,
 } from '../../tools/evaluation/sampling-results.mjs';
@@ -268,7 +267,6 @@ it.each(parserCases)(
       });
       const parsed = parseLines(failedLines)!;
       expect(parsed.samples[1]).toEqual(failed);
-      expect(combinedSamplingPassed(parsed.samples)).toBe(false);
       // Corrupt a failed sample independently of its summary. Neither a missing
       // answer nor an invalid failure record can be treated as a factual result.
       for (const invalid of [

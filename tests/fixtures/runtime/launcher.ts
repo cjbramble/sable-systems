@@ -21,7 +21,7 @@ type Event = {
   signal?: string;
 };
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
-export function alive(pid: number) {
+function alive(pid: number) {
   try {
     process.kill(pid, 0);
     return true;

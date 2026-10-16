@@ -25,7 +25,6 @@ type ProductRow = {
   warranty_months: number;
   active_to: string | null;
   available_quantity: number | null;
-  inbound_quantity: number | null;
   restock_date: string | null;
 };
 
@@ -43,7 +42,6 @@ export async function getCatalog(db: D1Database): Promise<CatalogProduct[]> {
     CASE WHEN p.fulfillment_type = 'license' THEN NULL
       ELSE COALESCE(SUM(i.on_hand_quantity - i.reserved_quantity - i.quarantined_quantity), 0)
     END AS available_quantity,
-    COALESCE(SUM(i.inbound_quantity), 0) AS inbound_quantity,
     MIN(i.expected_restock_date) AS restock_date
     FROM products p
     LEFT JOIN inventory_balances i ON i.item_number = p.item_number
@@ -67,7 +65,6 @@ export async function getCatalog(db: D1Database): Promise<CatalogProduct[]> {
         row.fulfillment_type === 'license'
           ? null
           : Number(row.available_quantity ?? 0),
-      inboundQuantity: Number(row.inbound_quantity ?? 0),
       restockDate: row.restock_date,
     }));
 }

@@ -8,7 +8,7 @@ import {
 } from './scenario-facts';
 
 export const liveSupportScenarios = fixture.scenarios;
-export type LiveSupportScenario = (typeof liveSupportScenarios)[number];
+type LiveSupportScenario = (typeof liveSupportScenarios)[number];
 
 export function expectLiveSupportContext(
   scenario: LiveSupportScenario,
