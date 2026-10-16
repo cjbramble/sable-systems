@@ -93,3 +93,55 @@ def test_direct_claim_reports_worst_verdict_for_compound_statement(model):
     )
     assert not result["passed"]
     assert result["verdicts"][0]["verdict"] == "idk"
+
+
+def test_conversation_context_is_separate_from_current_authoritative_evidence(model):
+    history = [
+        {"role": "user", "content": "What about Nova?"},
+        {"role": "assistant", "content": "Yesterday: 100 units."},
+    ]
+    model["scores"] = [1, 1, 0]
+    result = grading.judge_answer(
+        "How many now?",
+        "47 units.",
+        "47 units available.",
+        history=history,
+        policy="Only authorized records establish current stock.",
+    )
+    assert result["passed"]
+    assert result["conversationMetrics"][0]["success"] is False
+    truths_prompt = model["prompts"][model["schemas"].index("Truths")]
+    assert "100 units" not in truths_prompt
+    assert "47 units available" in truths_prompt
+    conversation_prompt = model["prompts"][-1]
+    assert "Yesterday: 100 units" in conversation_prompt
+    assert "How many now?" in conversation_prompt
+    assert "47 units available" in conversation_prompt
+
+
+def test_async_model_adapter_uses_the_same_schema_transport(model):
+    import asyncio
+
+    from deepeval.metrics.faithfulness.schema import Claims
+
+    judge = openrouter_judge.OpenRouterJudge()
+    result = asyncio.run(judge.a_generate("Extract claims", Claims))
+    assert result.claims == ["47 units."]
+    assert judge.requests[0]["completed"]
+
+
+@pytest.mark.parametrize("grounded", [0, 1])
+def test_empty_answer_extraction_gets_a_whole_answer_grounding_check(model, grounded):
+    model["claims"] = []
+    model["verdicts"] = []
+    model["scores"] = [1, 1, grounded]
+    result = grading.judge_answer("Stock?", "47 units.", "47 units available.")
+    assert result["dimensions"]["factualSupport"] is bool(grounded)
+    assert result["passed"] is bool(grounded)
+    assert len(result["metrics"]) == 4
+
+
+def test_whitespace_claim_is_execution_error(model):
+    model["claims"] = [" "]
+    with pytest.raises(JudgeError, match="empty claim"):
+        grading.judge_claims("Stock?", "47 units.", "47 units available.")

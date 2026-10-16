@@ -212,3 +212,14 @@ def test_transport_initializes_guard_without_sdk_and_closes_outside_scope():
         assert records[0]["errorType"] == "TimeoutError"
         assert "deepeval" not in sys.modules
     """)
+
+
+def test_local_evaluation_cannot_enable_cloud_uploads_from_inherited_credentials():
+    run_isolated("""
+        import os
+        os.environ["CONFIDENT_API_KEY"] = "inherited-test-key"
+        import support_grading
+        from deepeval.confident.api import is_confident
+        assert not is_confident()
+        assert os.environ["DEEPEVAL_DISABLE_LEGACY_KEYFILE"] == "1"
+    """)

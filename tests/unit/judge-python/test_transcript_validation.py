@@ -233,3 +233,50 @@ def test_execution_errors_preserve_requests_in_both_reports(
     assert (
         json.loads(output.with_suffix(".jsonl").read_text().splitlines()[1]) == result
     )
+
+
+def test_captured_records_override_fixture_oracle_without_mixing_history():
+    import transcript_evaluation as evaluation
+    from judge_inputs import TranscriptInput
+
+    request = {
+        "messages": [
+            {"role": "system", "content": "Read-only assistant."},
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "source": "authorized_support_records",
+                        "records": "Current stock: 47.",
+                    }
+                ),
+            },
+            {"role": "user", "content": "Earlier stock?"},
+            {"role": "assistant", "content": "Old stock: 100."},
+            {
+                "role": "user",
+                "content": "Are 310 units of the Redline Power Cell R12 available? Include the available quantity, case-pack validity, and any stock shortfall.",
+            },
+        ]
+    }
+    transcript = TranscriptInput.model_validate(
+        {
+            "mode": "transcript",
+            "batches": {
+                "case-pack": {
+                    "request": request,
+                    "samples": [
+                        {"sample": 1, "answer": "47 available.", "passed": False}
+                    ],
+                }
+            },
+        }
+    )
+    plan = evaluation.plan_transcript(transcript)[0]
+    assert plan.fixture.references == ["Current stock: 47."]
+    assert plan.reference_source == "captured"
+    assert [turn.content for turn in plan.history] == [
+        "Earlier stock?",
+        "Old stock: 100.",
+    ]
+    assert plan.policy == "Read-only assistant."

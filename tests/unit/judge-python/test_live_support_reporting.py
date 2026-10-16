@@ -14,7 +14,7 @@ def test_live_report_separates_application_disagreement_and_execution(
 ):
     called = []
 
-    def judge(question, answer, reference):
+    def judge(question, answer, reference, **kwargs):
         called.append((question, answer, reference))
         if phase == "judge":
             raise RuntimeError("Scripted judge outage")
@@ -48,10 +48,20 @@ def test_live_report_separates_application_disagreement_and_execution(
                 "reference": "Authorized order SBL-2026-000417 is partially_shipped. Original live context.",
                 "request": {
                     "messages": [
+                        {"role": "system", "content": "Read-only assistant."},
+                        {
+                            "role": "user",
+                            "content": json.dumps(
+                                {
+                                    "source": "authorized_support_records",
+                                    "records": "Authorized order SBL-2026-000417 is partially_shipped. Original live context.",
+                                }
+                            ),
+                        },
                         {
                             "role": "user",
                             "content": "What is the status of SBL-2026-000417? Include the order ID.",
-                        }
+                        },
                     ]
                 },
             }

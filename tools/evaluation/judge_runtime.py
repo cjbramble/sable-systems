@@ -77,11 +77,15 @@ def initialize_runtime() -> None:
                 "DEEPEVAL_TELEMETRY_OPT_OUT": "1",
                 "DEEPEVAL_TELEMETRY_ENABLED": "0",
                 "DEEPEVAL_DISABLE_DOTENV": "1",
+                "DEEPEVAL_DISABLE_LEGACY_KEYFILE": "1",
                 "DEEPEVAL_UPDATE_WARNING_OPT_IN": "0",
                 "DEEPEVAL_FILE_SYSTEM": "READ_ONLY",
                 "CONFIDENT_TRACE_FLUSH": "0",
             }
         )
+
+        # Local evaluation must not inherit a Confident AI login from the caller.
+        os.environ.pop("CONFIDENT_API_KEY", None)
 
         if not _initialized:
             sys.addaudithook(restrict_network)

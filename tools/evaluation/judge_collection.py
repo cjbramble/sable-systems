@@ -12,9 +12,11 @@ from judge_report import CollectionReporter, new_report
 from judge_settings import ROOT, judge_metadata
 from judge_types import (
     CaseResult,
+    CheckKind,
     CheckResult,
     CollectionMetadata,
     JudgeCase,
+    JudgeResult,
 )
 from openrouter_transport import RETRY_POLICY
 from support_grading import (
@@ -57,12 +59,14 @@ def evaluate_case(
         check: CheckResult = {"kind": kind, "expected": expected, "status": "pending"}
         check_started = time.monotonic()
         try:
-            judge = {
+            judges: dict[CheckKind, Callable[[str, str, str], JudgeResult]] = {
                 "answer": judge_answer,
                 "direct": judge_direct_claim,
                 "extraction": judge_claims,
-            }[kind]
-            actual = judge(case["question"], case["answer"], case["references"][0])
+            }
+            actual = judges[kind](
+                case["question"], case["answer"], case["references"][0]
+            )
             agrees = actual["passed"] == expected["passed"]
             if "dimensions" in expected:
                 agrees = agrees and all(
