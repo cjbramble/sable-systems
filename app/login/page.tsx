@@ -18,7 +18,12 @@ export default function LoginPage() {
   const [checking, setChecking] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const errorSummary = useRef<HTMLParagraphElement>(null);
   const pageRequest = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (error) errorSummary.current?.focus();
+  }, [error]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -106,10 +111,22 @@ export default function LoginPage() {
             Use the credentials issued to your distribution account.
           </p>
 
+          {error ? (
+            <p
+              className="login-error"
+              id="login-error"
+              ref={errorSummary}
+              tabIndex={-1}
+            >
+              {error}
+            </p>
+          ) : null}
+
           <label htmlFor="access-email">
             <span>Authorized email</span>
             <Input
               id="access-email"
+              aria-describedby={error ? 'login-error' : undefined}
               type="email"
               autoComplete="username"
               required
@@ -122,6 +139,7 @@ export default function LoginPage() {
             <span>Access phrase</span>
             <Input
               id="access-password"
+              aria-describedby={error ? 'login-error' : undefined}
               type="password"
               autoComplete="current-password"
               required
@@ -130,8 +148,6 @@ export default function LoginPage() {
               onChange={(event) => setPassword(event.target.value)}
             />
           </label>
-
-          {error ? <p className="login-error">{error}</p> : null}
 
           <Button type="submit" size="lg" disabled={checking || submitting}>
             {checking
