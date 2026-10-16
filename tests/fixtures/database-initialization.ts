@@ -118,6 +118,12 @@ export async function addUserRecords(
   database: D1Database,
   sourceOrder = 'SBL-2026-000417',
 ) {
+  const { results: sessionColumns } = await database
+    .prepare('PRAGMA table_info(sessions)')
+    .all<{ name: string }>();
+  const legacySession = sessionColumns.some(
+    ({ name }) => name === 'last_seen_at',
+  );
   await database.batch([
     database
       .prepare(`INSERT INTO orders (
@@ -133,8 +139,10 @@ export async function addUserRecords(
       allocated_quantity, shipped_quantity, cancelled_quantity
       FROM order_items WHERE order_id = ?`)
       .bind(sourceOrder),
-    database.prepare(`INSERT INTO sessions VALUES ('init-session', 'init-token',
-      'USR-CPD-001', '2026-09-11T12:00:00Z', '2026-09-11T12:00:00Z',
+    database.prepare(`INSERT INTO sessions (session_id, token_hash, user_id, created_at,
+      ${legacySession ? 'last_seen_at,' : ''} expires_at, revoked_at, user_agent)
+      VALUES ('init-session', 'init-token', 'USR-CPD-001', '2026-09-11T12:00:00Z',
+      ${legacySession ? "'2026-09-11T12:00:00Z'," : ''}
       '2026-09-12T12:00:00Z', NULL, 'initialization test')`),
     database.prepare(`INSERT INTO support_incidents (incident_id, user_id, title, created_at, updated_at) VALUES ('INIT-INCIDENT',
       'USR-CPD-001', 'Keep this history', '2026-09-11T12:00:00Z', '2026-09-11T12:00:00Z')`),

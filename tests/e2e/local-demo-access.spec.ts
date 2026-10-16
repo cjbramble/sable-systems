@@ -23,11 +23,10 @@ test('disables published demo credentials and existing sessions without local op
   const hash = createHash('sha256').update(token).digest('base64url');
   await app.database
     .prepare(`INSERT INTO sessions
-    (session_id, token_hash, user_id, created_at, last_seen_at, expires_at)
-    VALUES ('security-test-session', ?, 'USR-CPD-001', ?, ?, ?)`)
+    (session_id, token_hash, user_id, created_at, expires_at)
+    VALUES ('security-test-session', ?, 'USR-CPD-001', ?, ?)`)
     .bind(
       hash,
-      new Date().toISOString(),
       new Date().toISOString(),
       new Date(Date.now() + 60_000).toISOString(),
     )
