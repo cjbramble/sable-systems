@@ -56,18 +56,6 @@ export function parseLoginInput(value: unknown) {
   return { email, password };
 }
 
-export function isTrustedMutation(request: Request) {
-  const origin = request.headers.get('origin');
-  if (origin && origin !== new URL(request.url).origin) return false;
-  const fetchSite = request.headers.get('sec-fetch-site');
-  return (
-    !fetchSite ||
-    fetchSite === 'same-origin' ||
-    fetchSite === 'same-site' ||
-    fetchSite === 'none'
-  );
-}
-
 export async function authenticateCredentials(
   db: D1Database,
   email: string,

@@ -142,6 +142,9 @@ dataset requires a separate, explicit reset.
 
 ## Security boundaries
 
+See [Authentication and permissions](docs/authentication.md) for session, origin,
+and ownership policies and their regression coverage.
+
 This is a local demo with synthetic data and published demo credentials.
 `npm run dev` and `npm start` bind to loopback and explicitly enable the
 `SABLE_LOCAL_DEMO=true` Worker binding. Authentication requires both that binding

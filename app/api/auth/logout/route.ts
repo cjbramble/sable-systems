@@ -1,8 +1,5 @@
-import {
-  clearSessionCookie,
-  isTrustedMutation,
-  revokeSession,
-} from '@/db/auth';
+import { isTrustedMutation } from '@/lib/request-origin';
+import { clearSessionCookie, revokeSession } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 
 export const dynamic = 'force-dynamic';
