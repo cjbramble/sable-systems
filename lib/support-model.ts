@@ -1,7 +1,8 @@
+import type { ChatHistoryMessage } from './chat-history';
 import {
-  fitChatHistoryToBudget,
-  type ChatHistoryMessage,
-} from './chat-history';
+  budgetSupportMessages,
+  type SupportRequestOverflow,
+} from './support-request-budget';
 import {
   OPENROUTER_ROUTING,
   SUPPORT_MODEL_MAX_REPLY_TOKENS,
@@ -37,11 +38,6 @@ const defaultGeneration: SupportModelGeneration = {
   maxTokens: SUPPORT_MODEL_MAX_REPLY_TOKENS,
 };
 
-// Conservatively budget identifiers and amounts as well as prose. The reserve
-// covers message formatting; upstream context errors still fail safely.
-const ESTIMATED_CHARACTERS_PER_TOKEN = 2.5;
-const CHAT_TEMPLATE_TOKEN_RESERVE = 128;
-
 function systemPrompt(distributorName: string, distributorId: string) {
   return `You are COV-E, the Customer Operations and Verification Entity for SABLE Systems, a consumer and wholesale technology division of Morrow Vale Holdings.
 
@@ -71,7 +67,14 @@ export function createSupportModelRequest({
   messages,
   generation,
   correction,
-}: SupportModelRequest): [string, RequestInit] {
+}: SupportModelRequest):
+  | SupportRequestOverflow
+  | {
+      kind: 'ready';
+      request: [string, RequestInit];
+      estimatedTokens: number;
+      droppedHistoryMessages: number;
+    } {
   const config = supportModelConfig();
   const settings = { ...defaultGeneration, ...generation };
   const systemContent = systemPrompt(distributorName, distributorId);
@@ -81,46 +84,40 @@ export function createSupportModelRequest({
     source: SUPPORT_RECORDS_SOURCE,
     records: authorizedContext,
   });
-  const historyBudget =
-    (config.contextTokens - settings.maxTokens - CHAT_TEMPLATE_TOKEN_RESERVE) *
-      ESTIMATED_CHARACTERS_PER_TOKEN -
-    systemContent.length -
-    recordsContent.length;
-  const correctionMessages: ChatHistoryMessage[] = correction?.length
-    ? [{ role: 'user', content: resourceCorrection(correction) }]
-    : [];
-  return [
-    config.url,
-    {
-      method: 'POST',
-      // Workers require manual handling to reject redirects.
-      redirect: 'manual',
-      headers: supportModelHeaders(config),
-      body: JSON.stringify({
-        model: config.model,
-        messages: [
-          { role: 'system', content: systemContent },
-          { role: 'user', content: recordsContent },
-          ...fitChatHistoryToBudget(
-            messages,
-            historyBudget -
-              correctionMessages.reduce(
-                (total, message) => total + message.content.length,
-                0,
-              ),
-          ),
-          ...correctionMessages,
-        ],
-        temperature: settings.temperature,
-        top_p: settings.topP,
-        max_tokens: settings.maxTokens,
-        stream: false,
-        provider: OPENROUTER_ROUTING,
-        reasoning: { enabled: false },
-      }),
-      signal: AbortSignal.timeout(120_000),
-    },
-  ];
+  const budget = budgetSupportMessages({
+    policy: systemContent,
+    records: recordsContent,
+    history: messages,
+    correction: correction?.length ? resourceCorrection(correction) : undefined,
+    contextTokens: config.contextTokens,
+    maxReplyTokens: settings.maxTokens,
+  });
+  if (budget.kind === 'overflow') return budget;
+  return {
+    kind: 'ready',
+    estimatedTokens: budget.estimatedTokens,
+    droppedHistoryMessages: budget.droppedHistoryMessages,
+    request: [
+      config.url,
+      {
+        method: 'POST',
+        // Workers require manual handling to reject redirects.
+        redirect: 'manual',
+        headers: supportModelHeaders(config),
+        body: JSON.stringify({
+          model: config.model,
+          messages: budget.messages,
+          temperature: settings.temperature,
+          top_p: settings.topP,
+          max_tokens: settings.maxTokens,
+          stream: false,
+          provider: OPENROUTER_ROUTING,
+          reasoning: { enabled: false },
+        }),
+        signal: AbortSignal.timeout(120_000),
+      },
+    ],
+  };
 }
 
 function readSupportModelChoice(payload: unknown) {
@@ -153,8 +150,7 @@ export function isIncompleteSupportModelReply(payload: unknown) {
   return choice !== null && choice.finishReason !== 'stop';
 }
 
-// History is already trimmed, so an upstream context error means the latest
-// message and records alone do not fit.
+// The local budget is an estimate; the provider may still reject its token count.
 export function isContextOverflowPayload(payload: unknown) {
   if (!payload || typeof payload !== 'object') return false;
   const error = (payload as Record<string, unknown>).error;

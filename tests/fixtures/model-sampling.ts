@@ -1,9 +1,7 @@
+import { requireSupportModelRequest } from './support-model-request';
 import { expect } from 'vitest';
 import type { ChatHistoryMessage } from '@/lib/chat-history';
-import {
-  createSupportModelRequest,
-  extractSupportModelContent,
-} from '@/lib/support-model';
+import { extractSupportModelContent } from '@/lib/support-model';
 import { calderPikeUser } from './users';
 
 export async function expectFiveNormalGenerationSamples({
@@ -22,7 +20,7 @@ export async function expectFiveNormalGenerationSamples({
   let firstRequestBody: RequestInit['body'];
   // Independent requests: do not add earlier samples to conversation history.
   for (let sample = 1; sample <= sampleCount; sample++) {
-    const [modelUrl, modelRequest] = createSupportModelRequest({
+    const [modelUrl, modelRequest] = requireSupportModelRequest({
       distributorName: calderPikeUser.distributorDisplayName,
       distributorId: calderPikeUser.distributorId,
       authorizedContext,
