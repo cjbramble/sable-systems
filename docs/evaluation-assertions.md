@@ -41,6 +41,25 @@ the grammar. Recognized claims about other records are not graded by the request
 record's fact checker. Carrier/reason labels, action refusals, and other scenario
 requirements retain their existing checks.
 
+## Labeled amount and date evaluations
+
+The order-total evaluations (PO lookup, shared/custom PO, follow-up, and explicit
+order switch) request only named `label: value` fields. The inventory-date evaluation
+likewise requests the item, available quantity, retrieval date, and latest update
+date. `expectRecordFields` checks each complete value against that scenario's
+expected field, including its record ID. Known amounts or dates cannot be swapped
+between fields. Missing, repeated, unknown, negated, or qualified fields fail;
+extra prose also fails this explicitly requested format.
+
+Fields may be on separate lines or separated by semicolons, in any order. Paired
+Markdown emphasis/code around complete labels or values and bullets are accepted.
+Formatting within numeric tokens is rejected. Labels and text values ignore
+case and whitespace; status spelling alternatives are listed explicitly. Identifier
+punctuation is preserved. USD values require valid grouping and zero to two decimal
+places and are compared in cents. This contract evaluates a single labeled record,
+not arbitrary prose or tables. It changes evaluation questions, not production
+prompts. The existing product-comparison checks remain separate.
+
 Generic identifier/date/amount membership checks only establish that a token occurs
 in authorized context. They do not establish entity or field association. Product
 comparison checks separately validate their labeled fields. The resource check that
