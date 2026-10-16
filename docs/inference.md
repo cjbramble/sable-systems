@@ -46,8 +46,8 @@ to another model. Explicit environment overrides remain in effect.
 
 ## Judge metrics
 
-DeepEval 4.2.2 owns LLM extraction, judgments, scores and evaluation execution.
-Every metric receives the explicitly selected OpenRouter judge. The custom
+DeepEval 4.3.1 owns LLM extraction, judgments, scores and evaluation execution.
+LLM steps receive the explicitly selected OpenRouter judge. The custom
 `DeepEvalBaseLLM` adapter supplies schema-bound responses through the audited
 transport; it does not grade answers. It preserves routing, retries, redacted
 request evidence and the network restriction to OpenRouter.
@@ -69,7 +69,7 @@ Whole-answer grounding receives the question and reference-only history, so it
 can resolve pronouns and product identity. It checks the entire answer directly;
 its result does not depend on a claim extractor finding every assertion.
 Faithfulness uses the documented template extension for standalone claim
-extraction and SABLE's evidence rules. Those diagnostic cases compare extraction
+extraction and, in LLM mode, SABLE's evidence rules. Those diagnostic cases compare extraction
 against an independently curated inventory of source quotes. Empty or incomplete
 claim/verdict inventories are errors. Exact coverage checks remain Python.
 
@@ -97,6 +97,44 @@ Ordinary tests use controlled model responses and make no billed inference calls
 Live evaluations require `npm run test:judge`. Rubric/model changes need calibration
 against both existing controls and independently authored cases; passing controls
 is not proof that a probabilistic judge will catch every defect.
+
+### Experimental hybrid Faithfulness
+
+Set `OPENROUTER_FAITHFULNESS_MODE=hybrid` to let `typesafe/jev-1.14` decide
+standalone claim verdicts through DeepEval's native `TypeSafeModel`. The default
+is `llm`. For the Luna comparison:
+
+```sh
+OPENROUTER_JUDGE_MODEL=openai/gpt-6-luna \
+OPENROUTER_JUDGE_REASONING_EFFORT=high \
+OPENROUTER_JUDGE_MAX_TOKENS=8192 \
+OPENROUTER_FAITHFULNESS_MODE=hybrid npm run test:judge
+```
+
+Luna extracts claims and truths and writes the final explanation. Jev receives
+DeepEval's built-in support question and the extracted evidence; it does not use
+the LLM verdict prompt's custom rules. DeepEval maps support probabilities above
+0.65 to `yes`, below 0.35 to `no`, and the middle to `borderline`. Strict mode
+rejects both `no` and `borderline`. Reports retain native verdicts and map
+`borderline` to the existing `idk` label for compatibility. This probability band
+is not proof of missing evidence rather than contradiction; direct-label
+calibration can disagree even when acceptance agrees.
+
+Whole-answer GEval and conversation diagnostics remain on the selected LLM.
+Hybrid mode currently affects only standalone claim checks in the collection,
+not transcript judgments. It cannot fix a missed claim during extraction.
+
+The TypeSafe SDK uses the existing `OPENROUTER_API_KEY` and OpenRouter's
+`/api/v1/systemone` endpoint. No separate TypeSafe credentials are needed.
+The same guarded transport, provider privacy settings and bounded retries apply.
+DeepEval may fall back to the LLM when Jev is unavailable; claim results record
+`faithfulness.fallbackReason`, confidence, native verdicts and both providers'
+request evidence. Collection metadata records the requested mode and model.
+Use provider-reported request costs for comparisons; DeepEval cannot total a
+hybrid metric's cost when the LLM is a custom adapter.
+
+See [DeepEval's hybrid mode](https://deepeval.com/docs/evaluation-eval-modes)
+and [OpenRouter's TypeSafe SDK integration](https://openrouter.ai/docs/guides/community/typesafe-sdk).
 
 The implementation follows DeepEval's [evaluation runner](https://deepeval.com/docs/evaluation-introduction),
 [faithfulness](https://deepeval.com/docs/metrics-faithfulness),
