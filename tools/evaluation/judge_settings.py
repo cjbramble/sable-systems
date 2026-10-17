@@ -8,6 +8,7 @@ from judge_types import GenerationSettings, ModelMetadata, ReasoningSettings
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULTS = json.loads((ROOT / "lib/openrouter-config.json").read_text())
+LUNA_MODELS = ("openai/gpt-6-luna", "openai/gpt-6-luna-pro")
 GENERATION: GenerationSettings = {
     "temperature": 0,
     "top_p": 1,
@@ -55,6 +56,10 @@ def judge_config() -> tuple[str, str, GenerationSettings]:
             "OPENROUTER_JUDGE_MAX_TOKENS must be an integer from 256 to 32768"
         )
     generation = GENERATION.copy()
+    # Luna's OpenRouter endpoints do not accept sampling parameters.
+    if model in LUNA_MODELS:
+        generation.pop("temperature", None)
+        generation.pop("top_p", None)
     generation.update(
         {
             "max_tokens": max_tokens,

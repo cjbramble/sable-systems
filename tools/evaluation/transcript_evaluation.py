@@ -4,12 +4,13 @@ import hashlib
 import json
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Literal
 
 from evaluator_provenance import evaluator_provenance
 from judge_errors import error_calls, error_message
 from judge_inputs import (
+    ConversationMessage,
     FixtureInput,
     PlannedScenario,
     TranscriptInput,
@@ -18,7 +19,7 @@ from judge_inputs import (
 from judge_settings import ROOT, judge_metadata
 from judge_types import TranscriptReport, TranscriptResult
 from openrouter_transport import RETRY_POLICY
-from support_grading import ANSWER_RULES, GRADING_REVISION, judge_answer
+from support_grading import GRADING_REVISION, METRIC_CONFIGURATION, judge_answer
 from transcript_report import complete_report
 
 
@@ -52,7 +53,71 @@ def plan_transcript(
             )
         else:
             fixture = FixtureInput.model_validate_json(fixture_path.read_text())
-        planned.append(PlannedScenario(scenario, fixture_path, fixture, batch))
+        history: list[ConversationMessage] = []
+        policy = None
+        reference_source: Literal["captured", "fixture"] = (
+            "captured" if live else "fixture"
+        )
+        request = batch.request
+        if isinstance(request, dict) and "messages" in request:
+            messages = request["messages"]
+            if not isinstance(messages, list) or len(messages) < 2:
+                raise ValueError(
+                    "Captured request requires policy and customer messages"
+                )
+            system = messages[0]
+            if (
+                not isinstance(system, dict)
+                or system.get("role") != "system"
+                or not isinstance(system.get("content"), str)
+                or not system["content"].strip()
+            ):
+                raise ValueError("Captured request requires a nonempty system policy")
+            start = 1
+            if len(messages) >= 3 and isinstance(messages[1], dict):
+                try:
+                    records = json.loads(messages[1].get("content", ""))
+                except (TypeError, ValueError):
+                    records = None
+                if (
+                    isinstance(records, dict)
+                    and records.get("source") == "authorized_support_records"
+                ):
+                    if messages[1].get("role") != "user":
+                        raise ValueError(
+                            "Captured records require the data-message role"
+                        )
+                    fixture = FixtureInput.model_validate(
+                        {
+                            "question": fixture.question,
+                            "references": [records.get("records")],
+                        }
+                    )
+                    policy = system["content"]
+                    reference_source = "captured"
+                    start = 2
+            if len(messages) >= 3 and start != 2:
+                raise ValueError(
+                    "Captured request has missing or malformed authorized records"
+                )
+            dialogue = [
+                ConversationMessage.model_validate(message)
+                for message in messages[start:]
+            ]
+            if dialogue[-1].role != "user" or dialogue[-1].content != fixture.question:
+                raise ValueError("Captured final question does not match the scenario")
+            history = dialogue[:-1]
+        planned.append(
+            PlannedScenario(
+                scenario,
+                fixture_path,
+                fixture,
+                batch,
+                history,
+                policy,
+                reference_source,
+            )
+        )
     if not planned:
         raise ValueError("No scenarios selected")
     return planned
@@ -77,7 +142,7 @@ def new_report(
         "judge_errors.py",
     )
     return {
-        "schemaVersion": 4,
+        "schemaVersion": 5,
         "mode": transcript.mode,
         "model": model_metadata,
         "concurrency": transcript.concurrency,
@@ -85,10 +150,10 @@ def new_report(
         "dependencyVersions": provenance.dependency_versions,
         "policy": {
             "mode": "advisory",
-            "metric": "StructuredSupportAssessment",
+            "metric": "DeepEval GEval: Factual support, Task completeness, Support policy",
             "strictMode": True,
             "gradingRevision": GRADING_REVISION,
-            "assessmentRules": ANSWER_RULES,
+            "metricConfiguration": METRIC_CONFIGURATION,
         },
         "generation": generation,
         "retryPolicy": RETRY_POLICY,
@@ -111,6 +176,8 @@ def evaluate_sample(plan: PlannedScenario, row: TranscriptSample) -> TranscriptR
         "id": row.sample,
         "answer": answer,
         "reference": plan.fixture.references[0],
+        "referenceSource": plan.reference_source,
+        "outputTrack": "raw-model",
         "sourceRequest": plan.batch.request,
         "fixtureSha256": hashlib.sha256(plan.fixture_path.read_bytes()).hexdigest(),
         "factualPassed": row.passed,
@@ -124,9 +191,20 @@ def evaluate_sample(plan: PlannedScenario, row: TranscriptSample) -> TranscriptR
                 "Generator did not produce a usable answer: " + row.failure.error
             )
         assert answer is not None  # Validated for every usable sample.
-        result.update(
-            judge_answer(plan.fixture.question, answer, plan.fixture.references[0])
-        )
+        if plan.history or plan.policy:
+            result.update(
+                judge_answer(
+                    plan.fixture.question,
+                    answer,
+                    plan.fixture.references[0],
+                    history=[message.model_dump() for message in plan.history],
+                    policy=plan.policy,
+                )
+            )
+        else:
+            result.update(
+                judge_answer(plan.fixture.question, answer, plan.fixture.references[0])
+            )
         result["judgeApplicationAgrees"] = result["passed"] == row.passed
     except Exception as error:
         result.setdefault("executionPhase", "judge")
@@ -142,19 +220,16 @@ def execute_transcript(
     concurrency: int,
     on_result: Callable[[TranscriptResult], None],
 ) -> list[TranscriptResult]:
-    """Publish completions immediately and return results in planned order."""
-    tasks = [(plan, row) for plan in planned for row in plan.batch.samples]
-    with ThreadPoolExecutor(max_workers=concurrency) as executor:
-        pending = {
-            executor.submit(evaluate_sample, *task): index
-            for index, task in enumerate(tasks)
-        }
-        completed: dict[int, TranscriptResult] = {}
-        for future in as_completed(pending):
-            result = future.result()
-            completed[pending[future]] = result
+    """Checkpoint each sample before entering the next DeepEval run."""
+    if concurrency != 1:
+        raise ValueError("DeepEval runs require concurrency=1")
+    results: list[TranscriptResult] = []
+    for plan in planned:
+        for row in plan.batch.samples:
+            result = evaluate_sample(plan, row)
             on_result(result)
-    return [completed[index] for index in range(len(tasks))]
+            results.append(result)
+    return results
 
 
 def run_transcript(transcript: TranscriptInput, destination: Path) -> int:

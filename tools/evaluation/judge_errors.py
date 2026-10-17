@@ -8,7 +8,6 @@ from judge_types import RequestRecord
 class JudgeError(RuntimeError):
     def __init__(self, cause: Exception, calls: Sequence[RequestRecord]) -> None:
         super().__init__(f"{type(cause).__name__}: {cause}")
-        self.cause = cause
         self.calls = list(calls)
 
 

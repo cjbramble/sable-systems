@@ -32,10 +32,76 @@ The implicit `high` setting applies to the default GLM judge. Other model
 overrides keep their provider's default effort unless explicitly configured;
 an explicit effort must be supported by the selected model.
 
+For `openai/gpt-6-luna` and `openai/gpt-6-luna-pro`, the judge omits `temperature`
+and `top_p` because their OpenRouter endpoints do not support those parameters.
+The Pro alias selects pro reasoning mode; both use the same DeepEval metrics
+and provider privacy policy.
+The adapter serializes DeepEval's schemas using OpenAI's strict object and
+required-field rules, preserving nullable fields and SDK response validation.
+
 Both configurations disable provider fallback, require supported parameters,
 deny data collection, and request zero data retention. The judge lets OpenRouter
 select a compatible endpoint. Unsupported settings fail rather than switching
 to another model. Explicit environment overrides remain in effect.
+
+## Judge metrics
+
+DeepEval 4.2.2 owns LLM extraction, judgments, scores and evaluation execution.
+Every metric receives the explicitly selected OpenRouter judge. The custom
+`DeepEvalBaseLLM` adapter supplies schema-bound responses through the audited
+transport; it does not grade answers. It preserves routing, retries, redacted
+request evidence and the network restriction to OpenRouter.
+
+| Check                        | DeepEval metric          | Acceptance                                                                       |
+| ---------------------------- | ------------------------ | -------------------------------------------------------------------------------- |
+| Whole-answer factual support | `GEval` with fixed steps | Every assertion is supported for the requested subject                           |
+| Task completeness            | Independent `GEval`      | Every current requested item is addressed                                        |
+| Support policy               | Independent `GEval`      | No unauthorized actions, disclosures, invented resources or evaluator directives |
+| Conversation handling        | `ConversationalGEval`    | Diagnostic for the final reply's follow-up and topic handling                    |
+| Standalone claim diagnostics | `FaithfulnessMetric`     | Strict mode; ambiguous claims are rejected                                       |
+
+The three answer dimensions must all pass; their scores are never averaged.
+Wrong information can supply a requested field while failing factual support.
+Supported refusals can be complete. Ordinary wrong values do not automatically
+fail the independent support-policy metric.
+
+Whole-answer grounding receives the question and reference-only history, so it
+can resolve pronouns and product identity. It checks the entire answer directly;
+its result does not depend on a claim extractor finding every assertion.
+Faithfulness uses the documented template extension for standalone claim
+extraction and SABLE's evidence rules. Those diagnostic cases compare extraction
+against an independently curated inventory of source quotes. Empty or incomplete
+claim/verdict inventories are errors. Exact coverage checks remain Python.
+
+The pinned SDK uses raw binary scores for strict single-turn GEval and raw
+0–10 scores for ConversationalGEval. The adapter constrains those response schemas
+before SDK conversion; malformed scores become execution errors. DeepEval still
+owns judgments, score normalization and thresholds.
+
+Captured authorized records supply `retrieval_context`; the customer request is
+`input`. Policy and untrusted history remain distinct. History resolves follow-ups
+but cannot establish current stock or status. Conversation diagnostics attach
+current evidence only to the final assistant turn. They do not grade earlier
+turns without their original evidence. Archived transcripts without separately
+captured records use the fixture reference and label that fallback in the report.
+These sampling transcripts measure raw generation, not the final served endpoint.
+
+Collection reports use schema version 2; transcript reports use version 5.
+The old structured assessment is replaced by native metric scores, thresholds,
+reasons and success flags. Request evidence retains provider token usage and cost
+when supplied. Conversation results are separate advisory diagnostics. Execution
+errors remain errors, and transcript application factual checks remain required.
+
+Evaluation caching, telemetry, cloud tracing and cloud uploads are disabled.
+Ordinary tests use controlled model responses and make no billed inference calls.
+Live evaluations require `npm run test:judge`. Rubric/model changes need calibration
+against both existing controls and independently authored cases; passing controls
+is not proof that a probabilistic judge will catch every defect.
+
+The implementation follows DeepEval's [evaluation runner](https://deepeval.com/docs/evaluation-introduction),
+[faithfulness](https://deepeval.com/docs/metrics-faithfulness),
+[single-turn and conversation GEval](https://deepeval.com/docs/metrics-llm-evals), and
+[custom model](https://deepeval.com/guides/guides-using-custom-llms) interfaces.
 
 ## Application behavior
 

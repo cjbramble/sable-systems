@@ -75,39 +75,6 @@ def test_invalid_gold_is_rejected(expected):
         )
 
 
-@pytest.mark.parametrize("claims", [[], [" "]])
-def test_empty_extraction_schema_is_rejected(claims):
-    with pytest.raises(ValueError):
-        grading.SourceClaims.model_validate({"claims": claims})
-
-
-def test_gold_inventory_is_never_sent_to_extractor(monkeypatch):
-    calls = []
-
-    class Judge:
-        def __init__(self):
-            self.requests = calls
-
-        def generate(self, prompt, schema):
-            calls.append(prompt)
-            if schema is grading.SourceClaims:
-                return schema.model_validate({"claims": ["48 units available."]})
-            return schema.model_validate(
-                {"verdicts": [{"verdict": "yes", "reason": None}]}
-            )
-
-    monkeypatch.setattr(grading, "OpenRouterJudge", Judge)
-    result = grading.judge_claims(
-        "Give stock and pack size.",
-        "48 units available.",
-        "48 available; pack size six.",
-    )
-    assert result["passed"]
-    assert "pack size" not in calls[0]
-    assert "expectedClaims" not in calls[0]
-    assert grading.EXTRACTION_RULES in calls[0]
-
-
 @pytest.mark.parametrize(
     "mutation", ["missing", "false-acceptance", "wrong-truth", "error"]
 )

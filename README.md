@@ -293,7 +293,7 @@ for the supported wording, independent controls, and limits of factuality checks
 Run the judge independently of application tests and chatbot generation:
 
 ```sh
-npm run test:judge -- --concurrency 2
+npm run test:judge
 ```
 
 The collection contains **132 unique cases and 148 checks**. Checks cover whole
@@ -301,19 +301,21 @@ answers, claim extraction, and claim verification. Each case stores its question
 reference facts, candidate answer, and expected results. A passing check means the
 judge matched those expectations, including correctly rejecting a bad answer.
 The judge remains advisory; these exposed cases are regression checks, not a
-fresh benchmark.
+fresh benchmark. DeepEval runs independent grounding, completeness and support-policy metrics,
+plus standalone faithfulness diagnostics. See [metric behavior](docs/inference.md#judge-metrics).
 
 List cases and categories without making API calls, or run a selected category:
 
 ```sh
 npm run test:judge -- --list
-npm run test:judge -- --category account-authorization --concurrency 2
+npm run test:judge -- --category account-authorization
 ```
 
 Use a category printed by `--list`, such as `account-authorization`, `coverage`,
 `quality`, `claims`, or `extraction`. Multiple `--category` flags select their
-combined cases, with each case run once. Concurrency is limited to 1–4 cases;
-checks within a case run sequentially. All checks on selected cases run. The default is 1.
+combined cases, with each case run once. Cases and metrics run serially because
+DeepEval owns process-wide evaluation state. `--concurrency` accepts only `1`.
+All checks on selected cases run; caching is disabled for calibration.
 
 Each run prints its report location under `reports/judge-runs/`:
 
@@ -339,6 +341,9 @@ npm run test:judge -- --transcript reports/model-runs/<run>.log
 ```
 
 Transcript mode retains its separate JSON/JSONL reporting and advisory verdicts.
+It evaluates raw model answers, using captured records and policy when available.
+Conversation diagnostics evaluate the final reply against its actual history;
+independent samples are never treated as successive turns.
 Both modes record installed DeepEval/Pydantic versions and the dependency lockfile
 hash alongside evaluator source hashes. JUnit renders XML-forbidden characters as
 visible escapes; JSON and JSONL retain the original evidence.

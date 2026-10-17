@@ -5,36 +5,21 @@ import json
 import pytest
 
 import judge_collection as collection
-import support_grading as grading
 
 
-@pytest.mark.parametrize(
-    "method", ["judge_answer", "judge_direct_claim", "judge_claims"]
-)
-def test_judge_error_preserves_cause_and_snapshots_calls(monkeypatch, method):
+def test_judge_error_preserves_cause_and_snapshots_calls():
     from judge_errors import JudgeError
 
     cause = TimeoutError("Provider timed out")
     calls = [{"attempt": 1, "httpStatus": 200, "errorType": "TimeoutError"}]
-
-    class Judge:
-        def __init__(self):
-            self.requests = calls
-
-        def generate(self, *args, **kwargs):
-            raise cause
-
-    monkeypatch.setattr(grading, "OpenRouterJudge", Judge)
-    with pytest.raises(JudgeError) as caught:
-        getattr(grading, method)("Question", "Answer", "Reference")
-    error = caught.value
-    assert error.__cause__ is cause
-    assert error.cause is cause
-    assert str(error) == "TimeoutError: Provider timed out"
-    assert error.calls == calls
-    assert not hasattr(cause, "judge_calls")
-    calls.clear()
-    assert len(error.calls) == 1
+    try:
+        raise JudgeError(cause, calls) from cause
+    except JudgeError as error:
+        assert error.__cause__ is cause
+        assert str(error) == "TimeoutError: Provider timed out"
+        assert error.calls == calls
+        calls.clear()
+        assert len(error.calls) == 1
 
 
 def test_collection_serializes_original_error_classification(monkeypatch):

@@ -64,7 +64,8 @@ class JudgeResult(RequestEvidence, total=False):
     passed: bool
     reason: str | None
     dimensions: Dimensions
-    assessment: dict[str, object]
+    metrics: list[dict[str, object]]
+    conversationMetrics: list[dict[str, object]]
     reference: str
     claims: list[str]
     verdicts: list[VerdictRecord]
@@ -119,8 +120,8 @@ class ReasoningSettings(TypedDict):
 
 
 class GenerationSettings(TypedDict):
-    temperature: int
-    top_p: int
+    temperature: NotRequired[int]
+    top_p: NotRequired[int]
     max_tokens: int
     stream: bool
     reasoning: NotRequired[ReasoningSettings]
@@ -166,6 +167,8 @@ class CollectionReport(TypedDict):
 
 class TranscriptResult(JudgeResult):
     scenario: str
+    referenceSource: str
+    outputTrack: str
     id: int
     answer: str | None
     sourceRequest: object
@@ -206,7 +209,7 @@ class TranscriptPolicy(TypedDict):
     metric: str
     strictMode: bool
     gradingRevision: int
-    assessmentRules: str
+    metricConfiguration: dict[str, object]
 
 
 class TranscriptReport(TypedDict):

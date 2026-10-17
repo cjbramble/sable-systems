@@ -1,6 +1,7 @@
 """Strict evaluator inputs, preserving original text and extra source evidence."""
 
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import Annotated, Literal, Self, cast
 
@@ -23,7 +24,7 @@ def _nonempty(value: str) -> str:
 
 
 type NonemptyText = Annotated[str, AfterValidator(_nonempty)]
-type Concurrency = Annotated[int, Field(ge=1, le=4)]
+type Concurrency = Annotated[int, Field(ge=1, le=1)]
 
 
 class StrictInput(BaseModel):
@@ -94,12 +95,20 @@ class FixtureInput(StrictInput):
     references: Annotated[list[NonemptyText], Field(min_length=1)]
 
 
+class ConversationMessage(StrictInput):
+    role: Literal["user", "assistant"]
+    content: NonemptyText
+
+
 @dataclass(frozen=True)
 class PlannedScenario:
     scenario: str
     fixture_path: Path
     fixture: FixtureInput
     batch: TranscriptBatch
+    history: list[ConversationMessage] = dataclass_field(default_factory=list)
+    policy: str | None = None
+    reference_source: Literal["captured", "fixture"] = "fixture"
 
 
 class ExpectedCheckInput(StrictInput):

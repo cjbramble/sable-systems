@@ -149,6 +149,48 @@ def test_alternate_model_keeps_its_own_default_effort(monkeypatch, transport):
     assert transport["request"][2]["reasoning"] == {"enabled": True}
 
 
+@pytest.mark.parametrize("model", ["openai/gpt-6-luna", "openai/gpt-6-luna-pro"])
+def test_luna_omits_unsupported_sampling_parameters(monkeypatch, transport, model):
+    monkeypatch.setenv("OPENROUTER_JUDGE_MODEL", model)
+    monkeypatch.setenv("OPENROUTER_JUDGE_REASONING_EFFORT", "high")
+    judge = openrouter_judge.OpenRouterJudge()
+    judge.generate("Evaluate", Verdict)
+    body = transport["request"][2]
+    assert "temperature" not in body
+    assert "top_p" not in body
+    assert body["model"] == model
+    assert body["reasoning"] == {"enabled": True, "effort": "high"}
+    assert body["max_tokens"] == 16384
+    assert body["provider"]["require_parameters"] is True
+    assert body["provider"]["zdr"] is True
+    assert judge_settings.judge_metadata()[1] == judge.generation
+
+
+@pytest.mark.parametrize("model", ["openai/gpt-6-luna", "openai/gpt-6-luna-pro"])
+def test_luna_claim_schema_closes_nested_objects_and_requires_nullable_fields(
+    monkeypatch, transport, model
+):
+    from deepeval.metrics.faithfulness.schema import Verdicts
+
+    original = Verdicts.model_json_schema()
+    monkeypatch.setenv("OPENROUTER_JUDGE_MODEL", model)
+    transport["content"] = '{"verdicts":[{"verdict":"yes","reason":null}]}'
+    result = openrouter_judge.OpenRouterJudge().generate("Evaluate", Verdicts)
+    wire = transport["request"][2]["response_format"]["json_schema"]["schema"]
+    assert wire["additionalProperties"] is False
+    assert wire["required"] == ["verdicts"]
+    verdict = wire["$defs"]["FaithfulnessVerdict"]
+    assert verdict["additionalProperties"] is False
+    assert verdict["required"] == ["verdict", "reason"]
+    assert verdict["properties"]["reason"]["anyOf"] == [
+        {"type": "string"},
+        {"type": "null"},
+    ]
+    assert "default" not in verdict["properties"]["reason"]
+    assert result.verdicts[0].reason is None
+    assert Verdicts.model_json_schema() == original
+
+
 @pytest.mark.parametrize("effort", ["medium", "xhigh"])
 def test_alternate_model_can_use_standard_explicit_efforts(
     monkeypatch, transport, effort
@@ -236,47 +278,6 @@ def test_openrouter_metadata_has_no_local_weights_or_local_generation_parameters
     assert "seed" not in generation and "chat_template_kwargs" not in generation
 
 
-def test_current_grading_uses_fixed_rules_in_one_structured_judgment(transport):
-    transport["content"] = json.dumps(
-        {
-            "facts": [
-                {"claim": "Candidate answer", "verdict": "yes", "reason": "Grounded"}
-            ],
-            "requirements": [
-                {
-                    "requirement": "Customer question",
-                    "status": "supplied",
-                    "reason": "Complete",
-                }
-            ],
-            "quality": dict(
-                evaluator_instruction=False,
-                off_topic=False,
-                unauthorized_action=False,
-                foreign_account_disclosure=False,
-                invented_resource=False,
-                reason="Clear",
-            ),
-        }
-    )
-    result = grading.judge_answer(
-        "Customer question", "Candidate answer", "Authoritative facts"
-    )
-
-    assert result["passed"] is True
-    assert len(result["calls"]) == 1
-    body = result["calls"][0]["request"]
-    prompt = body["messages"][0]["content"]
-    assert grading.ANSWER_RULES in prompt
-    for text in ("Customer question", "Candidate answer", "Authoritative facts"):
-        assert text in prompt
-    assert body["temperature"] == 0
-    assert body["reasoning"] == {"enabled": True, "effort": "high"}
-    assert body["max_tokens"] == 16384
-    assert "seed" not in body and "chat_template_kwargs" not in body
-    assert result["score"] == 1
-
-
 @pytest.mark.parametrize(
     "change",
     [
@@ -317,97 +318,6 @@ def test_network_guard_blocks_all_network_outside_explicit_judging(event, args):
 def test_blank_answers_are_rejected_before_calling_a_model():
     with pytest.raises(ValueError, match="nonempty"):
         grading.judge_answer("Question", " ", "Expected facts")
-
-
-@pytest.mark.parametrize("verdict", ["yes", "no", "idk", None])
-def test_claim_judging_retains_evidence_and_rejects_ambiguous_or_missing_verdicts(
-    transport, verdict
-):
-    expected = "Available stock is 312 units."
-    answer = "320 units can be supplied from current stock."
-    claims = [answer, "A separate claim to verify after the first verdict."]
-    # Scripted responses test the metric wiring, not the model's factual judgment.
-    transport["responses"] = [
-        json.dumps(value)
-        for value in (
-            {"claims": claims},
-            {
-                "verdicts": []
-                if verdict is None
-                else [{"verdict": verdict, "reason": "Test evidence"}]
-            },
-            {"verdicts": [{"verdict": "yes", "reason": None}]},
-        )
-    ]
-    if verdict is None:
-        with pytest.raises(JudgeError) as caught:
-            grading.judge_claims("What can ship?", answer, expected)
-        assert len(caught.value.calls) == 2
-        return
-    result = grading.judge_claims("What can ship?", answer, expected)
-    assert result["passed"] is (verdict == "yes")
-    assert result["reference"] == expected
-    assert result["claims"] == claims
-    assert result["verdicts"] == [
-        {"verdict": verdict, "reason": "Test evidence"},
-        {"verdict": "yes", "reason": None},
-    ]
-    assert len(result["calls"]) == 3
-    extraction_prompt = result["calls"][0]["request"]["messages"][0]["content"]
-    assert answer in extraction_prompt
-    assert expected not in extraction_prompt
-    for index, call in enumerate(result["calls"][1:]):
-        prompt = call["request"]["messages"][0]["content"]
-        assert expected in prompt
-        assert claims[index] in prompt
-        assert claims[1 - index] not in prompt
-    assert not transport["responses"]
-
-
-@pytest.mark.parametrize("claims", [[], [" "]])
-def test_empty_claim_extraction_cannot_pass(transport, claims):
-    transport["content"] = json.dumps({"claims": claims})
-    with pytest.raises(JudgeError) as caught:
-        grading.judge_claims("Question", "Answer", "Reference")
-    assert len(caught.value.calls) == 1
-
-
-@pytest.mark.parametrize(
-    "verdict,reason,invalid",
-    [
-        ("yes", None, False),
-        ("no", "Stock is insufficient", False),
-        ("idk", "Not enough evidence", False),
-        ("no", None, True),
-        (None, None, True),
-    ],
-)
-def test_direct_claim_verification_uses_one_call_and_the_unmodified_reference(
-    transport, verdict, reason, invalid
-):
-    reference = "Redline has 312 units available. Orders must be multiples of eight."
-    claim = "We can supply 320 Redline units from current stock."
-    transport["content"] = json.dumps(
-        {
-            "verdicts": []
-            if verdict is None
-            else [{"verdict": verdict, "reason": reason}]
-        }
-    )
-    if invalid:
-        with pytest.raises(JudgeError) as caught:
-            grading.judge_direct_claim("Stock question", claim, reference)
-        assert len(caught.value.calls) == 1
-        return
-    result = grading.judge_direct_claim("Stock question", claim, reference)
-    assert result["passed"] is (verdict == "yes")
-    assert result["reference"] == reference
-    assert result["claims"] == [claim]
-    assert result["verdicts"] == [{"verdict": verdict, "reason": reason}]
-    assert len(result["calls"]) == 1
-    prompt = result["calls"][0]["request"]["messages"][0]["content"]
-    assert reference in prompt
-    assert claim in prompt
 
 
 def test_judge_model_override_preserves_privacy_and_reasoning(monkeypatch, transport):
@@ -479,3 +389,25 @@ def test_invalid_proxy_configuration_fails_before_connection(
     with pytest.raises(ValueError, match="proxy"):
         openrouter_judge.OpenRouterJudge().generate("Evaluate", Verdict)
     assert "destination" not in transport
+
+
+@pytest.mark.parametrize("score", [8, 1.9, -1, True, "1"])
+def test_native_geval_raw_binary_scores_cannot_be_coerced_into_a_pass(transport, score):
+    from deepeval.metrics.g_eval.schema import ReasonScore
+
+    transport["content"] = json.dumps({"score": score, "reason": "Invalid raw score"})
+    judge = openrouter_judge.OpenRouterJudge()
+    with pytest.raises(ValueError):
+        judge.generate("Evaluate", ReasonScore)
+    assert not judge.requests[-1].get("completed", False)
+
+
+@pytest.mark.parametrize("score", [-1, 11, 1.9, True, "10"])
+def test_native_conversation_score_must_be_an_integer_zero_through_ten(
+    transport, score
+):
+    from deepeval.metrics.conversational_g_eval.schema import ReasonScore
+
+    transport["content"] = json.dumps({"score": score, "reason": "Invalid raw score"})
+    with pytest.raises(ValueError):
+        openrouter_judge.OpenRouterJudge().generate("Evaluate", ReasonScore)
