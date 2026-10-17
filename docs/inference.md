@@ -1,7 +1,7 @@
 # OpenRouter inference
 
 COV-E uses `deepseek/deepseek-v4.1-flash`; the advisory judge uses
-`z-ai/glm-5.3-flash`. Both use OpenRouter. No local inference server is required.
+`openai/gpt-6-luna`. Both use OpenRouter. No local inference server is required.
 
 ## Configuration
 
@@ -12,10 +12,10 @@ server-side, out of Git, and out of browser-visible variables.
 | Variable                            | Default                        |
 | ----------------------------------- | ------------------------------ |
 | `OPENROUTER_SUPPORT_MODEL`          | `deepseek/deepseek-v4.1-flash` |
-| `OPENROUTER_JUDGE_MODEL`            | `z-ai/glm-5.3-flash`           |
+| `OPENROUTER_JUDGE_MODEL`            | `openai/gpt-6-luna`            |
 | `OPENROUTER_JUDGE_REASONING`        | `true`                         |
-| `OPENROUTER_JUDGE_REASONING_EFFORT` | `high` (`low`, `high`, `max`)  |
-| `OPENROUTER_JUDGE_MAX_TOKENS`       | `16384` (256–32768)            |
+| `OPENROUTER_JUDGE_REASONING_EFFORT` | `high` (model-dependent)       |
+| `OPENROUTER_JUDGE_MAX_TOKENS`       | `8192` (256–32768)             |
 
 Defaults and provider policies live in [lib/openrouter-config.json](../lib/openrouter-config.json).
 Chat pins the DeepInfra FP8 endpoint, disables reasoning, and limits replies to
@@ -23,14 +23,15 @@ Chat pins the DeepInfra FP8 endpoint, disables reasoning, and limits replies to
 serialized messages, a chat-template reserve, and the reply allowance; see
 [request budgeting](support-api.md) for overflow behavior. Chat overrides must be supported
 by that endpoint. The judge uses reasoning and a structured response schema;
-its token budget includes reasoning and the verdict. The judge explicitly asks
-for `high` reasoning effort instead of GLM's `max` default. Effort is a model
-control, not a hard token cap; unfinished verdicts still fail. Set effort only
-when reasoning is enabled.
+its token budget includes reasoning and the verdict. The default Luna configuration
+uses `high` reasoning effort and an 8,192-token limit, matching the evaluated
+configuration. Effort is not a hard token cap;
+unfinished verdicts still fail. Set effort only when reasoning is enabled.
 
-The implicit `high` setting applies to the default GLM judge. Other model
-overrides keep their provider's default effort unless explicitly configured;
-an explicit effort must be supported by the selected model.
+A GLM override also defaults to `high` effort and accepts `low`, `high`, or `max`.
+Other model overrides keep their provider's default effort unless explicitly
+configured. Explicit effort must be supported by the selected model. Existing
+`.env` and shell overrides take precedence; update old GLM settings to select Luna.
 
 For `openai/gpt-6-luna` and `openai/gpt-6-luna-pro`, the judge omits `temperature`
 and `top_p` because their OpenRouter endpoints do not support those parameters.

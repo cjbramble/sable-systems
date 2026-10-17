@@ -27,7 +27,7 @@ npm ci
 cp .env.example .env # Only if you do not already have a .env file.
 ```
 
-In `.env`, add your key and select regular Luna for the DeepEval judge:
+In `.env`, add your key. The example includes these defaults for the DeepEval judge:
 
 ```dotenv
 OPENROUTER_API_KEY=your-key
@@ -37,9 +37,8 @@ OPENROUTER_JUDGE_REASONING_EFFORT=high
 OPENROUTER_JUDGE_MAX_TOKENS=8192
 ```
 
-These settings select the Luna configuration used in our evaluations. The example
-file and built-in fallback still select GLM, so replace those judge values explicitly.
-COV-E continues to use DeepSeek V4.1 Flash; Luna evaluates its answers.
+For an existing checkout, update any old judge settings in `.env` or your shell
+to these values. COV-E uses DeepSeek V4.1 Flash; regular Luna evaluates its answers.
 
 Start the app:
 

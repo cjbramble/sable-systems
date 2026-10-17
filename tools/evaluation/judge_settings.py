@@ -12,7 +12,7 @@ LUNA_MODELS = ("openai/gpt-6-luna", "openai/gpt-6-luna-pro")
 GENERATION: GenerationSettings = {
     "temperature": 0,
     "top_p": 1,
-    "max_tokens": 16384,
+    "max_tokens": 8192,
     "stream": False,
 }
 
@@ -27,10 +27,10 @@ def judge_config() -> tuple[str, str, GenerationSettings]:
     if reasoning not in ("true", "false"):
         raise ValueError("OPENROUTER_JUDGE_REASONING must be true or false")
     effort = os.environ.get("OPENROUTER_JUDGE_REASONING_EFFORT", "").strip().lower()
-    default_glm = model == DEFAULTS["judgeModel"]
+    is_glm = model == "z-ai/glm-5.3-flash"
     efforts = (
         ("low", "high", "max")
-        if default_glm
+        if is_glm
         else ("minimal", "low", "medium", "high", "xhigh", "max")
     )
     if effort and (effort not in efforts or reasoning == "false"):
@@ -40,7 +40,7 @@ def judge_config() -> tuple[str, str, GenerationSettings]:
             + " with reasoning enabled"
         )
     reasoning_settings: ReasoningSettings = {"enabled": reasoning == "true"}
-    if reasoning == "true" and (effort or default_glm):
+    if reasoning == "true" and (effort or model == DEFAULTS["judgeModel"] or is_glm):
         reasoning_settings["effort"] = effort or "high"
     try:
         max_tokens = int(

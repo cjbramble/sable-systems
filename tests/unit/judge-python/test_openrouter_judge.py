@@ -82,7 +82,7 @@ def test_openrouter_judge_uses_https_schema_routing_without_recording_credential
     method, path, body, headers = transport["request"]
     assert (method, path) == ("POST", "/api/v1/chat/completions")
     assert headers["Authorization"] == "Bearer offline-test-key"
-    assert body["model"] == "z-ai/glm-5.3-flash"
+    assert body["model"] == "openai/gpt-6-luna"
     assert body["provider"] == {
         "allow_fallbacks": False,
         "require_parameters": True,
@@ -90,7 +90,9 @@ def test_openrouter_judge_uses_https_schema_routing_without_recording_credential
         "zdr": True,
     }
     assert body["reasoning"] == {"enabled": True, "effort": "high"}
-    assert body["max_tokens"] == 16384
+    assert body["max_tokens"] == 8192
+    assert "temperature" not in body
+    assert "top_p" not in body
     assert "seed" not in body and "chat_template_kwargs" not in body
     assert body["response_format"]["json_schema"]["strict"] is True
     assert "offline-test-key" not in json.dumps(judge.requests)
@@ -110,7 +112,7 @@ def test_openrouter_judge_comparison_overrides_reach_the_request(
     assert body["max_tokens"] == 4096
 
 
-@pytest.mark.parametrize("effort", ["low", "high", "max"])
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh", "max"])
 def test_explicit_reasoning_effort_reaches_request_without_changing_model_or_budget(
     monkeypatch, transport, effort
 ):
@@ -118,8 +120,8 @@ def test_explicit_reasoning_effort_reaches_request_without_changing_model_or_bud
     openrouter_judge.OpenRouterJudge().generate("Evaluate", Verdict)
     body = transport["request"][2]
     assert body["reasoning"] == {"enabled": True, "effort": effort}
-    assert body["model"] == "z-ai/glm-5.3-flash"
-    assert body["max_tokens"] == 16384
+    assert body["model"] == "openai/gpt-6-luna"
+    assert body["max_tokens"] == 8192
     assert body["provider"]["require_parameters"] is True
 
 
@@ -127,10 +129,23 @@ def test_explicit_reasoning_effort_reaches_request_without_changing_model_or_bud
 def test_unsupported_glm_reasoning_effort_fails_before_connecting(
     monkeypatch, transport, effort
 ):
+    monkeypatch.setenv("OPENROUTER_JUDGE_MODEL", "z-ai/glm-5.3-flash")
     monkeypatch.setenv("OPENROUTER_JUDGE_REASONING_EFFORT", effort)
     with pytest.raises(ValueError, match="OPENROUTER_JUDGE_REASONING_EFFORT"):
         openrouter_judge.OpenRouterJudge()
     assert "destination" not in transport
+
+
+def test_glm_override_keeps_model_specific_reasoning_and_sampling(
+    monkeypatch, transport
+):
+    monkeypatch.setenv("OPENROUTER_JUDGE_MODEL", "z-ai/glm-5.3-flash")
+    openrouter_judge.OpenRouterJudge().generate("Evaluate", Verdict)
+    body = transport["request"][2]
+    assert body["model"] == "z-ai/glm-5.3-flash"
+    assert body["reasoning"] == {"enabled": True, "effort": "high"}
+    assert body["temperature"] == 0
+    assert body["top_p"] == 1
 
 
 def test_explicit_effort_cannot_be_silently_ignored_when_reasoning_is_disabled(
@@ -160,7 +175,7 @@ def test_luna_omits_unsupported_sampling_parameters(monkeypatch, transport, mode
     assert "top_p" not in body
     assert body["model"] == model
     assert body["reasoning"] == {"enabled": True, "effort": "high"}
-    assert body["max_tokens"] == 16384
+    assert body["max_tokens"] == 8192
     assert body["provider"]["require_parameters"] is True
     assert body["provider"]["zdr"] is True
     assert judge_settings.judge_metadata()[1] == judge.generation
@@ -274,7 +289,7 @@ def test_openrouter_metadata_has_no_local_weights_or_local_generation_parameters
     monkeypatch,
 ):
     metadata, generation = judge_settings.judge_metadata()
-    assert metadata == {"provider": "openrouter", "alias": "z-ai/glm-5.3-flash"}
+    assert metadata == {"provider": "openrouter", "alias": "openai/gpt-6-luna"}
     assert "seed" not in generation and "chat_template_kwargs" not in generation
 
 
