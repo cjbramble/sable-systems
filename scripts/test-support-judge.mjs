@@ -37,8 +37,7 @@ try {
     ? null
     : getSupportModelConfig({
         ...process.env,
-        OPENROUTER_SUPPORT_MODEL:
-          process.env.OPENROUTER_JUDGE_MODEL?.trim() || defaults.judgeModel,
+        OPENROUTER_SUPPORT_MODEL: defaults.judgeModel,
       });
   if (config) supportModelHeaders(config);
   /** @type {{mode: string, categories: string[], list: boolean, concurrency: number,

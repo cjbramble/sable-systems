@@ -7,6 +7,7 @@ import random
 import time
 from contextlib import closing
 from email.utils import parsedate_to_datetime
+from typing import NoReturn
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel
@@ -17,7 +18,8 @@ from judge_types import RequestRecord, RetryPolicy
 MAX_RESPONSE_BYTES = 2_000_000
 
 RETRY_POLICY: RetryPolicy = {
-    "httpStatuses": [429],
+    "httpStatuses": [429, 500, 502, 503, 504],
+    "upstreamStatuses": [429, 500, 502, 503, 504],
     "transportErrors": ["IncompleteRead"],
     "transportHttpStatuses": [200],
     "maxRetries": 3,
@@ -85,6 +87,13 @@ def read_response(
     return raw
 
 
+def raise_upstream_error(error: object, record: RequestRecord) -> NoReturn:
+    """Retain structured status codes without exposing provider error messages."""
+    if isinstance(error, dict) and type(error.get("code")) is int:
+        record["upstreamStatus"] = error["code"]
+    raise RuntimeError("Judge returned an upstream error")
+
+
 def parse_verdict[Response: BaseModel](
     raw: bytes,
     schema: type[Response],
@@ -95,10 +104,10 @@ def parse_verdict[Response: BaseModel](
     record["response"] = json.loads(json.dumps(data).replace(key, "[REDACTED]"))
     record.pop("rawResponse", None)
     if data.get("error"):
-        raise RuntimeError("Judge returned an upstream error")
+        raise_upstream_error(data["error"], record)
     choice = data["choices"][0]
     if choice.get("error"):
-        raise RuntimeError("Judge returned an upstream error")
+        raise_upstream_error(choice["error"], record)
     if choice.get("finish_reason") != "stop":
         raise RuntimeError("Judge did not finish its verdict")
     verdict = schema.model_validate_json(
@@ -173,17 +182,24 @@ def request_verdict[Response: BaseModel](
                     and record.get("responseBytes", MAX_RESPONSE_BYTES + 1)
                     <= MAX_RESPONSE_BYTES
                 )
-                limited = (
-                    record.get("httpStatus") == 429
+                status = record.get("upstreamStatus", record.get("httpStatus", 0))
+                statuses = RETRY_POLICY[
+                    "upstreamStatuses" if "upstreamStatus" in record else "httpStatuses"
+                ]
+                transient = (
+                    status in statuses
                     and record.get("responseComplete") is True
                     and record.get("responseBytes", MAX_RESPONSE_BYTES + 1)
                     <= MAX_RESPONSE_BYTES
                 )
-                if not (incomplete or limited):
+                if not (incomplete or transient):
                     raise
-                record["retryReason"] = (
-                    "incomplete-response" if incomplete else "rate-limit"
-                )
+                if incomplete:
+                    record["retryReason"] = "incomplete-response"
+                elif status == 429:
+                    record["retryReason"] = "rate-limit"
+                else:
+                    record["retryReason"] = "provider-error"
                 if attempt > RETRY_POLICY["maxRetries"]:
                     record["retryExhausted"] = True
                     raise

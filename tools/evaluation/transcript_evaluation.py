@@ -273,6 +273,11 @@ def run_transcript(transcript: TranscriptInput, destination: Path) -> int:
         f"recovered requests: {summary['recoveredIncompleteResponseRequests']}; "
         f"unresolved: {summary['unresolvedIncompleteResponseRequests']}"
     )
+    print(
+        f"Judge provider errors: {summary['providerErrorAttempts']}; "
+        f"recovered requests: {summary['recoveredProviderErrorRequests']}; "
+        f"unresolved: {summary['unresolvedProviderErrorRequests']}"
+    )
     print(f"Judge report: {destination}")
     # Live judge verdicts are advisory; harness errors and factual failures are not.
     return 0 if report["successful"] else 1

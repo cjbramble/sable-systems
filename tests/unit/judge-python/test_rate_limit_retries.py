@@ -140,7 +140,7 @@ def test_retry_after_above_wait_budget_fails_without_retrying_early(http_sequenc
     assert judge.requests[0]["retrySkipped"] == "retry-after-exceeds-wait-budget"
 
 
-@pytest.mark.parametrize("status", [400, 401, 403, 500, 503])
+@pytest.mark.parametrize("status", [400, 401, 402, 403, 404, 501])
 def test_other_http_errors_are_never_retried(http_sequence, status):
     http_sequence["responses"] = [(status, None), (200, None)]
     with pytest.raises(RuntimeError, match=str(status)):
@@ -298,3 +298,141 @@ def test_incomplete_non_success_response_remains_terminal(http_sequence, wire):
     assert len(judge.requests) == 1
     assert http_sequence["delays"] == []
     assert judge.requests[0]["responseComplete"] is False
+
+
+def error_response(code, *, choice=False, retry_after=None):
+    error = {
+        "message": "retry-test-secret provider unavailable",
+        "code": code,
+        "metadata": {"error_type": "provider_unavailable"},
+    }
+    payload = {"choices": [{"error": error}]} if choice else {"error": error}
+    body = json.dumps(payload).encode()
+    headers = f"HTTP/1.1 200 OK\r\nContent-Length: {len(body)}\r\n"
+    if retry_after is not None:
+        headers += f"Retry-After: {retry_after}\r\n"
+    return (200, None, headers.encode() + b"\r\n" + body)
+
+
+@pytest.mark.parametrize("status", [500, 502, 503, 504])
+def test_transient_http_errors_recover_automatically(http_sequence, status):
+    http_sequence["responses"] = [(status, "7"), (200, None)]
+    judge = adapter.OpenRouterJudge()
+    assert judge.generate("Evaluate", Verdict).score == 1
+    assert http_sequence["delays"] == [7]
+    assert http_sequence["sent"][0] == http_sequence["sent"][1]
+    assert judge.requests[0]["retryReason"] == "provider-error"
+    summary = summarize_requests([{"calls": judge.requests}])
+    assert summary["providerErrorAttempts"] == 1
+    assert summary["recoveredProviderErrorRequests"] == 1
+    assert summary["unresolvedProviderErrorRequests"] == 0
+
+
+@pytest.mark.parametrize("code", [429, 500, 502, 503, 504])
+@pytest.mark.parametrize("choice", [False, True])
+def test_embedded_provider_errors_recover_with_evidence(http_sequence, code, choice):
+    http_sequence["responses"] = [error_response(code, choice=choice), (200, None)]
+    judge = adapter.OpenRouterJudge()
+    assert judge.generate("Evaluate", Verdict).score == 1
+    first, last = judge.requests
+    assert first["httpStatus"] == 200
+    assert first["upstreamStatus"] == code
+    assert first["responseComplete"] is True
+    assert last["completed"] is True
+    assert first["logicalRequest"] == last["logicalRequest"]
+    assert http_sequence["sent"][0] == http_sequence["sent"][1]
+    assert http_sequence["delays"] == [5]
+    assert "retry-test-secret" not in json.dumps(judge.requests)
+    summary = summarize_requests([{"calls": judge.requests}])
+    if code == 429:
+        assert summary["rateLimitedAttempts"] == 1
+        assert summary["recoveredRateLimitedRequests"] == 1
+        assert summary["providerErrorAttempts"] == 0
+    else:
+        assert summary["providerErrorAttempts"] == 1
+        assert summary["recoveredProviderErrorRequests"] == 1
+
+
+@pytest.mark.parametrize("code", [400, 401, 402, 403, 501, "502", None])
+def test_non_transient_or_unclassified_embedded_errors_are_terminal(
+    http_sequence, code
+):
+    http_sequence["responses"] = [error_response(code), (200, None)]
+    judge = adapter.OpenRouterJudge()
+    with pytest.raises(RuntimeError, match="upstream error"):
+        judge.generate("Evaluate", Verdict)
+    assert len(judge.requests) == 1
+    assert http_sequence["delays"] == []
+
+
+def test_embedded_error_honors_retry_after_wait_limit(http_sequence):
+    http_sequence["responses"] = [error_response(502, retry_after="61"), (200, None)]
+    judge = adapter.OpenRouterJudge()
+    with pytest.raises(RuntimeError, match="upstream error"):
+        judge.generate("Evaluate", Verdict)
+    assert len(judge.requests) == 1
+    assert judge.requests[0]["retrySkipped"] == "retry-after-exceeds-wait-budget"
+    assert http_sequence["delays"] == []
+
+
+def test_all_transient_failures_share_one_budget_in_deepeval(http_sequence):
+    http_sequence["responses"] = [
+        (200, None, CHUNKED_PARTIAL),
+        (429, None),
+        (503, None),
+        error_response(502),
+        (200, None),
+    ]
+    with pytest.raises(JudgeError, match="upstream error") as caught:
+        grading.judge_answer("Question", "Answer", "Reference")
+    calls = caught.value.calls
+    assert len(calls) == 4
+    assert calls[-1]["retryExhausted"] is True
+    assert http_sequence["delays"] == [5, 9, 17]
+    assert len(http_sequence["responses"]) == 1
+    assert all(body == http_sequence["sent"][0] for body in http_sequence["sent"])
+    summary = summarize_requests([{"calls": calls}])
+    assert summary["providerErrorAttempts"] == 2
+    assert summary["unresolvedProviderErrorRequests"] == 1
+    assert summary["recoveredProviderErrorRequests"] == 0
+    assert summary["unresolvedRateLimitedRequests"] == 1
+    assert summary["unresolvedIncompleteResponseRequests"] == 1
+
+
+@pytest.mark.parametrize("expected_passed", [True, False])
+def test_collection_recovers_mid_evaluation_without_repeating_grades(
+    monkeypatch, tmp_path, http_sequence, expected_passed
+):
+    cases = collection.load_cases()[:1]
+    cases[0]["checks"]["answer"]["passed"] = expected_passed
+    monkeypatch.setattr(collection, "load_cases", lambda categories: cases)
+    http_sequence["responses"] = [
+        (200, None),
+        error_response(502),
+        (200, None),
+        (200, None),
+    ]
+    destination = tmp_path / "report.json"
+    assert collection.run_collection({}, destination) == (0 if expected_passed else 1)
+    report = json.loads(destination.read_text())
+    assert report["summary"]["checks"] == {
+        "passed": int(expected_passed),
+        "failed": int(not expected_passed),
+        "error": 0,
+        "pending": 0,
+    }
+    calls = report["results"][0]["checks"][0]["actual"]["calls"]
+    assert len(calls) == 4
+    assert [call["attempt"] for call in calls] == [1, 1, 2, 1]
+    assert calls[1]["request"] == calls[2]["request"]
+    assert report["requests"]["retryAttempts"] == 1
+    assert report["requests"]["recoveredProviderErrorRequests"] == 1
+    assert report["requests"]["unresolvedProviderErrorRequests"] == 0
+    assert report["metadata"]["retryPolicy"]["upstreamStatuses"] == [
+        429,
+        500,
+        502,
+        503,
+        504,
+    ]
+    assert "retry-test-secret" not in destination.read_text()
