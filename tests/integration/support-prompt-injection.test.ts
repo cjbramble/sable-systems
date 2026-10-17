@@ -1,6 +1,8 @@
 import { describe, expect } from 'vitest';
 
 import { POST as chat } from '@/app/api/chat/route';
+import { buildSupportContext } from '@/db/support';
+import { hasGroundedSupportIdentifiers } from '@/lib/support-response';
 import { test } from '../fixtures/support-integration';
 import { calderPikeUser } from '../fixtures/users';
 
@@ -337,6 +339,41 @@ describe('invented contact details and reference numbers', () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ message: reply });
+  });
+});
+
+describe('reference codes in replies', () => {
+  const productContext = async (database: D1Database) => {
+    const context = await buildSupportContext(
+      database,
+      [{ role: 'user', content: 'Is SBL-RPC-12 in stock?' }],
+      calderPikeUser,
+    );
+    if (context.kind !== 'records') throw new Error('Expected product facts');
+    return context;
+  };
+
+  test.for([
+    'Confirmation code ABCDEF is on file.',
+    'Refund reference CREDIT-ALPHA was issued.',
+    'Your ticket # URGENT-ONE is open.',
+    'Refund reference SBL-RPC-12 was issued.',
+    'Case #SBL-RPC-12 was opened for you.',
+  ])('rejects %j', async (reply, { database }) => {
+    expect(
+      hasGroundedSupportIdentifiers(reply, await productContext(database)),
+    ).toBe(false);
+  });
+
+  test.for([
+    'For reference: 10/09/2026 is the requested ship date.',
+    'For reference, 10.09.2026 is the requested ship date.',
+    'For reference: SABLE Systems ships SBL-RPC-12 in packs of 8.',
+    'SBL-RPC-12 ships in a case pack of 8 units.',
+  ])('accepts %j', async (reply, { database }) => {
+    expect(
+      hasGroundedSupportIdentifiers(reply, await productContext(database)),
+    ).toBe(true);
   });
 });
 

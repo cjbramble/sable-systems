@@ -52,7 +52,10 @@ it is never clickable.
 
 Identifier checks normalize dash look-alikes and require any code after a
 reference word (confirmation, refund, credit, RMA, ticket, case, claim, receipt,
-invoice, reference) to be a verified or requested identifier. Order destinations
+invoice, reference) to be a verified record identifier. Product numbers and
+identifiers the customer only asked about don't count. All-caps codes without
+digits count after "number", "code", "ID", or "#"; dates such as 10/09/2026 are
+not codes. Order destinations
 must be one line, and support records show them as quoted strings, so stored
 text cannot add record lines. Referrals that don't name SABLE, such as "contact the
 accounts department", are not detected.

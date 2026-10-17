@@ -54,11 +54,12 @@ function isIpv6Literal(value: string) {
 }
 
 // Phone numbers: a "+" or "(area)" prefix, or digit groups split by spaces,
-// dots, or dashes. A bare run of digits counts only after a contact word, so
-// quantities and numeric POs pass. Each capture ends its match.
+// dots, or dashes. A bare run of digits, or a short local number such as
+// 555-0199, counts only after a contact word, so quantities and numeric POs
+// pass. Each capture ends its match.
 const PHONE_PATTERNS = [
   /(?<![\w-])(\+\s?\d[\d\s().-]{5,}\d|\(\d{2,4}\)\s?\d[\d\s.-]{4,}\d|\d{1,4}(?:[ .-]\d{2,4}){2,4})(?![\w-])/g,
-  /\b(?:call|phone|dial|text|fax|hotline|telephone|tel|mobile|whatsapp)\b[^.\n\d]{0,24}(\d{7,15})(?![\w-])/gi,
+  /\b(?:call|phone|dial|text|fax|hotline|telephone|tel|mobile|whatsapp)\b[^.\n\d]{0,24}(\+?\d[\d\s().-]{5,}\d)(?![\w-])/gi,
 ];
 
 function isPhoneNumber(value: string) {

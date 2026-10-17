@@ -189,6 +189,8 @@ describe('phone numbers in replies', () => {
     ['Please call 5550100199 now.', '5550100199'],
     ['Our London desk is +44 20 7946 0958.', '+44 20 7946 0958'],
     ['Text 555 010 0199 with your code.', '555 010 0199'],
+    ['Call 555-0199 for help.', '555-0199'],
+    ['Phone our desk at 555 0199.', '555 0199'],
   ])('detects %j', (content, expected) => {
     expect(unsafeReplyLinks(content)).toContain(expected);
   });
@@ -201,6 +203,7 @@ describe('phone numbers in replies', () => {
     'Quantities of 8 16 24 units are valid.',
     'Shipped 2026-08-03T09:00:00Z with tracking RFX-2026-0099.',
     'Call me if you need anything else.',
+    'Call back in 2 hours about the 8 units.',
   ])('allows %j', (content) => {
     expect(unsafeReplyLinks(content)).toEqual([]);
   });

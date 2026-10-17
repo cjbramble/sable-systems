@@ -17,11 +17,31 @@ const SUPPORT_IDENTIFIER_PATTERN =
 const DASH_LOOKALIKES = /[\u2010-\u2015\u2212\ufe58\ufe63\uff0d]/g;
 const INVISIBLE = /[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/g;
 
-// Any code next to a reference word must be a verified or requested
-// identifier: the prompt forbids invented confirmations, refunds, and cases,
-// and their formats are open-ended.
+// Any code next to a reference word must be a verified record identifier:
+// the prompt forbids invented confirmations, refunds, and cases, and their
+// formats are open-ended. A dotted or slashed number ("10/09/2026") is a date
+// or amount, not a code.
 const REFERENCE_WORD_ID =
-  /\b(?:confirmation|refund|credit|rma|ticket|case|claim|receipt|invoice|reference)(?:\s+(?:number|no\.?|id|code|reference|ref))?\s*(?:is\s+)?[:#]?\s*["'`(*]*([A-Z0-9][A-Z0-9-]*\d[A-Z0-9-]*|\d[A-Z0-9-]+)(?![\w-])/gi;
+  /\b(?:confirmation|refund|credit|rma|ticket|case|claim|receipt|invoice|reference)(?:\s+(number|no\.?|id|code|reference|ref))?\s*(?:is\s+)?([:#])?\s*["'`(*]*([A-Za-z0-9][A-Za-z0-9-]*)(?![\w-]|[/.]\d)/gi;
+const NOT_A_CODE = new Set(['SABLE', 'COV-E']);
+
+// Codes with digits always count. An all-caps word counts only after an
+// explicit "number", "code", "ID", or "#", so "for reference: SABLE" passes.
+function referenceCodes(text: string): string[] {
+  return Array.from(text.matchAll(REFERENCE_WORD_ID)).flatMap(
+    ([, label, marker, token]) => {
+      const code = token.toUpperCase();
+      if (/\d/.test(token))
+        return /^\d{4}-\d{2}-\d{2}$/.test(token) ? [] : [code];
+      const explicit = label !== undefined || marker === '#';
+      return explicit &&
+        /^[A-Z][A-Z-]{3,}$/.test(token) &&
+        !NOT_A_CODE.has(code)
+        ? [code]
+        : [];
+    },
+  );
+}
 
 function normalizeIdentifierText(content: string) {
   return content.replace(INVISIBLE, '').replace(DASH_LOOKALIKES, '-');
@@ -118,9 +138,15 @@ export function hasGroundedSupportIdentifiers(
     Array.from(text.matchAll(SUPPORT_IDENTIFIER_PATTERN), ([id]) =>
       id.toUpperCase(),
     ).every((id) => identifiers.has(id)) &&
-    Array.from(text.matchAll(REFERENCE_WORD_ID), ([, id]) => id.toUpperCase())
-      .filter((id) => !/^\d{4}-\d{2}-\d{2}$/.test(id))
-      .every((id) => identifiers.has(id))
+    // Products and echoed requests are not records, so they can't stand in
+    // for a refund, case, or confirmation.
+    referenceCodes(text).every((code) =>
+      evidence.verifiedReferences.some(
+        (verified) =>
+          verified.namespace !== 'item_number' &&
+          verified.identifier.toUpperCase() === code,
+      ),
+    )
   );
 }
 
