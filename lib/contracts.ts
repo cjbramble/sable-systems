@@ -11,6 +11,8 @@ export type CheckoutInput = {
   customerPoNumber: string;
   requestedShipDate: string;
   shippingRegion: string;
+  // The browser's IANA time zone; checkout treats its absence as UTC.
+  timeZone?: string;
   items: {
     itemNumber: string;
     quantity: number;

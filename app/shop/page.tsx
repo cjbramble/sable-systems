@@ -328,6 +328,7 @@ export default function ShopPage() {
       customerPoNumber: poNumber,
       requestedShipDate: shipDate,
       shippingRegion: region,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       items: cartLines.map(({ itemNumber, quantity, product }) => ({
         itemNumber,
         quantity,

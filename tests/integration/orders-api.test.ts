@@ -305,8 +305,8 @@ describe('orders API', () => {
       '2031-04-31',
       '2031-02-29',
       '2100-02-29',
-      // 09:17 UTC is 21:17 on 09-09 at UTC-12, so only 09-08 is past everywhere.
-      '2026-09-08',
+      // Without a time zone, checkout uses the UTC date.
+      '2026-09-09',
     ]) {
       const input = {
         commandId: crypto.randomUUID(),
@@ -332,7 +332,7 @@ describe('orders API', () => {
           body: JSON.stringify(input),
         }),
       );
-      const pastDate = requestedShipDate === '2026-09-08';
+      const pastDate = requestedShipDate === '2026-09-09';
       expect(response.status, requestedShipDate).toBe(pastDate ? 422 : 400);
       expect(await snapshotCheckoutState(database), requestedShipDate).toEqual(
         before,
@@ -350,7 +350,7 @@ describe('orders API', () => {
     }
   });
 
-  test('accepts a customer-local today that is still yesterday in UTC', async ({
+  test('checks the ship date against the customer-local date at submission', async ({
     database,
     onTestFinished,
   }) => {
@@ -364,10 +364,8 @@ describe('orders API', () => {
     onTestFinished(() => {
       vi.useRealTimers();
     });
-    // 20:30 on 09-09 in Honolulu (UTC-10) is 06:30 on 09-10 in UTC.
-    vi.setSystemTime(new Date('2026-09-10T06:30:00.000Z'));
     const user = await loadActiveUserFixture(database, 'USR-MCS-001');
-    const order = (requestedShipDate: string) =>
+    const order = (requestedShipDate: string, timeZone?: string) =>
       placeChargeAccountOrder(
         database,
         {
@@ -379,6 +377,7 @@ describe('orders API', () => {
           customerPoNumber,
           requestedShipDate,
           shippingRegion: 'Great Lakes District',
+          ...(timeZone === undefined ? {} : { timeZone }),
           items: [
             {
               itemNumber: 'SBL-RPC-12',
@@ -389,12 +388,26 @@ describe('orders API', () => {
         },
         user,
       );
-
-    await expect(order('2026-09-08')).rejects.toMatchObject({
+    const past = {
       status: 422,
       message: 'Requested ship date cannot be in the past.',
-    });
-    const receipt = await order('2026-09-09');
+    };
+
+    // 10:30 UTC on 09-10 is 00:30 on 09-11 in Kiritimati (UTC+14): a page
+    // opened there the day before cannot submit its stale earliest date.
+    vi.setSystemTime(new Date('2026-09-10T10:30:00.000Z'));
+    await expect(
+      order('2026-09-10', 'Pacific/Kiritimati'),
+    ).rejects.toMatchObject(past);
+
+    // 06:30 UTC on 09-10 is 20:30 on 09-09 in Honolulu (UTC-10).
+    vi.setSystemTime(new Date('2026-09-10T06:30:00.000Z'));
+    await expect(order('2026-09-08', 'Pacific/Honolulu')).rejects.toMatchObject(
+      past,
+    );
+    // A request without a time zone uses the UTC date.
+    await expect(order('2026-09-09')).rejects.toMatchObject(past);
+    const receipt = await order('2026-09-09', 'Pacific/Honolulu');
 
     expect((await ordersForPO()).results).toEqual([
       expect.objectContaining({
