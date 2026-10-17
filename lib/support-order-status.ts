@@ -64,8 +64,10 @@ const PREFIX_FILTER = new RegExp(
   `\\b((?:(?:not|neither)\\s+)?${STATUS_SOURCE}(?:\\s*${CONNECTOR_SOURCE}${STATUS_SOURCE})*)\\s*$`,
   'i',
 );
+// Any negated or excluding phrasing the expression reader can't consume asks
+// for clarification instead of reading the status word as a positive filter.
 const UNSUPPORTED_NEGATION =
-  /\b(?:not|never|neither|without|except|excluding|non|no|isn't|aren't|wasn't|weren't)\b/i;
+  /\b(?:not|never|neither|without|except|excluding|non|no|hide|hiding|skip|skipping|omit|omitting|minus|ignore|ignoring|besides|\w+n['’]t)\b|\bother\s+than\b|\bleave\s+out\b|\bapart\s+from\b/i;
 const EXCLUSION = /^(?:excluding|except|without)\s+/i;
 const EXPLANATION =
   /^\s*(?:and\s+)?(?:please\s+)?(?:explain|describe|define)\b/i;

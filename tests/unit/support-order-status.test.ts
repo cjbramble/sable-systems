@@ -110,6 +110,17 @@ describe('order status filters', () => {
     "Show orders aren't cancelled.",
     'Show orders not shipped yet.',
     'Show orders not cancelled but delivered.',
+    "Don't show cancelled orders.",
+    'Don’t show cancelled orders.',
+    'Hide cancelled orders.',
+    'Skip cancelled orders.',
+    'Show my orders but skip the cancelled ones.',
+    'List orders other than delivered.',
+    'List my orders minus cancelled.',
+    "Show my orders, but I don't want delivered ones.",
+    'Show my orders and leave out the cancelled ones.',
+    'Show orders apart from delivered.',
+    'Show orders that weren’t delivered.',
   ])('keeps unsupported meaning explicit: %s', (message) => {
     expect(classify(message)).toMatchObject({
       kind: 'orders',

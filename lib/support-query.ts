@@ -32,6 +32,8 @@ export type SupportQueryIntent =
       statusFilter?: SupportOrderStatusFilter;
       year?: number;
       yearField?: 'created' | 'requested';
+      // Dates, months, and year ranges the single-year search can't express.
+      unsupportedDate?: true;
     }
   | { kind: 'incidents' }
   | { kind: 'account' }
@@ -57,6 +59,42 @@ function requestedCategory(message: string) {
   return undefined;
 }
 
+const AMOUNT_BEFORE =
+  /(?:\$\s*|\b(?:over|under|above|below|exceeding|(?:more|less|greater|fewer)\s+than|at\s+(?:least|most))\s+\$?\s*)$/;
+const AMOUNT_AFTER =
+  /^\s*(?:[a-z-]+\s+)?(?:units?|licenses?|controllers?|arrays?|modules?|hubs?|nodes?|packs?|cells?|items?|cases?|seats?|kits?|dollars?|usd|cents?|%)\b/;
+const MONTH =
+  /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/;
+const RANGE_WORD =
+  /\b(?:between|before|after|since|until|till|through|prior\s+to)\s+(?:\w+\s+){0,2}$/;
+
+// Order search filters by one whole year. Money and quantities are not years,
+// and anything narrower or wider than one year asks for clarification.
+function parseYearFilter(
+  normalized: string,
+): { kind: 'none' } | { kind: 'year'; year: number } | { kind: 'unsupported' } {
+  const years = new Set<number>();
+  for (const match of normalized.matchAll(
+    /(?<![\d.,])\b(20\d{2})\b(?![.,]?\d)/g,
+  )) {
+    const before = normalized.slice(0, match.index);
+    const after = normalized.slice(match.index + match[0].length);
+    if (AMOUNT_BEFORE.test(before) || AMOUNT_AFTER.test(after)) continue;
+    if (
+      /^[-/]\d{1,2}\b/.test(after) ||
+      /\b\d{1,2}[-/]$/.test(before) ||
+      MONTH.test(before.slice(-12)) ||
+      MONTH.test(after.slice(0, 12)) ||
+      RANGE_WORD.test(before)
+    )
+      return { kind: 'unsupported' };
+    years.add(Number(match[1]));
+  }
+  if (years.size > 1) return { kind: 'unsupported' };
+  const [year] = years;
+  return year === undefined ? { kind: 'none' } : { kind: 'year', year };
+}
+
 function classifyCurrentTopic(latest: string): SupportQueryIntent {
   const normalized = latest.toLowerCase();
   const items = itemReferences(latest);
@@ -68,8 +106,8 @@ function classifyCurrentTopic(latest: string): SupportQueryIntent {
   if (asksAboutAccount && items.length === 0 && !category)
     return { kind: 'account' };
 
-  const yearMatch = normalized.match(/\b(20\d{2})\b/);
-  const year = yearMatch ? Number(yearMatch[1]) : undefined;
+  const dateFilter = parseYearFilter(normalized);
+  const year = dateFilter.kind === 'year' ? dateFilter.year : undefined;
   if (/\b(orders|purchases?|releases?)\b/.test(normalized)) {
     const statusFilter = parseOrderStatusFilter(normalized);
     const includedStatuses =
@@ -89,6 +127,9 @@ function classifyCurrentTopic(latest: string): SupportQueryIntent {
           : year
             ? 'created'
             : undefined,
+      ...(dateFilter.kind === 'unsupported'
+        ? { unsupportedDate: true as const }
+        : {}),
     };
   }
 
