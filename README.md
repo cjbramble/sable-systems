@@ -31,14 +31,13 @@ In `.env`, add your key. The example includes these defaults for the DeepEval ju
 
 ```dotenv
 OPENROUTER_API_KEY=your-key
-OPENROUTER_JUDGE_MODEL=openai/gpt-6-luna
 OPENROUTER_JUDGE_REASONING=true
 OPENROUTER_JUDGE_REASONING_EFFORT=high
 OPENROUTER_JUDGE_MAX_TOKENS=8192
 ```
 
-For an existing checkout, update any old judge settings in `.env` or your shell
-to these values. COV-E uses DeepSeek V4.1 Flash; regular Luna evaluates its answers.
+COV-E uses DeepSeek V4.1 Flash; DeepEval uses regular Luna for all judging.
+Remove any old `OPENROUTER_JUDGE_MODEL` setting; it is no longer used.
 
 Start the app:
 
@@ -55,8 +54,8 @@ Launchers load `.env`; existing shell variables take precedence. Keep the API ke
 server-side and out of Git. Hosted inference sends customer questions, authorized
 records, and saved conversation history to OpenRouter and the selected provider.
 
-See [OpenRouter configuration](docs/inference.md#configuration) for model overrides,
-provider restrictions, token budgets, and [Cloud setup](docs/inference.md#cloud-runtime).
+See [OpenRouter configuration](docs/inference.md#configuration) for provider restrictions,
+reasoning settings, token budgets, and [Cloud setup](docs/inference.md#cloud-runtime).
 
 ## Usage
 
@@ -134,7 +133,7 @@ CI runs both on Linux. Browser and live-model suites run separately from
 
 ### Judge evaluations
 
-DeepEval uses the selected judge model to assess factual support, completeness,
+DeepEval uses regular Luna to assess factual support, completeness,
 and support policy. Judgments are advisory; deterministic application checks
 remain required. See [judge metrics](docs/inference.md#judge-metrics) and
 [evaluation assertions](docs/evaluation-assertions.md) for scope and limitations.

@@ -12,9 +12,8 @@ server-side, out of Git, and out of browser-visible variables.
 | Variable                            | Default                        |
 | ----------------------------------- | ------------------------------ |
 | `OPENROUTER_SUPPORT_MODEL`          | `deepseek/deepseek-v4.1-flash` |
-| `OPENROUTER_JUDGE_MODEL`            | `openai/gpt-6-luna`            |
 | `OPENROUTER_JUDGE_REASONING`        | `true`                         |
-| `OPENROUTER_JUDGE_REASONING_EFFORT` | `high` (model-dependent)       |
+| `OPENROUTER_JUDGE_REASONING_EFFORT` | `high`                         |
 | `OPENROUTER_JUDGE_MAX_TOKENS`       | `8192` (256–32768)             |
 
 Defaults and provider policies live in [lib/openrouter-config.json](../lib/openrouter-config.json).
@@ -28,27 +27,21 @@ uses `high` reasoning effort and an 8,192-token limit, matching the evaluated
 configuration. Effort is not a hard token cap;
 unfinished verdicts still fail. Set effort only when reasoning is enabled.
 
-A GLM override also defaults to `high` effort and accepts `low`, `high`, or `max`.
-Other model overrides keep their provider's default effort unless explicitly
-configured. Explicit effort must be supported by the selected model. Existing
-`.env` and shell overrides take precedence; update old GLM settings to select Luna.
-
-For `openai/gpt-6-luna` and `openai/gpt-6-luna-pro`, the judge omits `temperature`
-and `top_p` because their OpenRouter endpoints do not support those parameters.
-The Pro alias selects pro reasoning mode; both use the same DeepEval metrics
-and provider privacy policy.
+Regular Luna is the sole judge model. `OPENROUTER_JUDGE_MODEL` is no longer read;
+remove it from existing `.env` files or shell settings. The judge omits
+`temperature` and `top_p`, which Luna does not support.
 The adapter serializes DeepEval's schemas using OpenAI's strict object and
 required-field rules, preserving nullable fields and SDK response validation.
 
 Both configurations disable provider fallback, require supported parameters,
 deny data collection, and request zero data retention. The judge lets OpenRouter
 select a compatible endpoint. Unsupported settings fail rather than switching
-to another model. Explicit environment overrides remain in effect.
+to another model. Reasoning and token-budget settings remain configurable.
 
 ## Judge metrics
 
 DeepEval 4.2.2 owns LLM extraction, judgments, scores and evaluation execution.
-Every metric receives the explicitly selected OpenRouter judge. The custom
+Every metric uses regular Luna through OpenRouter. The custom
 `DeepEvalBaseLLM` adapter supplies schema-bound responses through the audited
 transport; it does not grade answers. It preserves routing, retries, redacted
 request evidence and the network restriction to OpenRouter.

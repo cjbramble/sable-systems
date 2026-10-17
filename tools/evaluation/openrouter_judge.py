@@ -8,7 +8,7 @@ from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from pydantic_core import core_schema
 
 from judge_runtime import initialize_runtime
-from judge_settings import LUNA_MODELS, judge_config
+from judge_settings import judge_config
 from judge_types import RequestRecord
 from openrouter_transport import request_verdict
 
@@ -72,9 +72,6 @@ class OpenRouterJudge(DeepEvalBaseLLM):
             schema = cast(type[Response], BinaryScore)
         elif schema is ConversationScore:
             schema = cast(type[Response], TenPointScore)
-        schema_generator = (
-            OpenAIStrictSchema if self.model_name in LUNA_MODELS else GenerateJsonSchema
-        )
         body: dict[str, object] = {
             "model": self.model_name,
             "messages": [{"role": "user", "content": prompt}],
@@ -85,7 +82,7 @@ class OpenRouterJudge(DeepEvalBaseLLM):
                     "name": "judge_verdict",
                     "strict": True,
                     "schema": schema.model_json_schema(
-                        schema_generator=schema_generator
+                        schema_generator=OpenAIStrictSchema
                     ),
                 },
             },
