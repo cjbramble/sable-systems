@@ -132,10 +132,12 @@ describe('typed order search outcomes', () => {
           kind: 'order_search',
           outcome: 'found',
           criteria: {
-            product: {
-              item_number: 'SBL-RPC-12',
-              product_name: 'Redline Power Cell R12',
-            },
+            products: [
+              {
+                item_number: 'SBL-RPC-12',
+                product_name: 'Redline Power Cell R12',
+              },
+            ],
             year: 2099,
             yearField: 'created',
           },
@@ -303,4 +305,101 @@ describe('search prose cannot grant record identities', () => {
       });
     }
   }
+});
+
+describe('question misreadings', () => {
+  test('searches orders for every named product', async ({ database }) => {
+    const context = await buildSupportContext(
+      database,
+      ask(
+        'Show my orders for the Redline Power Cell R12 and the Aegis Hardware Firewall.',
+      ),
+      calderPikeUser,
+    );
+    if (context.kind !== 'records') throw new Error('Expected order search');
+    expect(context.parts).toMatchObject([
+      {
+        kind: 'order_search',
+        criteria: {
+          products: expect.arrayContaining([
+            expect.objectContaining({ item_number: 'SBL-RPC-12' }),
+            expect.objectContaining({ item_number: 'SBL-AEG-4' }),
+          ]),
+        },
+      },
+    ]);
+    expect(context.records).toContain('containing any of products');
+  });
+
+  test('looks up a product, not an order, for "Can I order"', async ({
+    database,
+  }) => {
+    const context = await buildSupportContext(
+      database,
+      ask('Can I order SBL-RPC-12?'),
+      calderPikeUser,
+    );
+    if (context.kind !== 'records') throw new Error('Expected product facts');
+    expect(context.records).toContain('Product: SBL-RPC-12');
+    expect(unavailableRecordReply(context)).toBeNull();
+  });
+
+  test.for([
+    'Is net 30 applicable to my account?',
+    'Show my orders where the warranty is applicable.',
+  ])(
+    'does not match a product alias inside %j',
+    async (message, { database }) => {
+      const context = await buildSupportContext(
+        database,
+        ask(message),
+        calderPikeUser,
+      );
+      if (context.kind !== 'records') throw new Error('Expected records');
+      expect(context.records).not.toContain('SBL-SWC-12');
+    },
+  );
+
+  test('still matches a plural alias as a whole word', async ({ database }) => {
+    const context = await buildSupportContext(
+      database,
+      ask('Do you have any cables in stock?'),
+      calderPikeUser,
+    );
+    if (context.kind !== 'records') throw new Error('Expected records');
+    expect(context.records).toContain('SBL-SWC-12');
+  });
+
+  test('asks for a single year instead of narrowing a range', async ({
+    database,
+  }) => {
+    expect(
+      await buildSupportContext(
+        database,
+        ask('Show my orders between 2024 and 2025.'),
+        calderPikeUser,
+      ),
+    ).toEqual({
+      kind: 'clarification',
+      message:
+        'Order search can filter by one whole year. Please name a single year, for example orders created in 2025.',
+    });
+  });
+
+  test('still rejects a reply that calls a product an order', async ({
+    database,
+  }) => {
+    const context = await buildSupportContext(
+      database,
+      ask('Is SBL-RPC-12 in stock?'),
+      calderPikeUser,
+    );
+    if (context.kind !== 'records') throw new Error('Expected product facts');
+    expect(
+      hasGroundedSupportIdentifiers('Order SBL-RPC-12 is delivered.', context),
+    ).toBe(false);
+    expect(
+      hasGroundedSupportIdentifiers('SBL-RPC-12 is in stock.', context),
+    ).toBe(true);
+  });
 });

@@ -129,6 +129,12 @@ async function authorizedContextForIntent(
       message:
         'Please clarify which order statuses to include or exclude. For example, ask for orders excluding cancelled and delivered.',
     };
+  if (intent.kind === 'orders' && intent.unsupportedDate)
+    return {
+      kind: 'clarification',
+      message:
+        'Order search can filter by one whole year. Please name a single year, for example orders created in 2025.',
+    };
   const matches =
     'message' in intent
       ? await matchProducts(
@@ -166,7 +172,8 @@ async function authorizedContextForIntent(
     case 'return':
       return lookupSupportReturn(db, intent, user);
     case 'orders': {
-      const product = products[0];
+      // Search every named product; dropping all but the first would answer
+      // a different question than the customer asked.
       return lookupSupportOrderSearch(db, user, {
         statusFilter:
           intent.statusFilter?.kind === 'filter'
@@ -174,11 +181,11 @@ async function authorizedContextForIntent(
             : undefined,
         year: intent.year,
         yearField: intent.yearField,
-        product: product
-          ? {
-              item_number: product.item_number,
-              product_name: product.product_name,
-            }
+        products: products.length
+          ? products.map(({ item_number, product_name }) => ({
+              item_number,
+              product_name,
+            }))
           : undefined,
       });
     }
@@ -288,9 +295,11 @@ async function matchProducts(
       .split(',')
       .map((term) => term.trim())
       .filter((term) => term.length >= 4);
-    const aliasMentions = aliases.flatMap((term) =>
-      productMentions(keywordMessage, product.item_number, term),
-    );
+    // Whole words only, with a plural: "applicable" must not match "cable".
+    const aliasMentions = aliases.flatMap((term) => [
+      ...productMentions(keywordMessage, product.item_number, term, true),
+      ...productMentions(keywordMessage, product.item_number, `${term}s`, true),
+    ]);
     if (!aliasMentions.length) continue;
     mentions.push(...aliasMentions);
     if (!explicitMatches.includes(product)) keywordMatches.push(product);

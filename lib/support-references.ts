@@ -47,6 +47,10 @@ const ORDER_REFERENCE =
 const SHIPMENT_ID = /^SHP-[A-Z0-9-]+$/i;
 const SHIPMENT_REFERENCE = /^(?:SHP|AST)-[A-Z0-9-]+$/i;
 const RETURN_ID = /^RTN-[A-Z0-9-]+$/i;
+const PRODUCT_ITEM = /^SBL-(?!\d{4}-)[A-Z0-9-]+$/i;
+// Purchasing phrasing only: "what happened to order X" still names an order.
+const ORDER_ACTION =
+  /(?:\b(?:want|wants|wanted|need|needs|like|plan|planning|going|try|trying|able|wish|hope|hoping|ready|how|way)\s+to|\b(?:please|let\s+me|let['’]s|i|we|i['’]ll|we['’]ll|i['’]d|we['’]d)|\b(?:can|could|may|might|should|would|will|do|did|shall)\s+(?:i|we|you))(?:\s+(?:not|also|still|now|just))?\s+$/i;
 const FIELD_WORD =
   /^(?:NUMBER|REFERENCE|STATUS|PLEASE|WHAT|WHERE|WHICH|DETAILS|HISTORY|UNKNOWN|UNAVAILABLE|OR|AND|THE|YOUR)$/;
 
@@ -82,6 +86,18 @@ export function parseSupportReferences(
     // Preserve the existing minimum for generic order references. Short
     // quantities such as "order 8 units" must stay available to catalog parsing.
     if (name.startsWith('order') && !explicitId && token.length < 4) continue;
+    // A generic 'order' is also a verb: "Can I order SBL-RPC-12?" asks about a
+    // product. In a customer's question, product item numbers and purchasing
+    // phrasing are never order records. Response validation (with candidate
+    // identifiers) keeps the label, so "Order SBL-RPC-12 is delivered" in a
+    // reply is still checked as an order claim.
+    if (
+      name === 'order' &&
+      !candidateIdentifiers &&
+      (PRODUCT_ITEM.test(token) ||
+        ORDER_ACTION.test(message.slice(0, label.index)))
+    )
+      continue;
     // Response validation supplies candidate tokens, including unknown items.
     // Keep their labels even when the token has another record's prefix; the
     // validator must check the claimed namespace rather than a bare item echo.

@@ -32,6 +32,8 @@ export type SupportQueryIntent =
       statusFilter?: SupportOrderStatusFilter;
       year?: number;
       yearField?: 'created' | 'requested';
+      // Dates, months, and year ranges the single-year search can't express.
+      unsupportedDate?: true;
     }
   | { kind: 'incidents' }
   | { kind: 'account' }
@@ -57,6 +59,55 @@ function requestedCategory(message: string) {
   return undefined;
 }
 
+const AMOUNT_BEFORE =
+  /(?:\$\s*|\b(?:over|under|above|below|exceeding|(?:more|less|greater|fewer)\s+than|at\s+(?:least|most))\s+\$?\s*)$/;
+// Only a unit or currency directly after the number (optionally "more" or
+// "additional") makes it an amount; "2024 in USD" still names a year.
+const AMOUNT_AFTER =
+  /^\s*(?:(?:more|additional|extra|total)\s+)?(?:units?|licenses?|controllers?|arrays?|modules?|hubs?|nodes?|packs?|cells?|items?|cases?|seats?|kits?|dollars?|usd|cents?|%)\b/;
+const MONTH_SOURCE =
+  '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+// "March 2026", "September 15, 2026", "15 September 2026", "2026 March".
+const MONTH_BEFORE_YEAR = new RegExp(
+  `\\b${MONTH_SOURCE}\\.?(?:\\s+\\d{1,2}(?:st|nd|rd|th)?)?,?\\s*$|\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:of\\s+)?${MONTH_SOURCE}\\.?,?\\s*$`,
+);
+const MONTH_AFTER_YEAR = new RegExp(`^[\\s,]*${MONTH_SOURCE}\\b`);
+// A month or relative date named without a year. "May" or "March" alone can
+// be a verb, so a standalone month needs a date preposition or a day number.
+const DATE_WITHOUT_YEAR = new RegExp(
+  `\\b(?:in|from|during|since|until|till|before|after|for|of|by)\\s+(?:early\\s+|late\\s+|mid-?)?${MONTH_SOURCE}\\b|\\b${MONTH_SOURCE}\\s+\\d{1,2}(?:st|nd|rd|th)?\\b|\\b(?:today|yesterday|tomorrow)\\b|\\b(?:this|last|next|past|previous)\\s+(?:\\d+\\s+)?(?:days?|weeks?|months?|quarters?|years?)\\b`,
+);
+const RANGE_WORD =
+  /\b(?:between|before|after|since|until|till|through|prior\s+to)\s+(?:\w+\s+){0,2}$/;
+
+// Order search filters by one whole year. Money and quantities are not years,
+// and anything narrower or wider than one year asks for clarification.
+function parseYearFilter(
+  normalized: string,
+): { kind: 'none' } | { kind: 'year'; year: number } | { kind: 'unsupported' } {
+  const years = new Set<number>();
+  for (const match of normalized.matchAll(
+    /(?<![\d.,])\b(20\d{2})\b(?![.,]?\d)/g,
+  )) {
+    const before = normalized.slice(0, match.index);
+    const after = normalized.slice(match.index + match[0].length);
+    if (AMOUNT_BEFORE.test(before) || AMOUNT_AFTER.test(after)) continue;
+    if (
+      /^[-/]\d{1,2}\b/.test(after) ||
+      /\b\d{1,2}[-/]$/.test(before) ||
+      MONTH_BEFORE_YEAR.test(before) ||
+      MONTH_AFTER_YEAR.test(after) ||
+      RANGE_WORD.test(before)
+    )
+      return { kind: 'unsupported' };
+    years.add(Number(match[1]));
+  }
+  if (years.size > 1 || DATE_WITHOUT_YEAR.test(normalized))
+    return { kind: 'unsupported' };
+  const [year] = years;
+  return year === undefined ? { kind: 'none' } : { kind: 'year', year };
+}
+
 function classifyCurrentTopic(latest: string): SupportQueryIntent {
   const normalized = latest.toLowerCase();
   const items = itemReferences(latest);
@@ -68,8 +119,8 @@ function classifyCurrentTopic(latest: string): SupportQueryIntent {
   if (asksAboutAccount && items.length === 0 && !category)
     return { kind: 'account' };
 
-  const yearMatch = normalized.match(/\b(20\d{2})\b/);
-  const year = yearMatch ? Number(yearMatch[1]) : undefined;
+  const dateFilter = parseYearFilter(normalized);
+  const year = dateFilter.kind === 'year' ? dateFilter.year : undefined;
   if (/\b(orders|purchases?|releases?)\b/.test(normalized)) {
     const statusFilter = parseOrderStatusFilter(normalized);
     const includedStatuses =
@@ -89,6 +140,9 @@ function classifyCurrentTopic(latest: string): SupportQueryIntent {
           : year
             ? 'created'
             : undefined,
+      ...(dateFilter.kind === 'unsupported'
+        ? { unsupportedDate: true as const }
+        : {}),
     };
   }
 

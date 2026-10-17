@@ -12,7 +12,7 @@ export async function lookupSupportOrderSearch(
   user: AuthenticatedUser,
   criteria: OrderSearchCriteria,
 ): Promise<OrderSearchOutcome> {
-  const { statusFilter, year, yearField, product } = criteria;
+  const { statusFilter, year, yearField, products } = criteria;
   const clauses = ['o.customer_id = ?'];
   const params: unknown[] = [user.distributorId];
   if (statusFilter) {
@@ -30,12 +30,13 @@ export async function lookupSupportOrderSearch(
     clauses.push(`${column} >= ? AND ${column} < ?`);
     params.push(`${year}-01-01`, `${year + 1}-01-01`);
   }
-  if (product) {
+  if (products?.length) {
     clauses.push(`EXISTS (
       SELECT 1 FROM order_items oi
-      WHERE oi.order_id = o.order_id AND oi.item_number = ?
+      WHERE oi.order_id = o.order_id
+        AND oi.item_number IN (${products.map(() => '?').join(', ')})
     )`);
-    params.push(product.item_number);
+    params.push(...products.map((product) => product.item_number));
   }
   const where = clauses.join(' AND ');
   const [countResult, rowResult] = await db.batch<
@@ -62,7 +63,7 @@ export async function lookupSupportOrderSearch(
       { namespace: 'customer_po', identifier: order.customer_po_number },
     ],
   );
-  if (product)
+  for (const product of products ?? [])
     verifiedReferences.push({
       namespace: 'item_number',
       identifier: product.item_number,

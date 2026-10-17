@@ -110,6 +110,65 @@ describe('support reference parsing', () => {
   });
 });
 
+describe('order used as a verb', () => {
+  const references = (message: string) =>
+    parseSupportReferences(message).occurrences.map(
+      ({ reference }) => reference,
+    );
+
+  it.each([
+    'Can I order SBL-RPC-12?',
+    'I want to order SBL-RPC-12 next week.',
+    'Can I order 1000 of SBL-RPC-12?',
+    'Please order SBL-RPC-12.',
+    'Could we order 2400 of them?',
+    'Did I order SBL-RPC-12 last year?',
+    "I'd like to order SBL-AEG-4.",
+    'What happens if I order SBL-RPC-12 today?',
+    'Is order SBL-RPC-12 possible?',
+  ])('does not read %j as an order record', (message) => {
+    expect(
+      references(message).filter((reference) => reference.kind === 'order'),
+    ).toEqual([]);
+  });
+
+  it.each([
+    [
+      'Show order SBL-2026-000417.',
+      { kind: 'order', namespace: 'order_id', identifier: 'SBL-2026-000417' },
+    ],
+    [
+      'Can you check order ACME-7781?',
+      { kind: 'order', namespace: 'unresolved', identifier: 'ACME-7781' },
+    ],
+    [
+      'Can I see order number 4471?',
+      { kind: 'order', namespace: 'order_id', identifier: '4471' },
+    ],
+    [
+      'What happened to order ACME-7781?',
+      { kind: 'order', namespace: 'unresolved', identifier: 'ACME-7781' },
+    ],
+    [
+      'Can I order the items on order SBL-2026-000417 again?',
+      { kind: 'order', namespace: 'order_id', identifier: 'SBL-2026-000417' },
+    ],
+  ])('still reads %j as an order record', (message, expected) => {
+    expect(references(message)).toEqual([expected]);
+  });
+});
+
+it('keeps a generic order label on a product during response validation', () => {
+  expect(
+    parseSupportReferences(
+      'Order SBL-RPC-12 is delivered.',
+      new Set(['SBL-RPC-12']),
+    ).occurrences.map(({ reference }) => reference),
+  ).toEqual([
+    { kind: 'order', namespace: 'unresolved', identifier: 'SBL-RPC-12' },
+  ]);
+});
+
 describe('reference labels on response evidence candidates', () => {
   const candidates = new Set([
     'SBL-MISSING-X',

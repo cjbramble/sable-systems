@@ -8,7 +8,8 @@ export type OrderSearchCriteria = {
   statusFilter?: Extract<SupportOrderStatusFilter, { kind: 'filter' }>;
   year?: number;
   yearField?: 'created' | 'requested';
-  product?: Pick<SupportProduct, 'item_number' | 'product_name'>;
+  // Orders containing any of these products.
+  products?: Pick<SupportProduct, 'item_number' | 'product_name'>[];
 };
 
 export type SupportOrderSearchRow = {
@@ -35,7 +36,7 @@ export function renderOrderSearchOutcome(result: OrderSearchOutcome): string {
     scope,
     facts: { total, orders },
   } = result;
-  const { statusFilter, year, yearField, product } = result.criteria;
+  const { statusFilter, year, yearField, products } = result.criteria;
   const included = statusFilter?.include.map((status) =>
     status.replaceAll('_', ' '),
   );
@@ -50,8 +51,8 @@ export function renderOrderSearchOutcome(result: OrderSearchOutcome): string {
     year
       ? `${yearField === 'requested' ? 'requested' : 'created'} in ${year}`
       : null,
-    product
-      ? `containing product ${product.product_name} (${product.item_number})`
+    products?.length
+      ? `containing ${products.length === 1 ? 'product' : 'any of products'} ${products.map((product) => `${product.product_name} (${product.item_number})`).join(', ')}`
       : null,
   ].filter(Boolean);
   return `<authorized_records>

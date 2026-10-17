@@ -132,8 +132,16 @@ Order searches support status lists and explicit exclusions, such as “shipped 
 partially shipped orders,” “orders that are not cancelled,” and “active orders
 excluding on hold.” Active orders exclude scheduled, delivered, and cancelled
 statuses. Ambiguous negation, unknown explicit statuses, and contradictory filters
-prompt a saved clarification without a model call. Excluding scheduled orders does
-not change a year filter from the order's creation year to its requested ship year.
+prompt a saved clarification without a model call. Phrasings such as “don't
+show”, “hide”, “skip”, or “other than” count as ambiguous negation. Excluding
+scheduled orders does not change a year filter from the order's creation year to
+its requested ship year.
+
+A year filter covers one whole year. Amounts and quantities such as “over $2000”
+or “2048 units” are not years. Dates, months, relative dates such as “this month”,
+ranges, and several years prompt a clarification. A search naming several products matches orders containing any of
+them. “Order” followed by a product item number, or after phrasing such as “can I”
+or “want to”, is read as buying the product, not as an order reference.
 
 The former `messages` array is no longer accepted (HTTP 400). Migrate callers to
 `message` and `expectedRevision`, preserving the entire command for retries.
