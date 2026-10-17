@@ -305,7 +305,8 @@ describe('orders API', () => {
       '2031-04-31',
       '2031-02-29',
       '2100-02-29',
-      '2026-09-09',
+      // 09:17 UTC is 21:17 on 09-09 at UTC-12, so only 09-08 is past everywhere.
+      '2026-09-08',
     ]) {
       const input = {
         commandId: crypto.randomUUID(),
@@ -331,7 +332,7 @@ describe('orders API', () => {
           body: JSON.stringify(input),
         }),
       );
-      const pastDate = requestedShipDate === '2026-09-09';
+      const pastDate = requestedShipDate === '2026-09-08';
       expect(response.status, requestedShipDate).toBe(pastDate ? 422 : 400);
       expect(await snapshotCheckoutState(database), requestedShipDate).toEqual(
         before,
@@ -347,6 +348,61 @@ describe('orders API', () => {
         before,
       );
     }
+  });
+
+  test('accepts a customer-local today that is still yesterday in UTC', async ({
+    database,
+    onTestFinished,
+  }) => {
+    const customerPoNumber = 'MCS-TEST-CHECKOUT-LOCAL-DAY';
+    const { ordersForPO } = await createCheckoutFixture(
+      database,
+      customerPoNumber,
+      ['SBL-RPC-12'],
+    );
+    vi.useFakeTimers({ toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    // 20:30 on 09-09 in Honolulu (UTC-10) is 06:30 on 09-10 in UTC.
+    vi.setSystemTime(new Date('2026-09-10T06:30:00.000Z'));
+    const user = await loadActiveUserFixture(database, 'USR-MCS-001');
+    const order = (requestedShipDate: string) =>
+      placeChargeAccountOrder(
+        database,
+        {
+          commandId: crypto.randomUUID(),
+          expectedSubject: {
+            userId: user.userId,
+            customerId: user.distributorId,
+          },
+          customerPoNumber,
+          requestedShipDate,
+          shippingRegion: 'Great Lakes District',
+          items: [
+            {
+              itemNumber: 'SBL-RPC-12',
+              quantity: 8,
+              expectedUnitPriceCents: 68000,
+            },
+          ],
+        },
+        user,
+      );
+
+    await expect(order('2026-09-08')).rejects.toMatchObject({
+      status: 422,
+      message: 'Requested ship date cannot be in the past.',
+    });
+    const receipt = await order('2026-09-09');
+
+    expect((await ordersForPO()).results).toEqual([
+      expect.objectContaining({
+        order_id: receipt.orderId,
+        created_on: '2026-09-10',
+        requested_ship_date: '2026-09-09',
+      }),
+    ]);
   });
 
   test('keeps one checkout instant when a same-day leap-day order crosses UTC midnight', async ({

@@ -171,7 +171,7 @@ async function createOrder(
   createdAt: string,
 ): Promise<CheckoutReceipt> {
   const today = createdAt.slice(0, 10);
-  if (input.requestedShipDate < today) {
+  if (input.requestedShipDate < earliestShipDate(createdAt)) {
     throw new CheckoutError('Requested ship date cannot be in the past.', 422);
   }
 
@@ -366,6 +366,16 @@ async function createOrder(
   }
 
   return receipt;
+}
+
+// Customers pick a date in their own time zone, so accept any date that is
+// still today somewhere (UTC-12), rather than only the UTC date.
+const LATEST_UTC_OFFSET_MS = 12 * 60 * 60 * 1000;
+
+export function earliestShipDate(now: string) {
+  return new Date(Date.parse(now) - LATEST_UTC_OFFSET_MS)
+    .toISOString()
+    .slice(0, 10);
 }
 
 export class CheckoutError extends Error {
