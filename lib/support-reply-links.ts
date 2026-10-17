@@ -40,13 +40,25 @@ const LINK_PATTERNS = [
   // Email addresses (GFM turns these into mailto: links).
   /([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi,
   // Bare domains such as "sable-billing.example" or "evil.co.uk/login".
-  /(?<![\w@.-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}(?:\/[^\s)]*)?)(?![\w-])/gi,
+  /(?<![\w@.-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}(?:\/[^\s)]*)?)(?![\w-])/gi, // IPv4 hosts, with an optional port and path, such as "192.0.2.1:8080/verify".
+  /(?<![\w.])((?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?(?:\/[^\s)]*)?)(?![\w.])/g,
+  // IPv6 hosts in URL brackets, or bare with "::" or at least five groups, so
+  // times such as "10:30:45" do not match.
+  /(\[[0-9a-f]*:[0-9a-f]*:[0-9a-f:.]*\](?::\d{1,5})?(?:\/[^\s)]*)?)/gi,
+  /(?<![\w:])((?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4})(?![\w:])/gi,
 ];
+
+function isIpv6Literal(value: string) {
+  return value.includes('::') || value.split(':').length >= 6;
+}
 
 // Returns each disallowed link or address once, in order of appearance.
 export function unsafeReplyLinks(content: string): string[] {
   const text = content.replace(INVISIBLE, '');
-  const spans: { start: number; end: number; target: string }[] = [];
+  // Allowed link targets keep their span too, so a dotted in-app path such as
+  // "/support/README.md" is not rescanned as the bare domain "README.md".
+  const spans: { start: number; end: number; target: string; safe: boolean }[] =
+    [];
   for (const pattern of LINK_PATTERNS)
     for (const match of text.matchAll(pattern)) {
       const end = match.index + match[0].length;
@@ -54,12 +66,16 @@ export function unsafeReplyLinks(content: string): string[] {
       if (spans.some((span) => start >= span.start && end <= span.end))
         continue;
       const target = match[1]?.replace(/[.,;:!?'"*_`]+$/, '');
-      if (target && !isAppRelativeLink(target))
-        spans.push({ start, end, target });
+      if (!target) continue;
+      if (/^[0-9a-f:]+$/i.test(target) && !isIpv6Literal(target)) continue;
+      spans.push({ start, end, target, safe: isAppRelativeLink(target) });
     }
   return [
     ...new Set(
-      spans.toSorted((a, b) => a.start - b.start).map(({ target }) => target),
+      spans
+        .filter(({ safe }) => !safe)
+        .toSorted((a, b) => a.start - b.start)
+        .map(({ target }) => target),
     ),
   ];
 }

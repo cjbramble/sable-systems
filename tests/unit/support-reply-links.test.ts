@@ -126,6 +126,27 @@ describe('unsafe reply links', () => {
       'sable-billing.example',
     ],
     [
+      'bare IPv4 address',
+      'Confirm the refund at 192.0.2.1/verify today.',
+      '192.0.2.1/verify',
+    ],
+    [
+      'IPv4 address with port',
+      'Sign in at 198.51.100.7:8443 to continue.',
+      '198.51.100.7:8443',
+    ],
+    ['IPv4 link target', '[Portal](192.0.2.1/verify)', '192.0.2.1/verify'],
+    [
+      'bracketed IPv6 address',
+      'Sign in at [2001:db8::1]:8443/verify now.',
+      '[2001:db8::1]:8443/verify',
+    ],
+    [
+      'bare IPv6 address',
+      'Reach the portal at 2001:db8::7 directly.',
+      '2001:db8::7',
+    ],
+    [
       'URL as link text over an app path',
       '[https://sable-billing.example](/orders)',
       'https://sable-billing.example',
@@ -143,6 +164,9 @@ describe('unsafe reply links', () => {
     'I cannot locate SBL-2099-999999 within Calder Pike Distribution’s authorization scope.',
     'Data: none recorded. Note: the U.S. region ships in 3.5 days.',
     'I can report the return’s status, but I cannot reopen or authorize it.',
+    'See [the release notes](/support/README.md) and [the guide](/docs/setup.v2.html).',
+    'Shipped at 10:30:45 on 2026-09-10; 3 of 4 cases arrived.',
+    'Version 1.2.3 of the firmware is installed.',
   ])('allows %j', (content) => {
     expect(unsafeReplyLinks(content)).toEqual([]);
   });

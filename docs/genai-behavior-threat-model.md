@@ -44,7 +44,7 @@ conversation history, incident titles, and order shipping destinations.
 | Chat rendering | HTML and images are dropped; links outside the app have no target                      |
 
 Link checks reject URLs with common schemes or a `//` host, protocol-relative and backslash hosts,
-`www.` addresses, bare domains, and email addresses, including ones split by
+`www.` addresses, bare domains, IP addresses, and email addresses, including ones split by
 invisible characters. Obfuscated text such as `example[.]com` is not detected,
 but it is never clickable.
 
