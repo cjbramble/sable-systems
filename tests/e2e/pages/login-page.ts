@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 export class LoginPage {
   constructor(private readonly page: Page) {}
@@ -21,12 +21,22 @@ export class LoginPage {
     await this.page.waitForURL((url) => url.pathname === '/');
   }
 
+  // The form re-renders its controlled inputs while the session check runs,
+  // which can clear values typed earlier. Wait until it accepts input, and
+  // confirm both values before submitting.
   async signIn(email: string, password: string, destination = '/support') {
-    await this.page.getByLabel('Authorized email').fill(email);
-    await this.page.getByLabel('Access phrase').fill(password);
-    await this.page
-      .getByRole('button', { name: 'Enter authorized channel', exact: true })
-      .click();
+    const submit = this.page.getByRole('button', {
+      name: 'Enter authorized channel',
+      exact: true,
+    });
+    const emailInput = this.page.getByLabel('Authorized email');
+    const passwordInput = this.page.getByLabel('Access phrase');
+    await expect(submit).toBeEnabled();
+    await emailInput.fill(email);
+    await passwordInput.fill(password);
+    await expect(emailInput).toHaveValue(email);
+    await expect(passwordInput).toHaveValue(password);
+    await submit.click();
     await this.page.waitForURL(
       (url) => url.pathname + url.search === destination,
     );
