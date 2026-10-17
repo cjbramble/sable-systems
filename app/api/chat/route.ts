@@ -89,6 +89,9 @@ export async function POST(request: Request) {
       case 'failed':
         return Response.json(result.failure, {
           status: failureStatuses[result.reason],
+          ...(result.retryAfter === undefined
+            ? {}
+            : { headers: { 'Retry-After': String(result.retryAfter) } }),
         });
     }
   } catch (error) {

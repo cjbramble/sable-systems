@@ -34,6 +34,7 @@ import {
   extractSupportModelContent,
   isIncompleteSupportModelReply,
   isContextOverflowPayload,
+  hasSupportModelErrorEnvelope,
   type SupportCorrection,
 } from '@/lib/support-model';
 import { logServerError } from '@/lib/server-log';
@@ -73,7 +74,12 @@ type FailureReason =
 export type SupportAnswer =
   | { kind: 'answered'; reply: SupportResponse | SupportReply }
   | { kind: 'limited'; retryAfter: number }
-  | { kind: 'failed'; reason: FailureReason; failure: SupportFailure };
+  | {
+      kind: 'failed';
+      reason: FailureReason;
+      failure: SupportFailure;
+      retryAfter?: number;
+    };
 
 // An earlier lost response may already have committed this command. Only a
 // confirmed pre-save failure is classified as unsaved; saving errors stay uncertain.
@@ -85,6 +91,48 @@ function unsavedFailure(
     kind: 'failed',
     reason,
     failure: { ...failure, code: 'request_not_saved' },
+  };
+}
+
+// Credential, credit, permission, rate-limit, and outage statuses mean the
+// model could not answer at all. They are not bad replies.
+function isProviderUnavailableStatus(status: number) {
+  return [401, 402, 403, 429].includes(status) || status >= 500;
+}
+
+// Retry-After is either delta-seconds or an HTTP date; anything else is dropped.
+function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    return Number.isSafeInteger(seconds) ? seconds : undefined;
+  }
+  const date = Date.parse(trimmed);
+  if (Number.isNaN(date)) return undefined;
+  return Math.max(0, Math.ceil((date - Date.now()) / 1000));
+}
+
+// Log only the provider status and a fixed label: provider bodies can echo
+// request content, and the request headers carry the API key.
+function logProviderFailure(label: string, status: number) {
+  logServerError(
+    'support answer (model)',
+    new Error(`${label}: HTTP ${status}`),
+  );
+}
+
+function providerUnavailable(
+  label: string,
+  status: number,
+  retryAfter?: number,
+): SupportAnswer {
+  logProviderFailure(label, status);
+  return {
+    kind: 'failed',
+    reason: 'model',
+    failure: failureOutcomes.model,
+    ...(retryAfter === undefined ? {} : { retryAfter }),
   };
 }
 
@@ -198,7 +246,6 @@ export async function answerSupportMessage(
         await modelResponse.body?.cancel();
         return unsavedFailure({ error: failureOutcomes.model.error }, 'model');
       }
-
       // Read success and error bodies under the same request deadline.
       let modelPayload: unknown = null;
       try {
@@ -242,7 +289,18 @@ export async function answerSupportMessage(
           'context_overflow',
         );
       }
+      if (isProviderUnavailableStatus(modelResponse.status)) {
+        return providerUnavailable(
+          'provider unavailable',
+          modelResponse.status,
+          modelResponse.status === 429
+            ? parseRetryAfter(modelResponse.headers.get('Retry-After'))
+            : undefined,
+        );
+      }
+
       if (!modelResponse.ok) {
+        logProviderFailure('provider rejected request', modelResponse.status);
         return unsavedFailure(
           {
             error:
@@ -251,6 +309,12 @@ export async function answerSupportMessage(
           'invalid_reply',
         );
       }
+
+      if (hasSupportModelErrorEnvelope(modelPayload))
+        return providerUnavailable(
+          'provider error envelope',
+          modelResponse.status,
+        );
 
       if (isIncompleteSupportModelReply(modelPayload)) {
         return unsavedFailure(

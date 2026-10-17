@@ -352,8 +352,8 @@ for (const outcome of [
   {
     name: 'provider failure',
     response: { status: 503, body: { error: { message: 'Unavailable' } } },
-    error:
-      'The support model could not complete that request. Please try again.',
+    expectedStatus: 503,
+    error: 'The support model is unavailable. Please try again.',
   },
   {
     name: 'incomplete completion',
@@ -363,6 +363,7 @@ for (const outcome of [
         choices: [{ finish_reason: 'length', message: { content: reply } }],
       },
     },
+    expectedStatus: 502,
     error: "The support model's reply was incomplete. Please try again.",
   },
 ]) {
@@ -381,7 +382,9 @@ for (const outcome of [
       await loginPage.signIn('mara.venn@calderpike.example', 'Sable-WHS-0427!');
       await expect(supportPage.runtimeStatus).toHaveText(online);
       await supportPage.startIncident();
-      expect((await supportPage.sendMessage(question)).status()).toBe(502);
+      expect((await supportPage.sendMessage(question)).status()).toBe(
+        outcome.expectedStatus,
+      );
       await expect(supportPage.requestError).toContainText(outcome.error);
       await expect(supportPage.runtimeStatus).toHaveText(online);
       expect(app.modelRequests).toHaveLength(1);

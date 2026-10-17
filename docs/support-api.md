@@ -201,6 +201,19 @@ including their bodies, share a ten-second deadline. Retrying starts a fresh pai
 of reads, and canceled or older results cannot replace the current view. Failed or
 malformed history is never presented as an empty conversation list.
 
+Model failures are unsaved (`code: "request_not_saved"`) and can be retried:
+
+| Model outcome                                                               | Response                    |
+| --------------------------------------------------------------------------- | --------------------------- |
+| Provider HTTP 401, 402, 403, 429, or 5xx; HTTP 200 with an `error` envelope | HTTP 503, model unavailable |
+| Provider HTTP 429 with a valid `Retry-After`                                | HTTP 503 with the same wait |
+| Provider context-length rejection (HTTP 400)                                | HTTP 422                    |
+| Other provider rejections; empty, cut-off, ungrounded, or oversized replies | HTTP 502                    |
+| No response before the deadline                                             | HTTP 504                    |
+
+Provider failures and rejections log the provider status code to the Worker log,
+never the provider body or API key.
+
 | Limit                                                         | Maximum                 | Failure  |
 | ------------------------------------------------------------- | ----------------------- | -------- |
 | Trimmed customer text                                         | 4,000 UTF-16 code units | HTTP 400 |
