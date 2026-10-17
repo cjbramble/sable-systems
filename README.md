@@ -2,8 +2,8 @@
 
 A local web application for the fictional SABLE Systems wholesale business.
 The portal provides inventory-aware ordering, charge-account checkout, order
-history, and COV-E customer support. This branch trials DeepSeek V4.1 Flash
-through OpenRouter. No local model weights or inference server are required.
+history, and COV-E customer support. COV-E runs on DeepSeek V4.1 Flash through
+OpenRouter. No local model weights or inference server are required.
 
 Built with React, Vinext, and Tailwind CSS, with a Cloudflare Workers backend
 and a D1/SQLite database.
