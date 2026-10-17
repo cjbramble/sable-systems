@@ -46,6 +46,18 @@ scheme and port. Literal `null` and foreign origins are denied. When present,
 denied even with a matching origin. Missing or empty headers remain supported for
 local server and CLI clients. These headers are not identity credentials.
 
+## Request size limits
+
+Mutation handlers stop reading a JSON body at a fixed size and return HTTP 413
+before any database work.
+
+| Handler           | Limit (UTF-8, including whitespace) |
+| ----------------- | ----------------------------------- |
+| Login             | 4 KiB                               |
+| Checkout          | 16 KiB                              |
+| Incident deletion | 1 KiB                               |
+| Chat              | 32 KiB                              |
+
 ## Regression coverage
 
 | Policy                                                                                      | Coverage                                                                        |

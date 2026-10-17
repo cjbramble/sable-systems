@@ -1,4 +1,5 @@
 import { isTrustedMutation } from '@/lib/request-origin';
+import { BodyTooLargeError, readJsonBody } from '@/lib/json-body';
 import { getAuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { getOrderHistory, parseOrderHistoryInput } from '@/db/orders';
@@ -6,6 +7,9 @@ import type { CheckoutFailure } from '@/lib/contracts';
 import { CheckoutError, placeChargeAccountOrder } from '@/db/shop';
 
 export const dynamic = 'force-dynamic';
+
+// Twenty order lines at their field limits fit well within this.
+const MAX_CHECKOUT_REQUEST_BYTES = 16 * 1024;
 
 export async function GET(request: Request) {
   const input = parseOrderHistoryInput(new URL(request.url));
@@ -40,8 +44,13 @@ export async function POST(request: Request) {
     );
   let body: unknown;
   try {
-    body = await request.json();
-  } catch {
+    body = await readJsonBody(request, MAX_CHECKOUT_REQUEST_BYTES);
+  } catch (error) {
+    if (error instanceof BodyTooLargeError)
+      return Response.json(
+        { error: 'The order request was too large.' },
+        { status: 413 },
+      );
     return Response.json(
       { error: 'The request was not valid JSON.' },
       { status: 400 },
