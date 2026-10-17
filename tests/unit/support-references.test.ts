@@ -146,12 +146,27 @@ describe('order used as a verb', () => {
       { kind: 'order', namespace: 'order_id', identifier: '4471' },
     ],
     [
+      'What happened to order ACME-7781?',
+      { kind: 'order', namespace: 'unresolved', identifier: 'ACME-7781' },
+    ],
+    [
       'Can I order the items on order SBL-2026-000417 again?',
       { kind: 'order', namespace: 'order_id', identifier: 'SBL-2026-000417' },
     ],
   ])('still reads %j as an order record', (message, expected) => {
     expect(references(message)).toEqual([expected]);
   });
+});
+
+it('keeps a generic order label on a product during response validation', () => {
+  expect(
+    parseSupportReferences(
+      'Order SBL-RPC-12 is delivered.',
+      new Set(['SBL-RPC-12']),
+    ).occurrences.map(({ reference }) => reference),
+  ).toEqual([
+    { kind: 'order', namespace: 'unresolved', identifier: 'SBL-RPC-12' },
+  ]);
 });
 
 describe('reference labels on response evidence candidates', () => {

@@ -129,6 +129,15 @@ describe('order status filters', () => {
   });
 
   it.each([
+    'Show shipped orders and hide prices.',
+    'Show shipped orders, but skip the totals.',
+  ])('ignores exclusion verbs that govern something else: %s', (message) => {
+    expect(classify(message)).toMatchObject({
+      statusFilter: filter(['shipped']),
+    });
+  });
+
+  it.each([
     'Show cancelled orders excluding cancelled.',
     'Show cancelled orders that are not cancelled.',
     'Show active orders excluding active.',

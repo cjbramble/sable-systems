@@ -138,8 +138,8 @@ scheduled orders does not change a year filter from the order's creation year to
 its requested ship year.
 
 A year filter covers one whole year. Amounts and quantities such as “over $2000”
-or “2048 units” are not years. Dates, months, ranges, and several years prompt a
-clarification. A search naming several products matches orders containing any of
+or “2048 units” are not years. Dates, months, relative dates such as “this month”,
+ranges, and several years prompt a clarification. A search naming several products matches orders containing any of
 them. “Order” followed by a product item number, or after phrasing such as “can I”
 or “want to”, is read as buying the product, not as an order reference.
 

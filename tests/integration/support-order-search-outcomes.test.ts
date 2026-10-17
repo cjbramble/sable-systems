@@ -385,4 +385,21 @@ describe('question misreadings', () => {
         'Order search can filter by one whole year. Please name a single year, for example orders created in 2025.',
     });
   });
+
+  test('still rejects a reply that calls a product an order', async ({
+    database,
+  }) => {
+    const context = await buildSupportContext(
+      database,
+      ask('Is SBL-RPC-12 in stock?'),
+      calderPikeUser,
+    );
+    if (context.kind !== 'records') throw new Error('Expected product facts');
+    expect(
+      hasGroundedSupportIdentifiers('Order SBL-RPC-12 is delivered.', context),
+    ).toBe(false);
+    expect(
+      hasGroundedSupportIdentifiers('SBL-RPC-12 is in stock.', context),
+    ).toBe(true);
+  });
 });

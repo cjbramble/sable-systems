@@ -66,8 +66,12 @@ const PREFIX_FILTER = new RegExp(
 );
 // Any negated or excluding phrasing the expression reader can't consume asks
 // for clarification instead of reading the status word as a positive filter.
-const UNSUPPORTED_NEGATION =
-  /\b(?:not|never|neither|without|except|excluding|non|no|hide|hiding|skip|skipping|omit|omitting|minus|ignore|ignoring|besides|\w+n['’]t)\b|\bother\s+than\b|\bleave\s+out\b|\bapart\s+from\b/i;
+const UNSUPPORTED_NEGATION = new RegExp(
+  // Exclusion verbs count only when they govern a status or the orders, so
+  // "show shipped orders and hide prices" stays a plain status filter.
+  `\\b(?:not|never|neither|without|except|excluding|non|no|\\w+n['’]t)\\b|\\b(?:hide|hiding|skip|skipping|omit|omitting|minus|ignore|ignoring|besides|other\\s+than|leave\\s+out|apart\\s+from)\\s+(?:(?:the|all|any|my|those|these|of)\\s+)*(?:${STATUS_SOURCE}|orders?|ones?|purchases?)\\b`,
+  'i',
+);
 const EXCLUSION = /^(?:excluding|except|without)\s+/i;
 const EXPLANATION =
   /^\s*(?:and\s+)?(?:please\s+)?(?:explain|describe|define)\b/i;
@@ -179,7 +183,13 @@ export function parseOrderStatusFilter(
     const before = prefix.match(PREFIX_FILTER);
     if (before) {
       const unparsed = prefix.slice(0, before.index);
-      if (UNSUPPORTED_NEGATION.test(unparsed) || STATUS_WORD.test(unparsed))
+      // An exclusion verb governs the status that follows it ("hide cancelled").
+      const governed = `${unparsed}${before[1].replace(/^(?:not|neither)\s+/i, '')}`;
+      if (
+        UNSUPPORTED_NEGATION.test(unparsed) ||
+        UNSUPPORTED_NEGATION.test(governed) ||
+        STATUS_WORD.test(unparsed)
+      )
         return unsupported();
       const remaining = addExpression(filter, before[1]);
       if (remaining === undefined || remaining) return unsupported();

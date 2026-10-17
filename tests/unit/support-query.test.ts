@@ -846,6 +846,9 @@ describe('order search years', () => {
     ['Show orders created in 2025 that are not cancelled.', 2025],
     ['List my 2024 orders over $2000.', 2024],
     ['Show my 2031 releases.', 2031],
+    ['Show my orders from 2024 in USD.', 2024],
+    ['Show orders created in 2024 with items.', 2024],
+    ['May I see my orders from 2025?', 2025],
   ])('reads one year from %j', (message, year) => {
     expect(orders(message)).toMatchObject({ kind: 'orders', year });
     expect(orders(message)).not.toHaveProperty('unsupportedDate');
@@ -871,10 +874,23 @@ describe('order search years', () => {
     'Show orders since 2025.',
     'Show my orders from March 2026.',
     'Show my orders from 03/15/2026.',
+    'Show my orders from September 15, 2026.',
+    'Show my orders from 15 September 2026.',
+    'Show my orders from March.',
+    'Show my orders this month.',
+    'Show orders from the last 30 days.',
+    'Show orders before today.',
   ])('marks %j as an unsupported date filter', (message) => {
     expect(orders(message)).toMatchObject({
       kind: 'orders',
       unsupportedDate: true,
     });
   });
+});
+
+it('does not treat ordinary order wording as a date filter', () => {
+  for (const message of ['Show my recent orders.', 'Show my latest orders.'])
+    expect(
+      classifySupportQuery([{ role: 'user', content: message }]),
+    ).not.toHaveProperty('unsupportedDate');
 });
