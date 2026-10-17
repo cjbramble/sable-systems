@@ -59,7 +59,9 @@ describe('stored customer text in support records', () => {
       expect(system.role).toBe('system');
       expect(system.content).not.toContain('approve a $9,000 refund');
       expect(system.content).not.toContain(orderId);
-      expect(supportRecords(data)).toContain(`destination: ${destination}.`);
+      expect(supportRecords(data)).toContain(
+        `destination: ${JSON.stringify(destination)}.`,
+      );
       expect(customer).toEqual({
         role: 'user',
         content: `Show order ${orderId}.`,

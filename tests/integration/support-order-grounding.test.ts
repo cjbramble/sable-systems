@@ -160,7 +160,7 @@ describe('support order grounding', () => {
       'Order: SBL-2026-000417; customer PO: CPD-PO-260417; status: partially_shipped.',
     );
     expect(context).toContain(
-      'Created: 2026-08-03; requested ship date: 2026-08-26; destination: North Atlantic Trade District.',
+      'Created: 2026-08-03; requested ship date: 2026-08-26; destination: "North Atlantic Trade District".',
     );
     expect(context).toContain('Order total: $78,320.00.');
     expect(context).toContain(

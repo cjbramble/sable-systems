@@ -1,6 +1,7 @@
-// Support records contain no URLs, web addresses, or email addresses, so any in a
-// reply came from the model or from customer-authored text steering it. Only
-// in-app paths are allowed; the chat view also refuses to link anything else.
+// Support records contain no URLs, web addresses, email addresses, or phone
+// numbers, so any in a reply came from the model or from customer-authored text
+// steering it. Only in-app paths are allowed; the chat view also refuses to link
+// anything else.
 
 // Browsers strip tabs and newlines from URLs and treat "\" as "/", so "/\t/x"
 // and "/\x" both become protocol-relative. Reject them before the path check.
@@ -52,7 +53,26 @@ function isIpv6Literal(value: string) {
   return value.includes('::') || value.split(':').length >= 6;
 }
 
-// Returns each disallowed link or address once, in order of appearance.
+// Phone numbers: a "+" or "(area)" prefix, or digit groups split by spaces,
+// dots, or dashes. A bare run of digits, or a short local number such as
+// 555-0199, counts only after a contact word, so quantities and numeric POs
+// pass. Each capture ends its match.
+const PHONE_PATTERNS = [
+  /(?<![\w-])(\+\s?\d[\d\s().-]{5,}\d|\(\d{2,4}\)\s?\d[\d\s.-]{4,}\d|\d{1,4}(?:[ .-]\d{2,4}){2,4})(?![\w-])/g,
+  /\b(?:call|phone|dial|text|fax|hotline|telephone|tel|mobile|whatsapp)\b[^.\n\d]{0,24}(\+?\d[\d\s().-]{5,}\d)(?![\w-])/gi,
+];
+
+function isPhoneNumber(value: string) {
+  const digits = value.replace(/\D/g, '').length;
+  // Dates such as 2026-09-10 or 10.09.2026 share the digit-group shape.
+  const date =
+    /^\d{4}[-./]\d{1,2}[-./]\d{1,2}$/.test(value) ||
+    /^\d{1,2}[-./]\d{1,2}[-./]\d{4}$/.test(value);
+  return digits >= 7 && digits <= 15 && !date;
+}
+
+// Returns each disallowed link, address, or phone number once, in order of
+// appearance.
 export function unsafeReplyLinks(content: string): string[] {
   const text = content.replace(INVISIBLE, '');
   // Allowed link targets keep their span too, so a dotted in-app path such as
@@ -69,6 +89,16 @@ export function unsafeReplyLinks(content: string): string[] {
       if (!target) continue;
       if (/^[0-9a-f:]+$/i.test(target) && !isIpv6Literal(target)) continue;
       spans.push({ start, end, target, safe: isAppRelativeLink(target) });
+    }
+  for (const pattern of PHONE_PATTERNS)
+    for (const match of text.matchAll(pattern)) {
+      const end = match.index + match[0].length;
+      const target = match[1].trim();
+      const start = end - match[1].length;
+      if (spans.some((span) => start >= span.start && end <= span.end))
+        continue;
+      if (isPhoneNumber(target))
+        spans.push({ start, end, target, safe: false });
     }
   return [
     ...new Set(
