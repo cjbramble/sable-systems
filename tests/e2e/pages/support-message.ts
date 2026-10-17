@@ -39,4 +39,10 @@ export class SupportMessage {
   link(name: string) {
     return this.bubble.getByRole('link', { name, exact: true });
   }
+
+  linkTargets() {
+    return this.bubble
+      .locator('a')
+      .evaluateAll((links) => links.map((link) => link.getAttribute('href')));
+  }
 }
