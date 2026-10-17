@@ -8,6 +8,7 @@ import {
 import { getDatabase } from '@/db/database';
 import { consumeRequestQuota, loginQuotaKey } from '@/db/request-limits';
 import { isLocalDemoRequest } from '@/lib/local-demo';
+import { logServerError } from '@/lib/server-log';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,7 +73,8 @@ export async function POST(request: Request) {
         },
       },
     );
-  } catch {
+  } catch (error) {
+    logServerError('sign-in', error);
     return Response.json(
       { error: 'The access service is temporarily unavailable.' },
       { status: 503 },

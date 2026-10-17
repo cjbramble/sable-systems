@@ -12,6 +12,7 @@ import {
 } from '@/lib/chat-request';
 import { BodyTooLargeError, readJsonBody } from '@/lib/json-body';
 import { requestLimitResponse } from '@/lib/request-limit-response';
+import { logServerError } from '@/lib/server-log';
 
 const failureStatuses: Record<
   Extract<SupportAnswer, { kind: 'failed' }>['reason'],
@@ -90,7 +91,8 @@ export async function POST(request: Request) {
           status: failureStatuses[result.reason],
         });
     }
-  } catch {
+  } catch (error) {
+    logServerError('chat', error);
     return unsavedResponse(
       { error: 'Support records could not be loaded. Please try again.' },
       { status: 500 },

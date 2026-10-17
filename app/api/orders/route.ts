@@ -4,6 +4,7 @@ import { getDatabase } from '@/db/database';
 import { getOrderHistory, parseOrderHistoryInput } from '@/db/orders';
 import type { CheckoutFailure } from '@/lib/contracts';
 import { CheckoutError, placeChargeAccountOrder } from '@/db/shop';
+import { logServerError } from '@/lib/server-log';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +25,8 @@ export async function GET(request: Request) {
         { status: 401 },
       );
     return Response.json(await getOrderHistory(db, user, input));
-  } catch {
+  } catch (error) {
+    logServerError('order history', error);
     return Response.json(
       { error: 'Order history is not available.' },
       { status: 503 },
@@ -65,6 +67,7 @@ export async function POST(request: Request) {
         { status: error.status },
       );
     }
+    logServerError('checkout', error);
     return Response.json(
       { error: 'The order could not be placed.' },
       { status: 500 },

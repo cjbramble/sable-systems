@@ -46,6 +46,8 @@ npm run dev
 ```
 
 Open [http://127.0.0.1:8016](http://127.0.0.1:8016). Press Ctrl+C to stop.
+Unexpected server errors are logged in that terminal with the failed operation
+and error message; request bodies, cookies, and keys are not logged.
 Run `npm ci` again when `package-lock.json` changes.
 
 ## Configuration

@@ -36,6 +36,7 @@ import {
   isContextOverflowPayload,
   type SupportCorrection,
 } from '@/lib/support-model';
+import { logServerError } from '@/lib/server-log';
 
 const MAX_RESOURCE_ATTEMPTS = 2;
 
@@ -315,6 +316,7 @@ export async function answerSupportMessage(
         { error: 'Incident access denied.' },
         'access_denied',
       );
+    logServerError(`support answer (${phase})`, error);
     return { kind: 'failed', reason: phase, failure: failureOutcomes[phase] };
   }
 }
