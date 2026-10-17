@@ -305,6 +305,7 @@ describe('orders API', () => {
       '2031-04-31',
       '2031-02-29',
       '2100-02-29',
+      // Without a time zone, checkout uses the UTC date.
       '2026-09-09',
     ]) {
       const input = {
@@ -347,6 +348,74 @@ describe('orders API', () => {
         before,
       );
     }
+  });
+
+  test('checks the ship date against the customer-local date at submission', async ({
+    database,
+    onTestFinished,
+  }) => {
+    const customerPoNumber = 'MCS-TEST-CHECKOUT-LOCAL-DAY';
+    const { ordersForPO } = await createCheckoutFixture(
+      database,
+      customerPoNumber,
+      ['SBL-RPC-12'],
+    );
+    vi.useFakeTimers({ toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const user = await loadActiveUserFixture(database, 'USR-MCS-001');
+    const order = (requestedShipDate: string, timeZone?: string) =>
+      placeChargeAccountOrder(
+        database,
+        {
+          commandId: crypto.randomUUID(),
+          expectedSubject: {
+            userId: user.userId,
+            customerId: user.distributorId,
+          },
+          customerPoNumber,
+          requestedShipDate,
+          shippingRegion: 'Great Lakes District',
+          ...(timeZone === undefined ? {} : { timeZone }),
+          items: [
+            {
+              itemNumber: 'SBL-RPC-12',
+              quantity: 8,
+              expectedUnitPriceCents: 68000,
+            },
+          ],
+        },
+        user,
+      );
+    const past = {
+      status: 422,
+      message: 'Requested ship date cannot be in the past.',
+    };
+
+    // 10:30 UTC on 09-10 is 00:30 on 09-11 in Kiritimati (UTC+14): a page
+    // opened there the day before cannot submit its stale earliest date.
+    vi.setSystemTime(new Date('2026-09-10T10:30:00.000Z'));
+    await expect(
+      order('2026-09-10', 'Pacific/Kiritimati'),
+    ).rejects.toMatchObject(past);
+
+    // 06:30 UTC on 09-10 is 20:30 on 09-09 in Honolulu (UTC-10).
+    vi.setSystemTime(new Date('2026-09-10T06:30:00.000Z'));
+    await expect(order('2026-09-08', 'Pacific/Honolulu')).rejects.toMatchObject(
+      past,
+    );
+    // A request without a time zone uses the UTC date.
+    await expect(order('2026-09-09')).rejects.toMatchObject(past);
+    const receipt = await order('2026-09-09', 'Pacific/Honolulu');
+
+    expect((await ordersForPO()).results).toEqual([
+      expect.objectContaining({
+        order_id: receipt.orderId,
+        created_on: '2026-09-10',
+        requested_ship_date: '2026-09-09',
+      }),
+    ]);
   });
 
   test('keeps one checkout instant when a same-day leap-day order crosses UTC midnight', async ({

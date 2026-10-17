@@ -85,6 +85,7 @@ test('removes a cart item, places a charge-account order, and finds it in persis
     ...details,
     commandId: expect.any(String),
     expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
+    timeZone: expect.any(String),
     items: [
       { itemNumber: retainedItem, quantity: 8, expectedUnitPriceCents: 68000 },
     ],
@@ -273,6 +274,7 @@ test('reduces a stale oversized cart one case at a time without rewriting the re
     ...details,
     commandId: expect.any(String),
     expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
+    timeZone: expect.any(String),
     items: [{ itemNumber, quantity: 8, expectedUnitPriceCents: 68000 }],
   });
   const saved = await app.database
@@ -392,6 +394,7 @@ test('locks cart and form edits across closing and reopening pending checkout, t
         ...details,
         commandId: expect.any(String),
         expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
+        timeZone: expect.any(String),
         items: expect.arrayContaining(
           pendingProducts.map(
             ({ itemNumber, quantity, expectedUnitPriceCents }) => ({

@@ -17,6 +17,28 @@ function isCalendarDate(value: string): boolean {
   );
 }
 
+// The calendar date at an instant in an IANA time zone, as YYYY-MM-DD.
+export function calendarDateIn(timeZone: string, instant: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(instant));
+}
+
+function isTimeZone(value: string): boolean {
+  if (!value || value.length > 64) return false;
+  try {
+    calendarDateIn(value, new Date(0).toISOString());
+    return true;
+  } catch (error) {
+    // Intl rejects unknown zones with a RangeError; anything else is a bug.
+    if (error instanceof RangeError) return false;
+    throw error;
+  }
+}
+
 export function parseCheckoutInput(value: unknown): CheckoutInput | null {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Record<string, unknown>;
@@ -34,6 +56,12 @@ export function parseCheckoutInput(value: unknown): CheckoutInput | null {
     typeof candidate.shippingRegion === 'string'
       ? candidate.shippingRegion.trim()
       : '';
+  const { timeZone } = candidate;
+  if (
+    timeZone !== undefined &&
+    (typeof timeZone !== 'string' || !isTimeZone(timeZone))
+  )
+    return null;
   if (
     !commandIdPattern.test(commandId) ||
     !expectedSubject ||
@@ -77,6 +105,7 @@ export function parseCheckoutInput(value: unknown): CheckoutInput | null {
     customerPoNumber,
     requestedShipDate,
     shippingRegion,
+    ...(timeZone === undefined ? {} : { timeZone }),
     items,
   };
 }

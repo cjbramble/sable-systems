@@ -71,10 +71,15 @@ const productNotes: Record<string, string> = {
   'SBL-RLY-1Y': 'Encrypted node orchestration across unreliable links.',
 };
 
+// The customer's calendar date; toISOString would shift it to the UTC date.
 function dateOffset(days: number) {
   const date = new Date();
   date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-');
 }
 
 const requestedDestination = () => shopDestination(window.location.search);
@@ -323,6 +328,7 @@ export default function ShopPage() {
       customerPoNumber: poNumber,
       requestedShipDate: shipDate,
       shippingRegion: region,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       items: cartLines.map(({ itemNumber, quantity, product }) => ({
         itemNumber,
         quantity,

@@ -179,16 +179,17 @@ test('does not restore an incident deleted while its snapshot is loading', async
   app,
 }) => {
   await supportPage.openIncident(title);
-  await page.route(
-    '**/api/chat',
-    (route) =>
-      route.fulfill({
-        status: 409,
-        json: { code: 'incident_changed', error: 'This conversation changed.' },
-      }),
-    { times: 1 },
+  await page.route('**/api/chat', (route) =>
+    route.fulfill({
+      status: 409,
+      json: { code: 'incident_changed', error: 'This conversation changed.' },
+    }),
   );
   await supportPage.sendMessage(rejectedMessage);
+  // Remove the route explicitly. When a { times: 1 } route is the page's only
+  // route, Playwright clears interception without awaiting it, which can race
+  // with the next page.route() and let the snapshot request bypass it.
+  await page.unroute('**/api/chat');
   const received = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const delivered = Promise.withResolvers<void>();

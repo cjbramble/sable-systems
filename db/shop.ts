@@ -7,6 +7,7 @@ import type {
 } from '@/lib/contracts';
 import { isProductOrderable } from '@/lib/product-eligibility';
 import {
+  calendarDateIn,
   parseCheckoutFailure,
   parseCheckoutInput,
   parseCheckoutReceipt,
@@ -171,7 +172,11 @@ async function createOrder(
   createdAt: string,
 ): Promise<CheckoutReceipt> {
   const today = createdAt.slice(0, 10);
-  if (input.requestedShipDate < today) {
+  // Customers choose dates in their own time zone. Compare at submission, so
+  // a stale page cannot carry an earlier local date forward.
+  if (
+    input.requestedShipDate < calendarDateIn(input.timeZone ?? 'UTC', createdAt)
+  ) {
     throw new CheckoutError('Requested ship date cannot be in the past.', 422);
   }
 
