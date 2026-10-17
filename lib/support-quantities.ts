@@ -29,15 +29,33 @@ type QuantityAssignment =
 // Retain support's six-digit quantity range. Checkout has its own order limit.
 const MAX_SUPPORT_QUANTITY = 999_999;
 
+// Classification re-reads saved history for every clause of the latest
+// message, so identical messages are parsed once. Entries are pure results.
+const MAX_CACHED_MESSAGES = 64;
+const parsedMessages = new Map<string, readonly QuantityOccurrence[]>();
+
 export function parseQuantityOccurrences(
   message: string,
 ): QuantityOccurrence[] {
+  let parsed = parsedMessages.get(message);
+  if (!parsed) {
+    parsed = Object.freeze(scanQuantityOccurrences(message));
+    if (parsedMessages.size >= MAX_CACHED_MESSAGES)
+      parsedMessages.delete(parsedMessages.keys().next().value!);
+    parsedMessages.set(message, parsed);
+  }
+  return parsed.map((occurrence) => ({ ...occurrence }));
+}
+
+function scanQuantityOccurrences(message: string): QuantityOccurrence[] {
   const occurrences: QuantityOccurrence[] = [];
   // Consume the complete numeric expression before validating it. In particular,
   // punctuation, signs, exponents, and grouped digits cannot expose a valid suffix.
+  // The bounded repeat keeps long runs of numbers linear; any run with spaces is
+  // invalid syntax either way.
   // The outer boundaries exclude SKU/model suffixes and attached capacity units.
   const phrases =
-    /(?<![\w.,/+\-−–—$])((?:[+\-−–—]\s*)?(?:\d|\.\d)[\d.,/e+\-−–—]*(?:[ \t]+(?:(?:to|through|and)[ \t]+)?[\d.,/+\-−–—][\d.,/e+\-−–—]*)*)(?![\w.,/+\-−–—])(?!\s*(?:tb|gb|mb|kb|m)\b)(?:\s+[a-z-]+){0,2}\s+(?:units?|licenses?|controllers?|arrays?|modules?|hubs?|nodes?|packs?)\b/gi;
+    /(?<![\w.,/+\-−–—$])((?:[+\-−–—]\s*)?(?:\d|\.\d)[\d.,/e+\-−–—]*(?:[ \t]+(?:(?:to|through|and)[ \t]+)?[\d.,/+\-−–—][\d.,/e+\-−–—]*){0,8})(?![\w.,/+\-−–—])(?!\s*(?:tb|gb|mb|kb|m)\b)(?:\s+[a-z-]+){0,2}\s+(?:units?|licenses?|controllers?|arrays?|modules?|hubs?|nodes?|packs?)\b/gi;
   for (const match of message.matchAll(phrases)) {
     const raw = match[1];
     // A rate such as "680.00 per unit" is not an order quantity. Inspect only

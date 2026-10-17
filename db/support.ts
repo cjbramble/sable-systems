@@ -44,12 +44,13 @@ type Clarification = Extract<SupportContextResult, { kind: 'clarification' }>;
 
 // Each intent uses scoped lookups and can yield several typed outcomes, so
 // known, unknown and omitted product targets remain visible together.
+// Callers that already classified the conversation pass those intents.
 export async function buildSupportContext(
   db: D1Database,
   messages: ChatHistoryMessage[],
   user: AuthenticatedUser,
+  intents: SupportQueryIntent[] = classifySupportQueries(messages),
 ): Promise<SupportContextResult> {
-  const intents = classifySupportQueries(messages);
   const selected = intents.slice(0, MAX_COMPOUND_REQUESTS);
   const omitted = intents.slice(MAX_COMPOUND_REQUESTS);
   const parts: SupportContextPart[] = [];
