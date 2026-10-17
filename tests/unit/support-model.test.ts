@@ -114,7 +114,10 @@ it('adds a correction after the conversation only for a corrective retry', () =>
   const retry = JSON.parse(
     requireSupportModelRequest({
       ...request,
-      correction: ['SABLE Systems Cybernetics Manual'],
+      correction: {
+        resources: ['SABLE Systems Cybernetics Manual'],
+        links: [],
+      },
     })[1].body as string,
   );
 

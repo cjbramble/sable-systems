@@ -2,6 +2,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { BadgeCheck, CircleUserRound, Sparkles } from 'lucide-react';
 import type { SupportChatMessage } from '@/lib/support-incidents';
+import { isAppRelativeLink } from '@/lib/support-reply-links';
 import { supportTimeLabel } from '@/lib/support-time';
 import { cn } from '@/lib/utils';
 import './chat-message.css';
@@ -56,6 +57,9 @@ export function ChatMessage({
               remarkPlugins={[remarkGfm]}
               skipHtml
               disallowedElements={['img']}
+              // Replies and server-written incident lists can carry
+              // customer-authored text; never link outside the app.
+              urlTransform={(url) => (isAppRelativeLink(url) ? url : '')}
             >
               {message.content}
             </Markdown>

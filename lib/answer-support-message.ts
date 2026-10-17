@@ -1,4 +1,5 @@
 import { unsupportedSableResources } from '@/lib/support-resource-claims';
+import { unsafeReplyLinks } from '@/lib/support-reply-links';
 import type { AuthenticatedUser } from '@/db/auth';
 import { consumeRequestQuota } from '@/db/request-limits';
 import {
@@ -33,6 +34,7 @@ import {
   extractSupportModelContent,
   isIncompleteSupportModelReply,
   isContextOverflowPayload,
+  type SupportCorrection,
 } from '@/lib/support-model';
 
 const MAX_RESOURCE_ATTEMPTS = 2;
@@ -145,7 +147,7 @@ export async function answerSupportMessage(
     const authorizedContext = context.records;
     const unavailable = unavailableRecordReply(context);
     if (unavailable) return await reply(unavailable);
-    let correction: string[] | undefined;
+    let correction: SupportCorrection | undefined;
     for (let attempt = 1; ; attempt += 1) {
       phase = 'model';
       const model = createSupportModelRequest({
@@ -259,16 +261,18 @@ export async function answerSupportMessage(
       }
 
       const invented = unsupportedSableResources(content);
-      if (invented.length) {
-        // Invented SABLE resources are intermittent: ask the model once more,
-        // naming what to remove, before returning a retryable error. Nothing
-        // invented is returned or saved.
-        correction = invented;
+      const links = unsafeReplyLinks(content);
+      if (invented.length || links.length) {
+        // Invented SABLE resources and steered links are intermittent: ask the
+        // model once more, naming what to remove, before returning a retryable
+        // error. Nothing rejected is returned or saved.
+        correction = { resources: invented, links };
         if (attempt < MAX_RESOURCE_ATTEMPTS) continue;
         return unsavedFailure(
           {
-            error:
-              'The response referred to an unverified SABLE resource. Please try again.',
+            error: links.length
+              ? 'The response contained an unverified link or address. Please try again.'
+              : 'The response referred to an unverified SABLE resource. Please try again.',
           },
           'invalid_reply',
         );
