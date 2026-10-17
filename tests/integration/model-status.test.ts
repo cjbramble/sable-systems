@@ -5,6 +5,36 @@ import { GET } from '@/app/api/status/route';
 afterEach(() => vi.restoreAllMocks());
 
 describe('model status endpoint', () => {
+  it.each(['TimeoutError', 'AbortError'])(
+    'reports offline without logging a %s',
+    async (name) => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(
+        new DOMException('The operation timed out.', name),
+      );
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const result = await GET();
+
+      expect(result.status).toBe(503);
+      expect(await result.json()).toEqual({ ready: false });
+      expect(log).not.toHaveBeenCalled();
+    },
+  );
+
+  it('logs an unexpected readiness failure', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(
+      new TypeError('Network connection lost.'),
+    );
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await GET();
+
+    expect(result.status).toBe(503);
+    expect(log).toHaveBeenCalledExactlyOnceWith(
+      '[model status] TypeError: Network connection lost.',
+    );
+  });
+
   it.each([
     {
       name: 'valid key metadata',
