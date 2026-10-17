@@ -1,4 +1,5 @@
 import { isTrustedMutation } from '@/lib/request-origin';
+import { BodyTooLargeError, readJsonBody } from '@/lib/json-body';
 import { requestLimitResponse } from '@/lib/request-limit-response';
 import {
   authenticateCredentials,
@@ -11,6 +12,9 @@ import { isLocalDemoRequest } from '@/lib/local-demo';
 import { logServerError } from '@/lib/server-log';
 
 export const dynamic = 'force-dynamic';
+
+// Email and access phrase limits fit well within this; larger bodies are not read.
+const MAX_LOGIN_REQUEST_BYTES = 4 * 1024;
 
 export async function POST(request: Request) {
   if (!isLocalDemoRequest(request))
@@ -25,8 +29,13 @@ export async function POST(request: Request) {
     );
   let body: unknown;
   try {
-    body = await request.json();
-  } catch {
+    body = await readJsonBody(request, MAX_LOGIN_REQUEST_BYTES);
+  } catch (error) {
+    if (error instanceof BodyTooLargeError)
+      return Response.json(
+        { error: 'The access request was too large.' },
+        { status: 413 },
+      );
     return Response.json(
       { error: 'The access request was not valid JSON.' },
       { status: 400 },
