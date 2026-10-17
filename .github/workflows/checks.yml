@@ -8,9 +8,12 @@ on:
 permissions:
   contents: read
 
+# Pull requests share one group per branch so a new push cancels the old run.
+# Each push to main gets its own group: a shared group keeps only one pending
+# run and replaces older pending ones, so some main commits would go unchecked.
 concurrency:
-  group: checks-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: checks-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   offline:

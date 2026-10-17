@@ -88,45 +88,42 @@ for (const failure of ['unavailable', 'malformed'] as const) {
     app,
   }) => {
     await supportPage.openIncident(title);
-    await page.route(
-      '**/api/chat',
-      (route) =>
-        route.fulfill({
-          status: 409,
-          json: {
-            code: 'incident_changed',
-            error:
-              'This conversation changed. Reload it before sending your message again.',
-          },
-        }),
-      { times: 1 },
+    await page.route('**/api/chat', (route) =>
+      route.fulfill({
+        status: 409,
+        json: {
+          code: 'incident_changed',
+          error:
+            'This conversation changed. Reload it before sending your message again.',
+        },
+      }),
     );
     await supportPage.sendMessage(rejectedMessage);
+    // Remove the route explicitly: when an expiring { times: 1 } route is the
+    // page's only route, Playwright clears interception without awaiting it,
+    // which can race with the next page.route().
+    await page.unroute('**/api/chat');
     const reload = page.getByRole('button', {
       name: 'Reload conversation',
       exact: true,
     });
     await expect(reload).toBeVisible();
-    await page.route(
-      '**/api/incidents',
-      (route) =>
-        route.fulfill(
-          failure === 'unavailable'
-            ? { status: 503, body: 'Unavailable' }
-            : {
-                json: {
-                  incidents: [
-                    { id: 'INC-USR-CPD-001-01', revision: 'invalid' },
-                  ],
-                },
+    await page.route('**/api/incidents', (route) =>
+      route.fulfill(
+        failure === 'unavailable'
+          ? { status: 503, body: 'Unavailable' }
+          : {
+              json: {
+                incidents: [{ id: 'INC-USR-CPD-001-01', revision: 'invalid' }],
               },
-        ),
-      { times: 1 },
+            },
+      ),
     );
     await reload.click();
     await expect(supportPage.requestError).toContainText(
       'could not be reloaded',
     );
+    await page.unroute('**/api/incidents');
     await expect(supportPage.messageInput).toHaveValue(rejectedMessage);
     await expect(
       page.getByRole('button', { name: 'Send message' }),
@@ -266,16 +263,17 @@ test('redirects an expired refresh before trying to decode its body', async ({
   supportPage,
 }) => {
   await supportPage.openIncident(title);
-  await page.route(
-    '**/api/chat',
-    (route) =>
-      route.fulfill({
-        status: 409,
-        json: { code: 'incident_changed', error: 'This conversation changed.' },
-      }),
-    { times: 1 },
+  await page.route('**/api/chat', (route) =>
+    route.fulfill({
+      status: 409,
+      json: { code: 'incident_changed', error: 'This conversation changed.' },
+    }),
   );
   await supportPage.sendMessage(rejectedMessage);
+  // Remove the route explicitly: when an expiring { times: 1 } route is the
+  // page's only route, Playwright clears interception without awaiting it,
+  // which can race with the next page.route().
+  await page.unroute('**/api/chat');
   await expect(
     page.getByRole('button', { name: 'Reload conversation', exact: true }),
   ).toBeVisible();

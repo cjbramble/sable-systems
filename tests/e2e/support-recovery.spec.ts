@@ -27,19 +27,19 @@ test('checks a saved but lost exchange without resending or replacing another in
     )
       chatRequests += 1;
   });
-  await page.route(
-    '**/api/chat',
-    async (route) => {
-      expect((await route.fetch()).status()).toBe(200);
-      await route.abort('failed');
-    },
-    { times: 1 },
-  );
+  await page.route('**/api/chat', async (route) => {
+    expect((await route.fetch()).status()).toBe(200);
+    await route.abort('failed');
+  });
   await supportPage.startIncident();
   await supportPage.submitMessage(question);
   await expect(
     page.getByText('Save unconfirmed', { exact: true }),
   ).toBeVisible();
+  // Remove the route explicitly: when an expiring { times: 1 } route is the
+  // page's only route, Playwright clears interception without awaiting it,
+  // which can race with the next page.route().
+  await page.unroute('**/api/chat');
   await supportPage.messageInput.fill(newerDraft);
   const received = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -204,20 +204,20 @@ for (const failure of ['unavailable', 'malformed'] as const) {
     app,
   }) => {
     let original: unknown;
-    await page.route(
-      '**/api/chat',
-      async (route) => {
-        original = route.request().postDataJSON();
-        expect((await route.fetch()).status()).toBe(200);
-        await route.abort('failed');
-      },
-      { times: 1 },
-    );
+    await page.route('**/api/chat', async (route) => {
+      original = route.request().postDataJSON();
+      expect((await route.fetch()).status()).toBe(200);
+      await route.abort('failed');
+    });
     await supportPage.openIncident(firstTitle);
     await supportPage.submitMessage(question);
     await expect(
       page.getByText('Save unconfirmed', { exact: true }),
     ).toBeVisible();
+    // Remove the route explicitly: when an expiring { times: 1 } route is the
+    // page's only route, Playwright clears interception without awaiting it,
+    // which can race with the next page.route().
+    await page.unroute('**/api/chat');
     await supportPage.messageInput.fill(newerDraft);
     await page.route(
       '**/api/incidents',
