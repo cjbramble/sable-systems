@@ -14,6 +14,7 @@ class RequestRecord(TypedDict, total=False):
     logicalRequest: int
     attempt: int
     httpStatus: int
+    upstreamStatus: int
     responseBytes: int
     responseComplete: bool
     rawResponse: str
@@ -36,6 +37,9 @@ class RequestSummary(TypedDict):
     rateLimitedAttempts: int
     recoveredRateLimitedRequests: int
     unresolvedRateLimitedRequests: int
+    providerErrorAttempts: int
+    recoveredProviderErrorRequests: int
+    unresolvedProviderErrorRequests: int
     incompleteResponseAttempts: int
     recoveredIncompleteResponseRequests: int
     unresolvedIncompleteResponseRequests: int
@@ -128,6 +132,7 @@ class GenerationSettings(TypedDict):
 
 class RetryPolicy(TypedDict):
     httpStatuses: list[int]
+    upstreamStatuses: list[int]
     transportErrors: list[str]
     transportHttpStatuses: list[int]
     maxRetries: int

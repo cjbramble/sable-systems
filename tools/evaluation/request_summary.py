@@ -17,7 +17,10 @@ def summarize_requests(rows: Sequence[RequestEvidence]) -> RequestSummary:
     limited = [
         group
         for group in groups
-        if any(call.get("httpStatus") == 429 for call in group)
+        if any(
+            429 in (call.get("httpStatus"), call.get("upstreamStatus"))
+            for call in group
+        )
     ]
     recovered = sum(group[-1].get("completed") is True for group in limited)
     incomplete = [
@@ -31,12 +34,29 @@ def summarize_requests(rows: Sequence[RequestEvidence]) -> RequestSummary:
     recovered_incomplete = sum(
         group[-1].get("completed") is True for group in incomplete
     )
+    provider_errors = [
+        group
+        for group in groups
+        if any(call.get("retryReason") == "provider-error" for call in group)
+    ]
+    recovered_provider_errors = sum(
+        group[-1].get("completed") is True for group in provider_errors
+    )
     return {
         "requestAttempts": len(calls),
         "retryAttempts": sum(call.get("attempt", 1) > 1 for call in calls),
-        "rateLimitedAttempts": sum(call.get("httpStatus") == 429 for call in calls),
+        "rateLimitedAttempts": sum(
+            429 in (call.get("httpStatus"), call.get("upstreamStatus"))
+            for call in calls
+        ),
         "recoveredRateLimitedRequests": recovered,
         "unresolvedRateLimitedRequests": len(limited) - recovered,
+        "providerErrorAttempts": sum(
+            call.get("retryReason") == "provider-error" for call in calls
+        ),
+        "recoveredProviderErrorRequests": recovered_provider_errors,
+        "unresolvedProviderErrorRequests": len(provider_errors)
+        - recovered_provider_errors,
         "incompleteResponseAttempts": sum(
             call.get("httpStatus") == 200 and call.get("errorType") == "IncompleteRead"
             for call in calls

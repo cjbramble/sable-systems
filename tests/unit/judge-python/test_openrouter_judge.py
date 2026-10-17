@@ -245,7 +245,7 @@ def test_openrouter_metadata_has_no_local_weights_or_local_generation_parameters
 @pytest.mark.parametrize(
     "change",
     [
-        {"status": 503},
+        {"status": 400},
         {"finish": "length"},
         {"content": "not json"},
         {"content": '{"score":9,"reason":"Invalid"}'},

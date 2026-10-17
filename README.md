@@ -153,6 +153,9 @@ Collection reports appear under `reports/judge-runs/`: HTML for reading, JUnit X
 for test viewers, and JSON/JSONL for detailed evidence. Transcript mode uses
 JSON/JSONL and evaluates saved answers without generating new ones. Reports show
 passed, failed, error, and pending counts and retain partial results if interrupted.
-Grading disagreements fail; execution errors remain errors. HTTP 429s and incomplete
-HTTP 200 bodies allow up to three retries; grading failures are not retried.
+Grading disagreements fail; execution errors remain errors. Rate limits (429),
+transient provider errors (500/502/503/504, including errors inside HTTP 200
+responses), and incomplete HTTP 200 bodies share a limit of three retries per
+request. Retries use backoff and honor `Retry-After` up to 60 seconds; longer waits
+remain errors. Grading failures are not retried.
 DeepEval telemetry and cloud reporting are disabled; reports stay local.
