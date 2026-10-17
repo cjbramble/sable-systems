@@ -59,7 +59,7 @@ and mocked failures. Browser tests cover user flows. Live chatbot tests check re
 answers, including repeated samples and manipulation attempts paired with ordinary
 requests. These checks cover specific examples, not every possible wording.
 
-The separately configured GLM judge checks factual support, completeness, and
+The DeepEval judge, which uses Luna, checks factual support, completeness, and
 answer quality. Claim diagnostics check extraction and truth separately. Judge
 results remain advisory and cannot override failed application checks. See
 [the judge command and reports](../README.md#judge-evaluations).
