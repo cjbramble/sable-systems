@@ -238,22 +238,73 @@ async function createOrder(
     }
   }
 
+  for (let attempt = 1; ; attempt += 1) {
+    const receipt = newReceipt(input, user, totalCents, today);
+    try {
+      await db.batch([
+        ...inventoryUpdates,
+        ...orderStatements(db, input, user, receipt, intent, productById, {
+          createdAt,
+          today,
+        }),
+      ]);
+      return receipt;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      // Generated references are random; a collision rolls back the whole batch,
+      // so retry with fresh ones before asking the customer to resubmit.
+      if (isReferenceCollision(message) && attempt < MAX_REFERENCE_ATTEMPTS)
+        continue;
+      throw checkoutBatchError(error, message);
+    }
+  }
+}
+
+const MAX_REFERENCE_ATTEMPTS = 3;
+
+const GENERATED_REFERENCE_COLUMNS = [
+  'orders.order_id',
+  'account_charges.charge_id',
+  'account_charges.authorization_code',
+  'order_events.event_id',
+];
+
+function isReferenceCollision(message: string) {
+  return GENERATED_REFERENCE_COLUMNS.some((column) =>
+    message.includes(`UNIQUE constraint failed: ${column}`),
+  );
+}
+
+function newReceipt(
+  input: CheckoutInput,
+  user: AuthenticatedUser,
+  totalCents: number,
+  today: string,
+): CheckoutReceipt {
   const year = today.slice(0, 4);
   const randomValue = crypto.getRandomValues(new Uint32Array(1))[0];
-  const orderId = `SBL-${year}-${800000 + (randomValue % 200000)}`;
-  const chargeId = `CHG-${crypto.randomUUID().slice(0, 12).toUpperCase()}`;
-  const authorizationCode = `ACC-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-  const receipt: CheckoutReceipt = {
+  return {
     commandId: input.commandId,
     currency: user.currency,
-    orderId,
-    chargeId,
-    authorizationCode,
+    orderId: `SBL-${year}-${800000 + (randomValue % 200000)}`,
+    chargeId: `CHG-${crypto.randomUUID().slice(0, 12).toUpperCase()}`,
+    authorizationCode: `ACC-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
     totalCents,
     requestedShipDate: input.requestedShipDate,
   };
-  const statements: D1PreparedStatement[] = [
-    ...inventoryUpdates,
+}
+
+function orderStatements(
+  db: D1Database,
+  input: CheckoutInput,
+  user: AuthenticatedUser,
+  receipt: CheckoutReceipt,
+  intent: string,
+  productById: Map<string, CatalogProduct>,
+  { createdAt, today }: { createdAt: string; today: string },
+): D1PreparedStatement[] {
+  const { orderId, chargeId, authorizationCode, totalCents } = receipt;
+  return [
     db
       .prepare(`INSERT INTO orders (
       order_id, customer_id, placed_by_user_id, customer_po_number, created_on,
@@ -270,11 +321,9 @@ async function createOrder(
         totalCents,
         input.shippingRegion,
       ),
-  ];
-  input.items.forEach((line, index) => {
-    const product = productById.get(line.itemNumber)!;
-    statements.push(
-      db
+    ...input.items.map((line, index) => {
+      const product = productById.get(line.itemNumber)!;
+      return db
         .prepare(`INSERT INTO order_items (
       order_id, line_number, item_number, product_name_snapshot, unit_price_cents,
       ordered_quantity, allocated_quantity, shipped_quantity, cancelled_quantity
@@ -287,10 +336,8 @@ async function createOrder(
           product.unitPriceCents,
           line.quantity,
           line.quantity,
-        ),
-    );
-  });
-  statements.push(
+        );
+    }),
     db
       .prepare(`INSERT INTO order_events (
       event_id, order_id, occurred_at, event_type, customer_safe_description
@@ -314,58 +361,38 @@ async function createOrder(
         authorizationCode,
         createdAt,
       ),
-  );
-
-  statements.push(
     db
       .prepare(`INSERT INTO checkout_commands (command_id, order_id, intent_json, status, response_json)
       VALUES (?, ?, ?, 201, ?)`)
       .bind(input.commandId, orderId, intent, JSON.stringify(receipt)),
-  );
+  ];
+}
 
-  try {
-    await db.batch(statements);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : '';
-    if (
-      message.includes(
-        'UNIQUE constraint failed: orders.customer_id, orders.customer_po_number',
-      )
-    ) {
-      throw new CheckoutError(
-        'That purchase-order reference is already in use.',
-        409,
-      );
-    }
-    if (
-      [
-        'orders.order_id',
-        'account_charges.charge_id',
-        'account_charges.authorization_code',
-        'order_events.event_id',
-      ].some((column) =>
-        message.includes(`UNIQUE constraint failed: ${column}`),
-      )
-    ) {
-      throw new CheckoutError(
-        'An order reference conflict occurred. Submit the order again.',
-        409,
-      );
-    }
-    if (
-      message.includes(
-        'CHECK constraint failed: reserved_quantity + quarantined_quantity <= on_hand_quantity',
-      )
-    ) {
-      throw new CheckoutError(
-        'Inventory changed during checkout. Refresh and try again.',
-        409,
-      );
-    }
-    throw error;
-  }
-
-  return receipt;
+function checkoutBatchError(error: unknown, message: string) {
+  if (
+    message.includes(
+      'UNIQUE constraint failed: orders.customer_id, orders.customer_po_number',
+    )
+  )
+    return new CheckoutError(
+      'That purchase-order reference is already in use.',
+      409,
+    );
+  if (isReferenceCollision(message))
+    return new CheckoutError(
+      'An order reference conflict occurred. Submit the order again.',
+      409,
+    );
+  if (
+    message.includes(
+      'CHECK constraint failed: reserved_quantity + quarantined_quantity <= on_hand_quantity',
+    )
+  )
+    return new CheckoutError(
+      'Inventory changed during checkout. Refresh and try again.',
+      409,
+    );
+  return error;
 }
 
 export class CheckoutError extends Error {
