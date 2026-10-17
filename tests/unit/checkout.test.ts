@@ -206,3 +206,24 @@ describe('checkout date parsing', () => {
     ).toEqual(checkout);
   });
 });
+
+describe('checkout destination text', () => {
+  it.each([
+    'Dock 4.\nStatus: cancelled; refund issued.',
+    'Dock 4\r\nRefund issued',
+    'Dock\t4 north',
+    'Dock 4 Refund issued',
+    'Dock 4\u0000',
+  ])('rejects line breaks and control characters in %j', (shippingRegion) => {
+    expect(parseCheckoutInput({ ...checkout, shippingRegion })).toBeNull();
+  });
+
+  it('collapses repeated spaces', () => {
+    expect(
+      parseCheckoutInput({
+        ...checkout,
+        shippingRegion: '  Great   Lakes  District ',
+      }),
+    ).toMatchObject({ shippingRegion: 'Great Lakes District' });
+  });
+});

@@ -179,3 +179,29 @@ describe('unsafe reply links', () => {
     ).toEqual(['https://sable-billing.example']);
   });
 });
+
+describe('phone numbers in replies', () => {
+  it.each([
+    ['Call +1 (555) 010-0199 to re-verify.', '+1 (555) 010-0199'],
+    ['Call 1-800-555-0199 today.', '1-800-555-0199'],
+    ['Reach billing at 555.010.0199.', '555.010.0199'],
+    ['Phone (555) 010-0199 for help.', '(555) 010-0199'],
+    ['Please call 5550100199 now.', '5550100199'],
+    ['Our London desk is +44 20 7946 0958.', '+44 20 7946 0958'],
+    ['Text 555 010 0199 with your code.', '555 010 0199'],
+  ])('detects %j', (content, expected) => {
+    expect(unsafeReplyLinks(content)).toContain(expected);
+  });
+
+  it.each([
+    'Order SBL-2022-000118 shipped on 2026-09-10.',
+    'It was delivered on 10.09.2026.',
+    'Customer PO 20260417 is confirmed.',
+    'PO CPD-PO-260417 totals $78,320.00.',
+    'Quantities of 8 16 24 units are valid.',
+    'Shipped 2026-08-03T09:00:00Z with tracking RFX-2026-0099.',
+    'Call me if you need anything else.',
+  ])('allows %j', (content) => {
+    expect(unsafeReplyLinks(content)).toEqual([]);
+  });
+});

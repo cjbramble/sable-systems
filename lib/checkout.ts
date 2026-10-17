@@ -52,9 +52,11 @@ export function parseCheckoutInput(value: unknown): CheckoutInput | null {
     typeof candidate.requestedShipDate === 'string'
       ? candidate.requestedShipDate.trim()
       : '';
+  // Destinations reach support records, so they stay on one line.
   const shippingRegion =
-    typeof candidate.shippingRegion === 'string'
-      ? candidate.shippingRegion.trim()
+    typeof candidate.shippingRegion === 'string' &&
+    !/[\p{Cc}\u2028\u2029]/u.test(candidate.shippingRegion)
+      ? candidate.shippingRegion.trim().replace(/\s+/g, ' ')
       : '';
   const { timeZone } = candidate;
   if (

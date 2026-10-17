@@ -13,6 +13,20 @@ import type {
 const SUPPORT_IDENTIFIER_PATTERN =
   /(?<![\w-])(?:[A-Z0-9]+-)*(?:(?:SBL|SHP|RTN|AST|INC|ACC)-[A-Z0-9]+(?:-[A-Z0-9]+)*|[A-Z]{3}-(?:PO|REL)-[A-Z0-9]+(?:-[A-Z0-9]+)*)(?![\w-])/gi;
 
+// Dash look-alikes and invisible characters can disguise an identifier.
+const DASH_LOOKALIKES = /[\u2010-\u2015\u2212\ufe58\ufe63\uff0d]/g;
+const INVISIBLE = /[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/g;
+
+// Any code next to a reference word must be a verified or requested
+// identifier: the prompt forbids invented confirmations, refunds, and cases,
+// and their formats are open-ended.
+const REFERENCE_WORD_ID =
+  /\b(?:confirmation|refund|credit|rma|ticket|case|claim|receipt|invoice|reference)(?:\s+(?:number|no\.?|id|code|reference|ref))?\s*(?:is\s+)?[:#]?\s*["'`(*]*([A-Z0-9][A-Z0-9-]*\d[A-Z0-9-]*|\d[A-Z0-9-]+)(?![\w-])/gi;
+
+function normalizeIdentifierText(content: string) {
+  return content.replace(INVISIBLE, '').replace(DASH_LOOKALIKES, '-');
+}
+
 type IdentifierEvidence = {
   identifiers: Set<string>;
   orderIds: Set<string>;
@@ -71,8 +85,9 @@ export function hasGroundedSupportIdentifiers(
   context: SupportRecordsContext,
 ): boolean {
   const evidence = identifierEvidence(context);
+  const text = normalizeIdentifierText(content);
   const { identifiers, orderIds, customerPos, echoReferences } = evidence;
-  const { occurrences } = parseSupportReferences(content, identifiers);
+  const { occurrences } = parseSupportReferences(text, identifiers);
   return (
     occurrences.every(({ reference }) => {
       const { identifier, namespace } = reference;
@@ -100,9 +115,12 @@ export function hasGroundedSupportIdentifiers(
       if (namespace === 'customer_po') return customerPos.has(identifier);
       return orderIds.has(identifier) || customerPos.has(identifier);
     }) &&
-    Array.from(content.matchAll(SUPPORT_IDENTIFIER_PATTERN), ([id]) =>
+    Array.from(text.matchAll(SUPPORT_IDENTIFIER_PATTERN), ([id]) =>
       id.toUpperCase(),
-    ).every((id) => identifiers.has(id))
+    ).every((id) => identifiers.has(id)) &&
+    Array.from(text.matchAll(REFERENCE_WORD_ID), ([, id]) => id.toUpperCase())
+      .filter((id) => !/^\d{4}-\d{2}-\d{2}$/.test(id))
+      .every((id) => identifiers.has(id))
   );
 }
 

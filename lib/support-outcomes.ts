@@ -243,7 +243,7 @@ ${items.map((item) => `- ${item.item_number} ${item.product_name_snapshot}: quan
 Authorization: ${scope.displayName} (${scope.customerId}) only.
 Order: ${order.order_id}; customer PO: ${order.customer_po_number}; status: ${order.status}.
 Placed by: ${order.placed_by_name} (${order.placed_by_user_id}).
-Created: ${order.created_on}; requested ship date: ${order.requested_ship_date}; destination: ${order.shipping_region}.
+Created: ${order.created_on}; requested ship date: ${order.requested_ship_date}; destination: ${JSON.stringify(order.shipping_region)}.
 Order total: ${formatCurrency(order.order_total_cents, order.currency)}.
 Lines:
 ${items.map((item) => `- ${item.item_number} ${item.product_name_snapshot}: ordered ${item.ordered_quantity}, allocated ${item.allocated_quantity}, shipped ${item.shipped_quantity}, cancelled ${item.cancelled_quantity}; price ${formatCurrency(item.unit_price_cents, order.currency)} per unit.`).join('\n')}
