@@ -32,7 +32,7 @@ successful replies, without a model call or model quota consumption.
 
 Order, shipment, and return lookups retain structured outcomes, facts, and verified
 references separately from model prompt text. A single unavailable record receives a fixed, saved reply
-before quota consumption; compound requests retain both found and unavailable
+before model quota consumption; compound requests retain both found and unavailable
 parts. References mentioned only in an order's destination, product snapshots, or
 event descriptions do not become verified identities. The same applies to shipment
 carrier names, return reasons, and returned product snapshots. An unavailable reference
@@ -193,13 +193,16 @@ including their bodies, share a ten-second deadline. Retrying starts a fresh pai
 of reads, and canceled or older results cannot replace the current view. Failed or
 malformed history is never presented as an empty conversation list.
 
-| Limit                                             | Maximum                 | Failure  |
-| ------------------------------------------------- | ----------------------- | -------- |
-| Trimmed customer text                             | 4,000 UTF-16 code units | HTTP 400 |
-| Request JSON, including whitespace                | 32 KiB in UTF-8         | HTTP 413 |
-| Provider response body, including error envelopes | 1 MiB                   | HTTP 502 |
-| Newly accepted reply text                         | 8,000 UTF-16 code units | HTTP 502 |
+| Limit                                                         | Maximum                 | Failure  |
+| ------------------------------------------------------------- | ----------------------- | -------- |
+| Trimmed customer text                                         | 4,000 UTF-16 code units | HTTP 400 |
+| Request JSON, including whitespace                            | 32 KiB in UTF-8         | HTTP 413 |
+| Provider response body, including error envelopes             | 1 MiB                   | HTTP 502 |
+| Newly accepted reply text                                     | 8,000 UTF-16 code units | HTTP 502 |
+| New support commands per user, including server-built replies | 60 per minute           | HTTP 429 |
+| Model requests per user (a corrective retry is not counted)   | 30 per minute           | HTTP 429 |
 
+Exact retries of saved commands are replays and count against neither quota.
 UTF-16 counts most emoji as two units. Oversized output is rejected before storage,
 without truncating the answer. The same command can be retried after rejection.
 Saved history and replayed replies are not revalidated against new-generation

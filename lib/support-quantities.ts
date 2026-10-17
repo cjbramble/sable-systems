@@ -29,20 +29,81 @@ type QuantityAssignment =
 // Retain support's six-digit quantity range. Checkout has its own order limit.
 const MAX_SUPPORT_QUANTITY = 999_999;
 
+// Classification re-reads saved history for every clause of the latest
+// message, so identical messages are parsed once. Entries are pure results.
+const MAX_CACHED_MESSAGES = 64;
+const parsedMessages = new Map<string, readonly QuantityOccurrence[]>();
+
 export function parseQuantityOccurrences(
   message: string,
 ): QuantityOccurrence[] {
+  let parsed = parsedMessages.get(message);
+  if (!parsed) {
+    parsed = Object.freeze(scanQuantityOccurrences(message));
+    if (parsedMessages.size >= MAX_CACHED_MESSAGES)
+      parsedMessages.delete(parsedMessages.keys().next().value!);
+    parsedMessages.set(message, parsed);
+  }
+  return parsed.map((occurrence) => ({
+    ...occurrence,
+    quantity: { ...occurrence.quantity },
+  }));
+}
+
+const NUMBER_CHARACTER = /[\d.,/e+\-−–—]/i;
+const NUMBER_TOKEN = /^(?:[+\-−–—])?(?:\d|\.\d)[\d.,/e+\-−–—]*$/i;
+const BOUNDARY_BEFORE_NUMBER = /[\w.,/+\-−–—$]/;
+
+// The bounded repeat can start a match inside a run of more than nine numbers.
+// Walk back to where the whole expression begins, so its start (which a
+// preceding "order" label relies on) matches the unbounded pattern. Each step
+// reads one token, so this stays linear.
+function expressionStart(message: string, start: number, floor: number) {
+  let current = start;
+  while (true) {
+    let index = current;
+    while (index > floor && /[ \t]/.test(message[index - 1])) index -= 1;
+    if (index === current) return current;
+    const connector = message
+      .slice(Math.max(floor, index - 8), index)
+      .match(/(?:^|[ \t])(to|through|and)$/i);
+    if (connector) {
+      index -= connector[1].length;
+      const beforeConnector = index;
+      while (index > floor && /[ \t]/.test(message[index - 1])) index -= 1;
+      if (index === beforeConnector) return current;
+    }
+    const tokenEnd = index;
+    while (index > floor && NUMBER_CHARACTER.test(message[index - 1]))
+      index -= 1;
+    if (
+      index === tokenEnd ||
+      !NUMBER_TOKEN.test(message.slice(index, tokenEnd)) ||
+      (index > 0 && BOUNDARY_BEFORE_NUMBER.test(message[index - 1]))
+    )
+      return current;
+    current = index;
+  }
+}
+
+function scanQuantityOccurrences(message: string): QuantityOccurrence[] {
   const occurrences: QuantityOccurrence[] = [];
   // Consume the complete numeric expression before validating it. In particular,
   // punctuation, signs, exponents, and grouped digits cannot expose a valid suffix.
+  // The bounded repeat keeps long runs of numbers linear; expressionStart
+  // restores the start of a longer run, which is invalid syntax either way.
   // The outer boundaries exclude SKU/model suffixes and attached capacity units.
   const phrases =
-    /(?<![\w.,/+\-−–—$])((?:[+\-−–—]\s*)?(?:\d|\.\d)[\d.,/e+\-−–—]*(?:[ \t]+(?:(?:to|through|and)[ \t]+)?[\d.,/+\-−–—][\d.,/e+\-−–—]*)*)(?![\w.,/+\-−–—])(?!\s*(?:tb|gb|mb|kb|m)\b)(?:\s+[a-z-]+){0,2}\s+(?:units?|licenses?|controllers?|arrays?|modules?|hubs?|nodes?|packs?)\b/gi;
+    /(?<![\w.,/+\-−–—$])((?:[+\-−–—]\s*)?(?:\d|\.\d)[\d.,/e+\-−–—]*(?:[ \t]+(?:(?:to|through|and)[ \t]+)?[\d.,/+\-−–—][\d.,/e+\-−–—]*){0,8})(?![\w.,/+\-−–—])(?!\s*(?:tb|gb|mb|kb|m)\b)(?:\s+[a-z-]+){0,2}\s+(?:units?|licenses?|controllers?|arrays?|modules?|hubs?|nodes?|packs?)\b/gi;
+  let previousEnd = 0;
   for (const match of message.matchAll(phrases)) {
-    const raw = match[1];
     // A rate such as "680.00 per unit" is not an order quantity. Inspect only
     // this phrase so "1.5 units per item" still retains its invalid quantity.
-    if (/\bper\b/i.test(match[0].slice(raw.length))) continue;
+    if (/\bper\b/i.test(match[0].slice(match[1].length))) continue;
+    const start = expressionStart(message, match.index, previousEnd);
+    const end = match.index + match[0].length;
+    const raw = message.slice(start, match.index + match[1].length);
+    previousEnd = end;
     const validSyntax = /^(?:\d+|\d{1,3}(?:,\d{3})+)$/.test(raw);
     const value = Number(raw.replaceAll(',', ''));
     const quantity: QuantityOccurrence['quantity'] = !validSyntax
@@ -50,12 +111,7 @@ export function parseQuantityOccurrences(
       : value < 1 || value > MAX_SUPPORT_QUANTITY
         ? { kind: 'invalid', reason: 'range' }
         : { kind: 'valid', value };
-    occurrences.push({
-      start: match.index,
-      end: match.index + match[0].length,
-      raw,
-      quantity,
-    });
+    occurrences.push({ start, end, raw, quantity });
   }
   return occurrences;
 }

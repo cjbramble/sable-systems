@@ -39,6 +39,9 @@ import {
 import { logServerError } from '@/lib/server-log';
 
 const MAX_RESOURCE_ATTEMPTS = 2;
+// Every new command, including server-built replies, does classification and
+// database work before any model call. The model quota below is separate.
+const SUPPORT_REQUESTS_PER_MINUTE = 60;
 
 const failureOutcomes = {
   loading: {
@@ -96,10 +99,28 @@ export async function answerSupportMessage(
   const { incidentId, messageId, message: customerMessage } = command;
   let phase: keyof typeof failureOutcomes = 'loading';
   try {
+    const chargeRequest = () =>
+      consumeRequestQuota(
+        db,
+        `support:${user.userId}`,
+        SUPPORT_REQUESTS_PER_MINUTE,
+        60,
+      );
     if (incidentId && messageId) {
-      const replay = await checkSupportCommand(db, user, command);
+      let replay: SupportReply | null;
+      try {
+        replay = await checkSupportCommand(db, user, command);
+      } catch (error) {
+        // A rejected command (stale revision, reused ID) still did the
+        // preflight reads. Only a completed replay is free.
+        const retryAfter = await chargeRequest();
+        if (retryAfter) return { kind: 'limited', retryAfter };
+        throw error;
+      }
       if (replay) return { kind: 'answered', reply: replay };
     }
+    const requestRetry = await chargeRequest();
+    if (requestRetry) return { kind: 'limited', retryAfter: requestRetry };
 
     // The model sees only saved incident history and the current customer message.
     const history =
@@ -143,7 +164,7 @@ export async function answerSupportMessage(
         formatIncidentListReply(await listSupportIncidents(db, user)),
       );
 
-    const context = await buildSupportContext(db, history, user);
+    const context = await buildSupportContext(db, history, user, intents);
     if (context.kind === 'clarification') return await reply(context.message);
     const authorizedContext = context.records;
     const unavailable = unavailableRecordReply(context);
