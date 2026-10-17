@@ -140,6 +140,10 @@ class CaseInput(FixtureInput):
     @model_validator(mode="after")
     def validate_checks(self) -> Self:
         for kind, check in self.checks.items():
+            if kind == "answer" and check.dimensions is None:
+                # Without dimensions, a rejection for an unrelated reason would
+                # count as agreeing with the planted error.
+                raise ValueError("Answer checks must specify dimensions")
             if kind != "answer" and check.dimensions is not None:
                 raise ValueError("Only answer checks may specify dimensions")
             if kind == "direct" and check.verdict is None:

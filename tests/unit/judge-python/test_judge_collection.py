@@ -98,6 +98,32 @@ def test_correct_rejection_passes_but_dimension_disagreement_fails(monkeypatch):
     assert collection.evaluate_case(case)["checks"][0]["status"] == "failed"
 
 
+def test_rejection_for_an_unrelated_reason_fails(monkeypatch):
+    case = next(
+        c for c in collection.load_cases() if c["id"] == "legacy/case-pack/wrong-stock"
+    )
+    wrong_reason = {
+        "factualSupport": True,
+        "taskCompleteness": True,
+        "answerQuality": False,
+    }
+    monkeypatch.setattr(
+        collection,
+        "judge_answer",
+        lambda *a: {"passed": False, "dimensions": wrong_reason},
+    )
+    assert collection.evaluate_case(case)["checks"][0]["status"] == "failed"
+
+
+def test_answer_checks_must_specify_dimensions(tmp_path):
+    cases = collection.load_cases()[:1]
+    del cases[0]["checks"]["answer"]["dimensions"]
+    path = tmp_path / "cases.json"
+    path.write_text(json.dumps({"schemaVersion": 1, "cases": cases}))
+    with pytest.raises(ValueError, match="must specify dimensions"):
+        collection.load_cases(path=path)
+
+
 def test_reports_distinguish_failures_errors_and_pending_and_escape_html(tmp_path):
     cases = collection.load_cases()[:4]
     report = reporting.new_report(cases, {})
@@ -152,6 +178,7 @@ def test_run_writes_reports_continues_after_errors_and_exits_red(monkeypatch, tm
             "passed": cases[index]["checks"]["answer"]["passed"]
             if index == 0
             else not cases[index]["checks"]["answer"]["passed"],
+            "dimensions": cases[index]["checks"]["answer"]["dimensions"],
             "calls": [],
         }
 

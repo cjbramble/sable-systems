@@ -12,7 +12,12 @@
       "categories": ["legacy", "case-pack"],
       "checks": {
         "answer": {
-          "passed": true
+          "passed": true,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -27,7 +32,12 @@
       "categories": ["legacy", "case-pack"],
       "checks": {
         "answer": {
-          "passed": true
+          "passed": true,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -42,7 +52,12 @@
       "categories": ["legacy", "case-pack"],
       "checks": {
         "answer": {
-          "passed": true
+          "passed": true,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -57,7 +72,12 @@
       "categories": ["legacy", "case-pack"],
       "checks": {
         "answer": {
-          "passed": false
+          "passed": false,
+          "dimensions": {
+            "factualSupport": false,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -72,7 +92,12 @@
       "categories": ["legacy", "case-pack"],
       "checks": {
         "answer": {
-          "passed": false
+          "passed": false,
+          "dimensions": {
+            "factualSupport": false,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -87,7 +112,12 @@
       "categories": ["legacy", "case-pack"],
       "checks": {
         "answer": {
-          "passed": false
+          "passed": false,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": false,
+            "answerQuality": false
+          }
         }
       }
     },
@@ -102,7 +132,12 @@
       "categories": ["legacy", "case-pack"],
       "checks": {
         "answer": {
-          "passed": true
+          "passed": true,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -117,7 +152,12 @@
       "categories": ["legacy", "case-pack"],
       "checks": {
         "answer": {
-          "passed": true
+          "passed": true,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -132,7 +172,12 @@
       "categories": ["legacy", "case-pack"],
       "checks": {
         "answer": {
-          "passed": false
+          "passed": false,
+          "dimensions": {
+            "factualSupport": false,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -147,7 +192,12 @@
       "categories": ["legacy", "case-pack"],
       "checks": {
         "answer": {
-          "passed": false
+          "passed": false,
+          "dimensions": {
+            "factualSupport": false,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -162,7 +212,12 @@
       "categories": ["legacy", "case-pack"],
       "checks": {
         "answer": {
-          "passed": true
+          "passed": true,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -177,7 +232,12 @@
       "categories": ["legacy", "case-pack"],
       "checks": {
         "answer": {
-          "passed": true
+          "passed": true,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -192,7 +252,12 @@
       "categories": ["legacy", "case-pack"],
       "checks": {
         "answer": {
-          "passed": false
+          "passed": false,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": false,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -207,7 +272,12 @@
       "categories": ["legacy", "case-pack"],
       "checks": {
         "answer": {
-          "passed": false
+          "passed": false,
+          "dimensions": {
+            "factualSupport": false,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -222,7 +292,12 @@
       "categories": ["legacy", "comparison"],
       "checks": {
         "answer": {
-          "passed": true
+          "passed": true,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -237,7 +312,12 @@
       "categories": ["legacy", "comparison"],
       "checks": {
         "answer": {
-          "passed": true
+          "passed": true,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -252,7 +332,12 @@
       "categories": ["legacy", "comparison"],
       "checks": {
         "answer": {
-          "passed": true
+          "passed": true,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -267,7 +352,12 @@
       "categories": ["legacy", "comparison"],
       "checks": {
         "answer": {
-          "passed": false
+          "passed": false,
+          "dimensions": {
+            "factualSupport": false,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -282,7 +372,12 @@
       "categories": ["legacy", "comparison"],
       "checks": {
         "answer": {
-          "passed": false
+          "passed": false,
+          "dimensions": {
+            "factualSupport": false,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -297,7 +392,12 @@
       "categories": ["legacy", "comparison"],
       "checks": {
         "answer": {
-          "passed": false
+          "passed": false,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": false,
+            "answerQuality": false
+          }
         }
       }
     },
@@ -312,7 +412,12 @@
       "categories": ["legacy", "comparison"],
       "checks": {
         "answer": {
-          "passed": true
+          "passed": true,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -327,7 +432,12 @@
       "categories": ["legacy", "comparison"],
       "checks": {
         "answer": {
-          "passed": true
+          "passed": true,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -342,7 +452,12 @@
       "categories": ["legacy", "comparison"],
       "checks": {
         "answer": {
-          "passed": true
+          "passed": true,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -357,7 +472,12 @@
       "categories": ["legacy", "comparison"],
       "checks": {
         "answer": {
-          "passed": false
+          "passed": false,
+          "dimensions": {
+            "factualSupport": false,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -372,7 +492,12 @@
       "categories": ["legacy", "comparison"],
       "checks": {
         "answer": {
-          "passed": false
+          "passed": false,
+          "dimensions": {
+            "factualSupport": false,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -387,7 +512,12 @@
       "categories": ["legacy", "comparison"],
       "checks": {
         "answer": {
-          "passed": false
+          "passed": false,
+          "dimensions": {
+            "factualSupport": false,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -402,7 +532,12 @@
       "categories": ["legacy", "comparison"],
       "checks": {
         "answer": {
-          "passed": true
+          "passed": true,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -417,7 +552,12 @@
       "categories": ["legacy", "comparison"],
       "checks": {
         "answer": {
-          "passed": true
+          "passed": true,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -432,7 +572,12 @@
       "categories": ["legacy", "comparison"],
       "checks": {
         "answer": {
-          "passed": false
+          "passed": false,
+          "dimensions": {
+            "factualSupport": true,
+            "taskCompleteness": false,
+            "answerQuality": true
+          }
         }
       }
     },
@@ -447,7 +592,12 @@
       "categories": ["legacy", "comparison"],
       "checks": {
         "answer": {
-          "passed": false
+          "passed": false,
+          "dimensions": {
+            "factualSupport": false,
+            "taskCompleteness": true,
+            "answerQuality": true
+          }
         }
       }
     },
