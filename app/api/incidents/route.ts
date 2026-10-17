@@ -5,6 +5,7 @@ import { getAuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { consumeRequestQuota } from '@/db/request-limits';
 import { deleteSupportIncident, listSupportIncidents } from '@/db/incidents';
+import { logServerError } from '@/lib/server-log';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,8 @@ export async function GET(request: Request) {
         { status: 401 },
       );
     return Response.json({ incidents: await listSupportIncidents(db, user) });
-  } catch {
+  } catch (error) {
+    logServerError('incident list', error);
     return Response.json(
       { error: 'Support incident history is not available.' },
       { status: 503 },
@@ -69,7 +71,8 @@ export async function DELETE(request: Request) {
     if (retryAfter) return requestLimitResponse(retryAfter);
     await deleteSupportIncident(db, user, incidentId);
     return new Response(null, { status: 204 });
-  } catch {
+  } catch (error) {
+    logServerError('incident deletion', error);
     return Response.json(
       { error: 'The support incident could not be deleted.' },
       { status: 503 },

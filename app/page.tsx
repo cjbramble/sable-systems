@@ -11,6 +11,7 @@ import {
   CATALOG_CATEGORIES,
   type CatalogCategory,
 } from '@/lib/catalog-categories';
+import { logServerError } from '@/lib/server-log';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,8 +33,9 @@ export default async function Home() {
     authenticated = Boolean(
       await getAuthenticatedUser(await getDatabase(), request),
     );
-  } catch {
+  } catch (error) {
     // The public landing page remains available when account storage is offline.
+    logServerError('landing session', error);
   }
   const shopHref = authenticated ? '/shop' : loginHref('/shop');
   const supportHref = authenticated ? '/support' : loginHref('/support');

@@ -1,5 +1,6 @@
 import { getAuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
+import { logServerError } from '@/lib/server-log';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +17,8 @@ export async function GET(request: Request) {
       { authenticated: true, user },
       { headers: { 'Cache-Control': 'no-store' } },
     );
-  } catch {
+  } catch (error) {
+    logServerError('session', error);
     return Response.json(
       { error: 'The access service is temporarily unavailable.' },
       { status: 503 },

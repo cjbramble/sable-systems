@@ -1,6 +1,7 @@
 import { isTrustedMutation } from '@/lib/request-origin';
 import { clearSessionCookie, revokeSession } from '@/db/auth';
 import { getDatabase } from '@/db/database';
+import { logServerError } from '@/lib/server-log';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +13,8 @@ export async function POST(request: Request) {
     );
   try {
     await revokeSession(await getDatabase(), request);
-  } catch {
+  } catch (error) {
+    logServerError('sign-out', error);
     // Keep the credential so a retry can revoke the same server session.
     return Response.json(
       { error: 'Sign-out could not be confirmed. Please try again.' },

@@ -1,5 +1,6 @@
 import { isSupportModelReady } from '@/lib/model-readiness.mjs';
 import { supportModelConfig } from '@/lib/support-model-runtime';
+import { logServerError } from '@/lib/server-log';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +11,8 @@ export async function GET() {
       supportModelConfig(),
     );
     return Response.json({ ready }, { status: ready ? 200 : 503 });
-  } catch {
+  } catch (error) {
+    logServerError('model status', error);
     return Response.json({ ready: false }, { status: 503 });
   }
 }
