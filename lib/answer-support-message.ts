@@ -99,16 +99,27 @@ export async function answerSupportMessage(
   const { incidentId, messageId, message: customerMessage } = command;
   let phase: keyof typeof failureOutcomes = 'loading';
   try {
+    const chargeRequest = () =>
+      consumeRequestQuota(
+        db,
+        `support:${user.userId}`,
+        SUPPORT_REQUESTS_PER_MINUTE,
+        60,
+      );
     if (incidentId && messageId) {
-      const replay = await checkSupportCommand(db, user, command);
+      let replay: SupportReply | null;
+      try {
+        replay = await checkSupportCommand(db, user, command);
+      } catch (error) {
+        // A rejected command (stale revision, reused ID) still did the
+        // preflight reads. Only a completed replay is free.
+        const retryAfter = await chargeRequest();
+        if (retryAfter) return { kind: 'limited', retryAfter };
+        throw error;
+      }
       if (replay) return { kind: 'answered', reply: replay };
     }
-    const requestRetry = await consumeRequestQuota(
-      db,
-      `support:${user.userId}`,
-      SUPPORT_REQUESTS_PER_MINUTE,
-      60,
-    );
+    const requestRetry = await chargeRequest();
     if (requestRetry) return { kind: 'limited', retryAfter: requestRetry };
 
     // The model sees only saved incident history and the current customer message.

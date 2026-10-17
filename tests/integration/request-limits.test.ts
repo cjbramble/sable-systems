@@ -213,6 +213,42 @@ describe('durable request quotas', () => {
     expect((await chat(session.request(next))).status).toBe(200);
   });
 
+  test('counts rejected stale commands against the request quota', async ({
+    database,
+    supportApi,
+  }) => {
+    const now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    for (let attempt = 0; attempt < 59; attempt++)
+      await consumeRequestQuota(
+        database,
+        `support:${calderPikeUser.userId}`,
+        60,
+        60,
+        now,
+      );
+    const session = await supportApi.session(calderPikeUser);
+    const model = supportApi.mockModel('This model reply must not be used.');
+    const incidentId = 'INC-REQUEST-QUOTA-STALE';
+    await supportApi.trackTemporaryIncident(incidentId, calderPikeUser);
+    const stale = (messageId: string) =>
+      session.request({
+        expectedRevision: 5,
+        incidentId,
+        messageId,
+        message: 'Help me trace an order.',
+      });
+
+    expect((await chat(stale('STALE-QUOTA-FIRST'))).status).toBe(409);
+    const blocked = await chat(stale('STALE-QUOTA-SECOND'));
+    expect(blocked.status).toBe(429);
+    expect(await blocked.json()).toEqual({
+      error: 'Too many requests. Please wait and try again.',
+      code: 'request_not_saved',
+    });
+    expect(model).not.toHaveBeenCalled();
+  });
+
   test('bounds deletion markers across concurrent sessions and permits retry after expiry', async ({
     database,
     supportApi,
