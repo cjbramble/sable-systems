@@ -233,20 +233,21 @@ describe('sign-in route', () => {
   test.for(crossOriginHeaders)(
     'rejects sign-in from a foreign origin: %o',
     async (headers, { database }) => {
-      const sessionsBefore = await database
-        .prepare('SELECT session_id FROM sessions ORDER BY session_id')
-        .all();
+      // Compare rows only: D1 result metadata includes a timing field.
+      const sessions = async () =>
+        (
+          await database
+            .prepare('SELECT session_id FROM sessions ORDER BY session_id')
+            .all()
+        ).results;
+      const sessionsBefore = await sessions();
       const response = await login(loginRequest(mara, headers));
       expect(response.status).toBe(403);
       expect(await response.json()).toEqual({
         error: 'Cross-origin access denied.',
       });
       expect(response.headers.get('Set-Cookie')).toBeNull();
-      expect(
-        await database
-          .prepare('SELECT session_id FROM sessions ORDER BY session_id')
-          .all(),
-      ).toEqual(sessionsBefore);
+      expect(await sessions()).toEqual(sessionsBefore);
     },
   );
 
