@@ -206,6 +206,9 @@ async function createOrder(
     );
   }
 
+  // Scheduled releases are allocated when fulfillment opens, as in the seed,
+  // so they neither check nor reserve today's stock.
+  const status = initialOrderStatus(input.requestedShipDate, localToday);
   const catalog = await getCatalog(db);
   const productById = new Map(
     catalog.map((product) => [product.itemNumber, product]),
@@ -236,7 +239,8 @@ async function createOrder(
       throw new CheckoutError('The order total is too large.', 422);
     }
 
-    if (product.fulfillmentType === 'license') continue;
+    if (product.fulfillmentType === 'license' || status === 'scheduled')
+      continue;
     const balances = await db
       .prepare(`SELECT location_id,
       on_hand_quantity - reserved_quantity - quarantined_quantity AS available_quantity
@@ -280,7 +284,6 @@ async function createOrder(
       422,
     );
   }
-  const status = initialOrderStatus(input.requestedShipDate, localToday);
 
   for (let attempt = 1; ; attempt += 1) {
     const receipt = newReceipt(input, user, totalCents, today);
@@ -385,18 +388,26 @@ function orderStatements(
           product.name,
           product.unitPriceCents,
           line.quantity,
-          line.quantity,
+          status === 'scheduled' ? 0 : line.quantity,
         );
     }),
     db
       .prepare(`INSERT INTO order_events (
       event_id, order_id, occurred_at, event_type, customer_safe_description
-    ) VALUES (?, ?, ?, 'order_confirmed', ?)`)
+    ) VALUES (?, ?, ?, ?, ?)`)
       .bind(
         `EVT-${crypto.randomUUID()}`,
         orderId,
         createdAt,
-        `Wholesale order confirmed for requested ship date ${input.requestedShipDate}. Charge account authorization confirmed.`,
+        ...(status === 'scheduled'
+          ? [
+              'order_created',
+              `Wholesale order scheduled for requested ship date ${input.requestedShipDate}. Inventory is allocated when fulfillment opens. Charge account authorization confirmed.`,
+            ]
+          : [
+              'order_confirmed',
+              `Wholesale order confirmed for requested ship date ${input.requestedShipDate}. Charge account authorization confirmed.`,
+            ]),
       ),
     db
       .prepare(`INSERT INTO account_charges (

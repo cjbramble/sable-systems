@@ -19,14 +19,14 @@ forward when a longer lead time is added.
 
 ## Initial order status
 
-| Requested ship date                 | Status      | History filter |
-| ----------------------------------- | ----------- | -------------- |
-| Up to 90 days after local today     | `confirmed` | Active         |
-| More than 90 days after local today | `scheduled` | Scheduled      |
+| Requested ship date                 | Status      | History filter | Inventory                                        | Creation event    |
+| ----------------------------------- | ----------- | -------------- | ------------------------------------------------ | ----------------- |
+| Up to 90 days after local today     | `confirmed` | Active         | Reserved now; checkout fails if stock is short   | `order_confirmed` |
+| More than 90 days after local today | `scheduled` | Scheduled      | Not checked or reserved; lines start unallocated | `order_created`   |
 
 Ninety days is longer than every product lead time, and the seeded release
-orders all ship four or more months after they were placed. Later status
-changes belong to fulfillment.
+orders all ship four or more months after they were placed. Allocating
+scheduled orders and later status changes belong to fulfillment.
 
 ## Uncertain checkout
 

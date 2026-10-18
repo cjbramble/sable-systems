@@ -729,6 +729,24 @@ describe('orders API', () => {
         .prepare('SELECT status FROM orders WHERE customer_po_number = ?')
         .bind(customerPoNumber)
         .first('status');
+    const reserved = async () =>
+      database
+        .prepare(
+          "SELECT SUM(reserved_quantity) AS reserved FROM inventory_balances WHERE item_number = 'SBL-RPC-12'",
+        )
+        .first('reserved');
+    // Scheduled releases wait for fulfillment to allocate; confirmed orders
+    // reserve stock now. The creation event matches the status.
+    const recorded = async (customerPoNumber: string) =>
+      database
+        .prepare(`SELECT
+          (SELECT GROUP_CONCAT(i.allocated_quantity) FROM order_items i
+            WHERE i.order_id = o.order_id) AS allocated,
+          (SELECT GROUP_CONCAT(e.event_type || ': ' || e.customer_safe_description)
+            FROM order_events e WHERE e.order_id = o.order_id) AS event
+          FROM orders o WHERE o.customer_po_number = ?`)
+        .bind(customerPoNumber)
+        .first<{ allocated: string; event: string }>();
 
     const rejectedPo = 'MCS-TEST-SHIP-WINDOW-REJECT';
     await createCheckoutFixture(database, rejectedPo, [
@@ -779,6 +797,7 @@ describe('orders API', () => {
         customerPoNumber,
         items.map((line) => line.itemNumber) as [string, ...string[]],
       );
+      const reservedBefore = await reserved();
       await order(
         customerPoNumber,
         requestedShipDate,
@@ -786,10 +805,46 @@ describe('orders API', () => {
         'Pacific/Kiritimati',
       );
       expect(await statusOf(customerPoNumber), customerPoNumber).toBe(status);
+      const scheduled = status === 'scheduled';
+      const reservesCell = !scheduled && items.some((line) => line === cell);
+      expect(await reserved(), customerPoNumber).toBe(
+        Number(reservedBefore) + (reservesCell ? cell.quantity : 0),
+      );
+      expect(await recorded(customerPoNumber), customerPoNumber).toEqual({
+        allocated: items
+          .map((line) => (scheduled ? 0 : line.quantity))
+          .join(','),
+        event: scheduled
+          ? `order_created: Wholesale order scheduled for requested ship date ${requestedShipDate}. Inventory is allocated when fulfillment opens. Charge account authorization confirmed.`
+          : `order_confirmed: Wholesale order confirmed for requested ship date ${requestedShipDate}. Charge account authorization confirmed.`,
+      });
     }
     // Without a time zone the UTC date applies: 2026-12-10 is 91 days out.
     await createCheckoutFixture(database, 'MCS-TEST-SHIP-UTC', ['SBL-RPC-12']);
-    await order('MCS-TEST-SHIP-UTC', '2026-12-10', [cell]);
+    // A scheduled order does not need today's stock.
+    const { results: stock } = await database
+      .prepare(
+        "SELECT location_id, reserved_quantity FROM inventory_balances WHERE item_number = 'SBL-RPC-12'",
+      )
+      .all<{ location_id: string; reserved_quantity: number }>();
+    await database
+      .prepare(
+        "UPDATE inventory_balances SET reserved_quantity = on_hand_quantity - quarantined_quantity WHERE item_number = 'SBL-RPC-12'",
+      )
+      .run();
+    try {
+      await order('MCS-TEST-SHIP-UTC', '2026-12-10', [cell]);
+    } finally {
+      await database.batch(
+        stock.map((row) =>
+          database
+            .prepare(
+              "UPDATE inventory_balances SET reserved_quantity = ? WHERE item_number = 'SBL-RPC-12' AND location_id = ?",
+            )
+            .bind(row.reserved_quantity, row.location_id),
+        ),
+      );
+    }
     expect(await statusOf('MCS-TEST-SHIP-UTC')).toBe('scheduled');
 
     // New scheduled orders appear under the Scheduled filter, not Active.

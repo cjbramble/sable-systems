@@ -56,6 +56,7 @@ import { shopDestination } from '@/lib/auth-navigation';
 import { reconcileCart, type CartSelections } from '@/lib/cart';
 import { formatCurrency } from '@/lib/format';
 import {
+  initialOrderStatus,
   orderLeadTimeDays,
   parseCheckoutFailure,
   parseCheckoutReceipt,
@@ -742,7 +743,13 @@ export default function ShopPage() {
                 </dl>
                 <p>
                   The order has been posted to the {account?.displayName} charge
-                  account and inventory is reserved.
+                  account and{' '}
+                  {initialOrderStatus(
+                    confirmation.requestedShipDate,
+                    dateOffset(0),
+                  ) === 'scheduled'
+                    ? 'is scheduled. Inventory is allocated when fulfillment opens.'
+                    : 'inventory is reserved.'}
                 </p>
                 <Link className="order-history-link" href="/orders">
                   View order history <ArrowRight />

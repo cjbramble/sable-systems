@@ -148,7 +148,7 @@ describe('durable checkout recovery', () => {
           ...input,
           customerPoNumber: ' recover-normalized ',
           shippingRegion: ' Great Lakes District ',
-          requestedShipDate: ' 2031-01-01 ',
+          requestedShipDate: ` ${input.requestedShipDate} `,
           items: input.items.toReversed(),
           totalCents: 1,
         },
