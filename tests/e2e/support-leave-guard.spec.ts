@@ -83,6 +83,38 @@ test('asks before an in-app link discards a draft', async ({
   expect(await isSameDocument(page)).toBe(true);
 });
 
+test('asks before Back leaves support with a draft', async ({
+  page,
+  supportPage,
+  ordersPage,
+}) => {
+  await markDocument(page);
+  await page
+    .getByRole('navigation', { name: 'Account navigation' })
+    .getByRole('link', { name: 'Order history' })
+    .click();
+  await expect(ordersPage.heading).toBeVisible();
+  await page.getByRole('link', { name: 'COV-E Support', exact: true }).click();
+  await supportPage.messageInput.fill(draft);
+
+  const declined = page.waitForEvent('dialog').then(async (dialog) => {
+    expect(dialog.message()).toBe(leaveWarning);
+    await dialog.dismiss();
+  });
+  await page.evaluate(() => history.back());
+  await declined;
+  await expect(page).toHaveURL(/\/support$/);
+  await expect(supportPage.messageInput).toHaveValue(draft);
+
+  const accepted = page
+    .waitForEvent('dialog')
+    .then((dialog) => dialog.accept());
+  await page.evaluate(() => history.back());
+  await accepted;
+  await expect(ordersPage.heading).toBeVisible();
+  expect(await isSameDocument(page)).toBe(true);
+});
+
 test('warns before unloading the page with a draft', async ({
   page,
   supportPage,

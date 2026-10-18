@@ -250,7 +250,10 @@ export default function SupportPage() {
     messageId: latestReply?.id,
     text: '',
   });
-  if (
+  if (respondingHere && announcedReply.text) {
+    // A failed send must not fall back to re-announcing the previous reply.
+    setAnnouncedReply({ ...announcedReply, text: '' });
+  } else if (
     announcedReply.incidentId !== activeIncidentId ||
     announcedReply.messageId !== latestReply?.id
   ) {
@@ -321,8 +324,26 @@ export default function SupportPage() {
     const warn = (event: BeforeUnloadEvent) => {
       if (unsentText.current) event.preventDefault();
     };
+    // Back and Forward between app pages stay in this document, so
+    // beforeunload never runs. Browsers without the Navigation API skip this.
+    const navigation = (window as Window & { navigation?: EventTarget })
+      .navigation;
+    const confirmTraversal = (event: Event) => {
+      const { navigationType } = event as Event & { navigationType?: string };
+      if (
+        unsentText.current &&
+        navigationType === 'traverse' &&
+        event.cancelable &&
+        !window.confirm(LEAVE_WARNING)
+      )
+        event.preventDefault();
+    };
     window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
+    navigation?.addEventListener('navigate', confirmTraversal);
+    return () => {
+      window.removeEventListener('beforeunload', warn);
+      navigation?.removeEventListener('navigate', confirmTraversal);
+    };
   }, []);
 
   useEffect(() => {
@@ -660,6 +681,7 @@ export default function SupportPage() {
   }
 
   // Client-side navigation skips beforeunload, so in-app links ask here.
+  // Traversals are confirmed by the navigate listener above.
   function confirmLeavingLink(event: MouseEvent<HTMLElement>) {
     if (
       !unsentText.current ||

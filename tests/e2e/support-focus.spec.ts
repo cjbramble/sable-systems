@@ -161,6 +161,17 @@ test('announces only the new reply, not the whole conversation', async ({
     await page.unrouteAll({ behavior: 'wait' });
   }
   await expect(supportPage.announcement).toHaveText(`COV-E replied: ${reply}`);
+  // A failed follow-up must not re-announce the earlier reply.
+  await page.route('**/api/chat', (route) => route.abort('failed'));
+  try {
+    await supportPage.submitMessage('Trace a second shipment.');
+    await expect(
+      page.getByText('Support request interrupted', { exact: true }),
+    ).toBeVisible();
+    await expect(supportPage.announcement).toHaveText('');
+  } finally {
+    await page.unrouteAll({ behavior: 'wait' });
+  }
   await supportPage.openIncident(titles[1]);
   await expect(supportPage.announcement).toHaveText('');
   await supportPage.openIncident(titles[0]);
