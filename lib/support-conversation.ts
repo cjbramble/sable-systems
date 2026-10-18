@@ -78,6 +78,21 @@ export function supportDraft(
   return incidentId === null ? '' : (state.drafts[incidentId] ?? '');
 }
 
+// Text that exists only in this page: leaving it loses the text for good.
+// A pending exchange is not counted; the server may still save it.
+export function hasUnsentSupportText(state: SupportConversationState) {
+  return (
+    state.deletedMessages.length > 0 ||
+    Object.values(state.drafts).some((draft) => draft.trim().length > 0) ||
+    Object.values(state.exchanges).some(
+      (exchange) => exchange.status !== 'pending',
+    ) ||
+    Object.values(state.recoveries).some(
+      (recovery) => recovery.message !== null,
+    )
+  );
+}
+
 function withoutKey<T>(
   record: Record<string, T>,
   key: string,

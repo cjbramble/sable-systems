@@ -4,6 +4,7 @@ import Link from 'next/link';
 import {
   KeyboardEvent,
   Fragment,
+  MouseEvent,
   SyntheticEvent,
   useCallback,
   useEffect,
@@ -70,6 +71,7 @@ import {
   SupportSessionExpiredError,
 } from '@/lib/support-loader';
 import {
+  hasUnsentSupportText,
   initialSupportConversation,
   supportConversationReducer,
   supportDraft,
@@ -79,7 +81,9 @@ import {
   type SupportRuntimeState,
 } from '@/lib/support-status';
 
-type IncidentFailure = { error: string };
+const DELETE_FAILED = 'The incident could not be deleted. Please try again.';
+const LEAVE_WARNING =
+  'Leave support? Unsent drafts and messages on this page will be lost.';
 
 class ChatRequestError extends Error {
   constructor(
@@ -155,11 +159,17 @@ export default function SupportPage() {
   );
   const deletingIncidents = useRef(new Set<string>());
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
-  const [failures, setFailures] = useState<Record<string, IncidentFailure>>({});
+  const [deleteFailures, setDeleteFailures] = useState<Record<string, string>>(
+    {},
+  );
+  // Bumped after a deletion so focus can move once the row is gone.
+  const [deletionFocus, setDeletionFocus] = useState(0);
   const refreshRequests = useRef(new Map<string, AbortController>());
   const [refreshingIds, setRefreshingIds] = useState<string[]>([]);
   const deletedMessage = deletedMessages[0] ?? null;
-  const failure = activeIncidentId ? failures[activeIncidentId] : undefined;
+  const deleteFailure = activeIncidentId
+    ? deleteFailures[activeIncidentId]
+    : undefined;
   const exchange = activeIncidentId ? exchanges[activeIncidentId] : undefined;
   const recovery = activeIncidentId ? recoveries[activeIncidentId] : undefined;
   const isSending = sendingIncidentId !== null;
@@ -174,7 +184,10 @@ export default function SupportPage() {
     );
   const [runtime, setRuntime] = useState<SupportRuntimeState>('checking');
   const [account, setAccount] = useState<AccountSummary | null>(null);
+  const unsentText = useRef(false);
   const clearConversationState = useCallback(() => {
+    // The caller may redirect before the cleared state renders.
+    unsentText.current = false;
     pageRequest.current?.abort();
     for (const controller of refreshRequests.current.values())
       controller.abort();
@@ -182,7 +195,7 @@ export default function SupportPage() {
     deletingIncidents.current.clear();
     pendingRequest.current = null;
     dispatch({ type: 'reset' });
-    setFailures({});
+    setDeleteFailures({});
     setSendingIncidentId(null);
     setDeletingIds([]);
     setRefreshingIds([]);
@@ -202,6 +215,7 @@ export default function SupportPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const messageEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sendButtonRef = useRef<HTMLButtonElement>(null);
   const activeIncident = useMemo(
     () => incidents.find((incident) => incident.id === activeIncidentId),
     [activeIncidentId, incidents],
@@ -225,6 +239,31 @@ export default function SupportPage() {
     () => filterSupportIncidents(incidents, incidentSearch),
     [incidentSearch, incidents],
   );
+  const respondingHere = isSending && sendingIncidentId === activeIncidentId;
+  const latestReply = activeIncident?.messages.findLast(
+    (message) => message.role === 'assistant',
+  );
+  // Announce a reply only when it arrives in the incident already shown, so
+  // switching incidents never reads out a saved conversation.
+  const [announcedReply, setAnnouncedReply] = useState({
+    incidentId: activeIncidentId,
+    messageId: latestReply?.id,
+    text: '',
+  });
+  if (
+    announcedReply.incidentId !== activeIncidentId ||
+    announcedReply.messageId !== latestReply?.id
+  ) {
+    setAnnouncedReply({
+      incidentId: activeIncidentId,
+      messageId: latestReply?.id,
+      text:
+        announcedReply.incidentId === activeIncidentId && latestReply
+          ? `COV-E replied: ${latestReply.content}`
+          : '',
+    });
+  }
+  const hasUnsentText = hasUnsentSupportText(conversation) && !signingOut;
 
   useEffect(() => startSupportStatusPolling(setRuntime), []);
 
@@ -273,6 +312,30 @@ export default function SupportPage() {
         : 'smooth',
     });
   }, [messages, isSending, deletedMessage]);
+
+  useEffect(() => {
+    unsentText.current = hasUnsentText;
+  }, [hasUnsentText]);
+
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (unsentText.current) event.preventDefault();
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, []);
+
+  useEffect(() => {
+    if (deletionFocus === 0) return;
+    // Only recover focus the deleted row took with it.
+    if (document.activeElement && document.activeElement !== document.body)
+      return;
+    const visible = (selector: string) =>
+      [...document.querySelectorAll<HTMLElement>(selector)].find((element) =>
+        element.checkVisibility(),
+      );
+    (visible('.conversation-item.is-active') ?? visible('.new-chat'))?.focus();
+  }, [deletionFocus]);
 
   useEffect(() => {
     const desktop = window.matchMedia('(min-width: 768px)');
@@ -333,6 +396,7 @@ export default function SupportPage() {
     )
       return;
     if (!window.confirm(`Delete “${incident.title}”?`)) return;
+    clearDeleteFailure(incident.id);
     deletingIncidents.current.add(incident.id);
     setDeletingIds([...deletingIncidents.current]);
     try {
@@ -348,21 +412,18 @@ export default function SupportPage() {
         return;
       }
       if (!response.ok) {
-        const payload = (await response.json()) as { error?: string };
-        throw new Error(payload.error || 'The incident could not be deleted.');
+        // A proxy can answer with an HTML error page instead of JSON.
+        const failure = parseSupportFailure(
+          await response.json().catch(() => null),
+        );
+        if (!signal.aborted)
+          recordDeleteFailure(incident.id, failure?.error || DELETE_FAILED);
+        return;
       }
       removeIncident(incident.id);
-    } catch (error) {
-      if (signal.aborted) return;
-      setFailures((current) => ({
-        ...current,
-        [incident.id]: {
-          error:
-            error instanceof Error
-              ? error.message
-              : 'The incident could not be deleted.',
-        },
-      }));
+      setDeletionFocus((count) => count + 1);
+    } catch {
+      if (!signal.aborted) recordDeleteFailure(incident.id, DELETE_FAILED);
     } finally {
       deletingIncidents.current.delete(incident.id);
       if (!signal.aborted) setDeletingIds([...deletingIncidents.current]);
@@ -374,11 +435,15 @@ export default function SupportPage() {
     refreshRequests.current.delete(incidentId);
     setRefreshingIds((current) => current.filter((id) => id !== incidentId));
     dispatch({ type: unavailable ? 'unavailable' : 'remove', incidentId });
-    clearFailure(incidentId);
+    clearDeleteFailure(incidentId);
   }
 
-  function clearFailure(incidentId: string) {
-    setFailures((current) => {
+  function recordDeleteFailure(incidentId: string, error: string) {
+    setDeleteFailures((current) => ({ ...current, [incidentId]: error }));
+  }
+
+  function clearDeleteFailure(incidentId: string) {
+    setDeleteFailures((current) => {
       const next = { ...current };
       delete next[incidentId];
       return next;
@@ -522,7 +587,7 @@ export default function SupportPage() {
       return;
     pendingRequest.current = request;
     setSendingIncidentId(request.incidentId);
-    clearFailure(request.incidentId);
+    clearDeleteFailure(request.incidentId);
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -575,10 +640,47 @@ export default function SupportPage() {
         pendingRequest.current = null;
         if (!signal.aborted) {
           setSendingIncidentId(null);
-          window.setTimeout(() => inputRef.current?.focus(), 0);
+          window.setTimeout(restoreComposerFocus, 0);
         }
       }
     }
+  }
+
+  // Return focus to the composer only if the user has not moved it elsewhere
+  // while the reply was on its way.
+  function restoreComposerFocus() {
+    const focused = document.activeElement;
+    if (
+      !focused ||
+      focused === document.body ||
+      focused === inputRef.current ||
+      focused === sendButtonRef.current
+    )
+      inputRef.current?.focus();
+  }
+
+  // Client-side navigation skips beforeunload, so in-app links ask here.
+  function confirmLeavingLink(event: MouseEvent<HTMLElement>) {
+    if (
+      !unsentText.current ||
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      !(event.target instanceof Element)
+    )
+      return;
+    const link = event.target.closest('a[href]');
+    if (!(link instanceof HTMLAnchorElement) || link.target) return;
+    const destination = new URL(link.href);
+    if (
+      destination.origin !== window.location.origin ||
+      destination.pathname === window.location.pathname
+    )
+      return;
+    if (!window.confirm(LEAVE_WARNING)) event.preventDefault();
   }
 
   function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
@@ -756,7 +858,11 @@ export default function SupportPage() {
   return (
     <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
       {/* The Sheet portals its content outside this inert background. */}
-      <main className="app-shell" inert={mobileMenuOpen}>
+      <main
+        className="app-shell"
+        inert={mobileMenuOpen}
+        onClickCapture={confirmLeavingLink}
+      >
         <aside className="sidebar sidebar--desktop">{sidebarContent}</aside>
         <SheetContent
           side="left"
@@ -818,7 +924,10 @@ export default function SupportPage() {
             </div>
           </header>
 
-          <div className="message-stage" aria-live="polite">
+          <output className="sr-only">
+            {respondingHere ? 'COV-E is responding' : announcedReply.text}
+          </output>
+          <div className="message-stage">
             <div className="message-stream">
               {messages.map((message, index) => (
                 <Fragment key={message.id}>
@@ -844,7 +953,7 @@ export default function SupportPage() {
                 </Fragment>
               ))}
 
-              {sendingIncidentId === activeIncidentId && isSending ? (
+              {respondingHere ? (
                 <article className="chat-message">
                   <div className="assistant-avatar">
                     <Sparkles />
@@ -854,10 +963,7 @@ export default function SupportPage() {
                       <strong>COV-E</strong>
                       <span>Querying authorized local records…</span>
                     </div>
-                    <div
-                      className="typing-bubble"
-                      aria-label="COV-E is responding"
-                    >
+                    <div className="typing-bubble" aria-hidden="true">
                       <i />
                       <i />
                       <i />
@@ -896,12 +1002,12 @@ export default function SupportPage() {
                 </div>
               ) : null}
 
-              {failure ? (
+              {deleteFailure ? (
                 <div className="chat-notice" role="alert">
                   <TriangleAlert aria-hidden="true" />
                   <div>
-                    <strong>Support request interrupted</strong>
-                    <p>{failure.error}</p>
+                    <strong>Incident not deleted</strong>
+                    <p>{deleteFailure}</p>
                   </div>
                 </div>
               ) : null}
@@ -1052,6 +1158,7 @@ export default function SupportPage() {
                 disabled={composerDisabled}
               />
               <Button
+                ref={sendButtonRef}
                 type="submit"
                 size="icon-lg"
                 aria-label="Send message"
@@ -1099,6 +1206,7 @@ export default function SupportPage() {
           <div className="topic-list">
             <button
               type="button"
+              disabled={sendDisabled}
               onClick={() => void sendMessage('Help me trace an order')}
             >
               <span className="topic-icon">
@@ -1112,6 +1220,7 @@ export default function SupportPage() {
             </button>
             <button
               type="button"
+              disabled={sendDisabled}
               onClick={() => void sendMessage('Help me start a return')}
             >
               <span className="topic-icon">
@@ -1125,6 +1234,7 @@ export default function SupportPage() {
             </button>
             <button
               type="button"
+              disabled={sendDisabled}
               onClick={() =>
                 void sendMessage('Show current inventory advisories')
               }
