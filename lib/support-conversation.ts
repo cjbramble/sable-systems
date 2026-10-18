@@ -139,6 +139,15 @@ function replaceIncident(
   );
 }
 
+// A saved reply makes its incident the most recently updated, matching the
+// server's newest-first order.
+function moveToTop(incidents: SupportIncident[], incidentId: string) {
+  const incident = incidents.find(({ id }) => id === incidentId);
+  return incident
+    ? [incident, ...incidents.filter(({ id }) => id !== incidentId)]
+    : incidents;
+}
+
 function mergeSavedPair(
   messages: SupportChatMessage[],
   request: SupportCommand,
@@ -316,20 +325,23 @@ export function supportConversationReducer(
       if (!exchange) return state;
       return {
         ...state,
-        incidents: state.incidents.map((incident) =>
-          incident.id === action.request.incidentId
-            ? {
-                ...incident,
-                messages: mergeSavedPair(
-                  incident.messages,
-                  exchange.request,
-                  action.reply,
-                ),
-                updatedAt: action.reply.incidentUpdatedAt,
-                // A replay can predate unseen turns. Its receipt cannot claim their revision.
-                revision: action.reply.revision,
-              }
-            : incident,
+        incidents: moveToTop(
+          state.incidents.map((incident) =>
+            incident.id === action.request.incidentId
+              ? {
+                  ...incident,
+                  messages: mergeSavedPair(
+                    incident.messages,
+                    exchange.request,
+                    action.reply,
+                  ),
+                  updatedAt: action.reply.incidentUpdatedAt,
+                  // A replay can predate unseen turns. Its receipt cannot claim their revision.
+                  revision: action.reply.revision,
+                }
+              : incident,
+          ),
+          action.request.incidentId,
         ),
         exchanges: withoutKey(state.exchanges, action.request.incidentId),
       };
@@ -343,7 +355,10 @@ export function supportConversationReducer(
         return state;
       return {
         ...state,
-        incidents: replaceIncident(state, action.snapshot),
+        incidents: moveToTop(
+          replaceIncident(state, action.snapshot),
+          action.snapshot.id,
+        ),
         exchanges: withoutKey(state.exchanges, action.request.incidentId),
       };
     case 'changed': {

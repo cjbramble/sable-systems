@@ -14,7 +14,7 @@ Send only the current customer message:
 
 Provide both IDs and `expectedRevision` to save an exchange. Incident IDs start with `INC-`, followed by
 6–100 letters, digits, or hyphens. Message IDs contain 6–120 letters, digits, or
-hyphens. The revision is a nonnegative safe integer: use 0 for a new conversation,
+hyphens; the support page uses `crypto.randomUUID()`. The revision is a nonnegative safe integer: use 0 for a new conversation,
 or the revision loaded with that incident from `GET /api/incidents`. Omit IDs and
 revision for a reply without persistence. The server builds model
 context from authorized saved history; clients cannot supply earlier turns.
@@ -188,13 +188,27 @@ draft can be edited while retrying the original command. Dependent sends remain
 blocked until the exchange is confirmed, a known unsaved message is explicitly
 discarded, or the customer completes conversation-change recovery.
 
+Incident reads require an authenticated session and return only the caller's incidents.
+
+| Request                               | Response                                                                                    |
+| ------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `GET /api/incidents`                  | `{ "incidents": [...] }`: every incident with all its messages, most recently updated first |
+| `GET /api/incidents?incidentId=INC-…` | `{ "incident": {...} }` for one owned incident, or `{ "incident": null }`                   |
+
+Each incident has `id`, `title`, `updatedAt`, `revision`, and `messages`
+(`id`, `role`, `content`, `createdAt`). A single read returns `null` for a deleted,
+never-saved, or another user's incident alike, so it does not reveal whether an ID
+exists. A malformed incident ID returns HTTP 400. The full list has no paging yet.
+
+“Check saved conversation” and “Reload conversation” use the single-incident read.
 “Check saved conversation” confirms an uncertain exchange only when saved history
 contains its matching customer/assistant pair. An absent message or new incident
 does not prove failure: its original request may still be running. A later revision
 without the pair proves that the old command can no longer save and allows explicit
 review and resubmission. Checking history never sends a message automatically.
 
-Drafts stay in memory while switching incidents. Deleting an incident clears its
+A confirmed reply moves its incident to the top of the sidebar, matching the
+server's newest-first order. Drafts stay in memory while switching incidents. Deleting an incident clears its
 local draft; remote deletion preserves unsent text for recovery into a new incident.
 Reloading the page or changing accounts clears local drafts and pending recovery.
 

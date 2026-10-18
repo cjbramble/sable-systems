@@ -274,6 +274,31 @@ describe('support conversation drafts and exchanges', () => {
     expect(confirmed.activeIncidentId).toBe(secondId);
   });
 
+  it('moves an older incident to the top once its reply is saved', () => {
+    const state = pending(
+      reduce(initialSupportConversation(), {
+        type: 'load',
+        incidents: [incident(secondId), incident()],
+      }),
+    );
+    expect(state.incidents.map(({ id }) => id)).toEqual([secondId, firstId]);
+    const confirmed = reduce(state, { type: 'confirmed', request, reply });
+    expect(confirmed.incidents.map(({ id }) => id)).toEqual([
+      firstId,
+      secondId,
+    ]);
+    expect(confirmed.activeIncidentId).toBe(secondId);
+    const reconciled = apply(
+      state,
+      { type: 'unconfirmed', request, error: 'Lost receipt' },
+      { type: 'reconciled', request, snapshot },
+    );
+    expect(reconciled.incidents.map(({ id }) => id)).toEqual([
+      firstId,
+      secondId,
+    ]);
+  });
+
   it('merges a historical receipt by ID in its original position without duplicating messages', () => {
     const laterMessages = [
       {
