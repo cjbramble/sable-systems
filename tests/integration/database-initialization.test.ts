@@ -403,6 +403,70 @@ describe('database initialization', () => {
     },
   );
 
+  test('rewrites v7 seed rows in place and keeps every other record', async ({
+    initialization,
+  }) => {
+    const { database, getDatabase, restart } = initialization;
+    await getDatabase();
+    await addUserRecords(database);
+    const current = await databaseSnapshot(database);
+    // Put back what v7 seeded: a future-dated status event, a fully shipped
+    // "partially shipped" order, a license line in a freight shipment, and an
+    // in-transit shipment already past its estimate.
+    const license = await database
+      .prepare(`SELECT i.order_id, i.line_number, i.shipped_quantity, s.shipment_id
+        FROM order_items i
+        JOIN products p ON p.item_number = i.item_number
+        JOIN shipments s ON s.order_id = i.order_id
+        WHERE p.fulfillment_type = 'license' AND i.shipped_quantity > 0
+        ORDER BY i.order_id LIMIT 1`)
+      .first<{
+        order_id: string;
+        line_number: number;
+        shipped_quantity: number;
+        shipment_id: string;
+      }>();
+    if (!license) throw new Error('Expected a shipped license line');
+    await database.batch([
+      database
+        .prepare("UPDATE metadata SET value = ? WHERE key = 'seed_version'")
+        .bind('sable-distribution-2026-09-02-v7'),
+      database.prepare(
+        "UPDATE order_events SET occurred_at = '2026-09-18T09:00:00Z' WHERE event_id = 'EVT-SBL-2026-000419-002'",
+      ),
+      database.prepare(
+        "UPDATE order_items SET shipped_quantity = ordered_quantity WHERE order_id = 'SBL-2026-100416'",
+      ),
+      database
+        .prepare(
+          'INSERT INTO shipment_items (shipment_id, order_id, line_number, shipped_quantity) VALUES (?, ?, ?, ?)',
+        )
+        .bind(
+          license.shipment_id,
+          license.order_id,
+          license.line_number,
+          license.shipped_quantity,
+        ),
+      database.prepare(
+        "UPDATE shipments SET estimated_delivery_date = '2026-08-20' WHERE status = 'in_transit'",
+      ),
+    ]);
+    expect(await databaseSnapshot(database)).not.toEqual(current);
+
+    await (
+      await restart()
+    )();
+
+    expect(await databaseSnapshot(database)).toEqual(current);
+    expect(
+      (await database.prepare('PRAGMA foreign_key_check').all()).results,
+    ).toEqual([]);
+    await (
+      await restart()
+    )();
+    expect(await databaseSnapshot(database)).toEqual(current);
+  });
+
   test.for(['6', '7', '8', '9', '10', '11', '12', '13'] as const)(
     'upgrades historical schema %s without reseeding or losing records',
     async (version, { initialization }) => {

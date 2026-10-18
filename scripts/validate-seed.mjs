@@ -127,6 +127,65 @@ for (const {
   );
 }
 
+// COV-E reads these rows as history, so they must be consistent at the as-of
+// date: no future events, real shortfalls, no freight for licenses, and no
+// in-transit shipment already past its estimate unless marked delayed.
+const events = records
+  .filter(({ table }) => table === 'order_events')
+  .map(({ values }) => values);
+const futureEvents = events.filter(
+  ({ occurred_at }) => occurred_at.slice(0, 10) > AS_OF_DATE,
+);
+assert.deepEqual(
+  futureEvents.map(({ event_id }) => event_id),
+  [],
+  'expected every order event on or before the as-of date',
+);
+for (const order of orders.filter(
+  ({ status }) => status === 'partially_shipped',
+)) {
+  assert.ok(
+    orderItems.some(
+      (item) =>
+        item.order_id === order.order_id &&
+        item.shipped_quantity < item.ordered_quantity,
+    ),
+    `expected a shortfall on partially shipped ${order.order_id}`,
+  );
+}
+const licenseItems = new Set(
+  orderItems
+    .filter(
+      (item) =>
+        products.find(({ item_number }) => item_number === item.item_number)
+          ?.fulfillment_type === 'license',
+    )
+    .map(({ order_id, line_number }) => `${order_id}/${line_number}`),
+);
+const shippedLicenses = records
+  .filter(({ table }) => table === 'shipment_items')
+  .map(({ values }) => values)
+  .filter(({ order_id, line_number }) =>
+    licenseItems.has(`${order_id}/${line_number}`),
+  );
+assert.equal(
+  shippedLicenses.length,
+  0,
+  'expected no license lines in freight shipments',
+);
+const overdueInTransit = records
+  .filter(({ table }) => table === 'shipments')
+  .map(({ values }) => values)
+  .filter(
+    ({ status, estimated_delivery_date }) =>
+      status === 'in_transit' && estimated_delivery_date <= AS_OF_DATE,
+  );
+assert.deepEqual(
+  overdueInTransit.map(({ shipment_id }) => shipment_id),
+  [],
+  'expected in-transit shipments to be due after the as-of date',
+);
+
 console.log(
   JSON.stringify(
     {

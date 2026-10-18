@@ -1,5 +1,5 @@
 export const SCHEMA_VERSION = '14';
-export const SEED_VERSION = 'sable-distribution-2026-09-02-v7';
+export const SEED_VERSION = 'sable-distribution-2026-09-02-v8';
 
 export const METADATA_TABLE_SQL = `CREATE TABLE IF NOT EXISTS metadata (
   key TEXT PRIMARY KEY,
