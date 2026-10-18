@@ -462,8 +462,8 @@ test.describe('Markdown rendering', () => {
     const unsafeReply = [
       'Archived reply sample.',
       '',
-      '[In-app history](/orders)',
-      '[Outside portal](https://security-audit.invalid/verify)',
+      '[In-app history](/orders "View orders")',
+      '[Outside portal](https://security-audit.invalid/verify "Verify account")',
       '[Uppercase portal](HTTPS://security-audit.invalid/verify)',
       '[Protocol-relative portal](//security-audit.invalid/verify)',
       '[Backslash portal](/\\security-audit.invalid/verify)',
@@ -530,6 +530,13 @@ test.describe('Markdown rendering', () => {
       'href',
       '/orders',
     );
+    await expect(message.link('In-app history')).toHaveAttribute(
+      'title',
+      'View orders',
+    );
+    await expect(
+      message.bubble.locator('[title="Verify account"]'),
+    ).toHaveCount(0);
     for (const name of [
       'Outside portal',
       'Uppercase portal',
@@ -539,15 +546,21 @@ test.describe('Markdown rendering', () => {
       'Call billing',
       'Unsafe script',
       'Unsafe document',
-    ])
-      await expect(message.link(name)).toHaveAttribute('href', '');
+    ]) {
+      await expect(message.link(name)).toHaveCount(0);
+      await expect(message.bubble.getByText(name, { exact: true })).toHaveCount(
+        1,
+      );
+    }
     // Markdown percent-encodes the backslash, leaving an in-app path.
     await expect(message.link('Backslash portal')).toHaveAttribute(
       'href',
       '/%5Csecurity-audit.invalid/verify',
     );
-    for (const href of await message.linkTargets())
-      if (href) expect(new URL(href, app.url).origin).toBe(app.url);
+    for (const href of await message.linkTargets()) {
+      expect(href).toBeTruthy();
+      expect(new URL(href!, app.url).origin).toBe(app.url);
+    }
     await expect(message.embeddedHtml).toHaveCount(0);
     expect(outsideRequests).toEqual([]);
     expect(await supportPage.title()).toBe(initialTitle);
@@ -584,9 +597,7 @@ test.describe('Markdown rendering', () => {
       'security-audit.invalid/refund',
     );
     await expect(message.bubble).toHaveCount(1);
-    expect((await message.linkTargets()).filter((href) => href !== '')).toEqual(
-      [],
-    );
+    expect(await message.linkTargets()).toEqual([]);
   });
 });
 

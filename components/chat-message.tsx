@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { BadgeCheck, CircleUserRound, Sparkles } from 'lucide-react';
@@ -6,6 +7,19 @@ import { isAppRelativeLink } from '@/lib/support-reply-links';
 import { supportTimeLabel } from '@/lib/support-time';
 import { cn } from '@/lib/utils';
 import './chat-message.css';
+
+// A blocked target leaves no href. Render it as text: an empty href would
+// reload /support and drop unsaved drafts and recovery state. Only href and
+// title are forwarded, so no other attribute reaches the anchor.
+function SafeLink({ href, title, children }: ComponentProps<'a'>) {
+  return href ? (
+    <a href={href} title={title}>
+      {children}
+    </a>
+  ) : (
+    <span>{children}</span>
+  );
+}
 
 type ChatMessageProps = {
   message: SupportChatMessage;
@@ -59,7 +73,8 @@ export function ChatMessage({
               disallowedElements={['img']}
               // Replies and server-written incident lists can carry
               // customer-authored text; never link outside the app.
-              urlTransform={(url) => (isAppRelativeLink(url) ? url : '')}
+              urlTransform={(url) => (isAppRelativeLink(url) ? url : undefined)}
+              components={{ a: SafeLink }}
             >
               {message.content}
             </Markdown>
