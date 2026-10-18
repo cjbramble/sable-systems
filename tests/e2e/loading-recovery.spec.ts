@@ -93,6 +93,48 @@ test('retries a catalog failure without losing the loaded account', async ({
   expect(app.modelRequests).toEqual([]);
 });
 
+test('shows fixed messages when a proxy returns HTML instead of JSON', async ({
+  page,
+  app,
+  loginPage,
+  shopPage,
+  ordersPage,
+}) => {
+  const proxyError = {
+    status: 502,
+    contentType: 'text/html',
+    body: '<!DOCTYPE html><title>Bad gateway</title>',
+  };
+  let catalogRequests = 0;
+  let historyRequests = 0;
+  await page.route('**/api/catalog', (route) =>
+    ++catalogRequests === 1 ? route.fulfill(proxyError) : route.continue(),
+  );
+  await page.route('**/api/orders?*', (route) =>
+    ++historyRequests === 1 ? route.fulfill(proxyError) : route.continue(),
+  );
+  await loginPage.goto('/shop');
+  await loginPage.signIn(
+    'imani.kade@meridiancivic.example',
+    'Sable-WHS-1098!',
+    '/shop',
+  );
+  await expect(shopPage.loadingError).toContainText('Catalog unavailable.');
+  await expect(shopPage.loadingError).not.toContainText('Unexpected token');
+  await shopPage.retryCatalog();
+  await expect(shopPage.loadingError).toHaveCount(0);
+
+  await ordersPage.goto();
+  await expect(ordersPage.loadingError).toContainText(
+    'Order history unavailable.',
+  );
+  await expect(ordersPage.loadingError).not.toContainText('Unexpected token');
+  await ordersPage.retryLoading();
+  await expect(ordersPage.table).toBeVisible();
+  expect([catalogRequests, historyRequests]).toEqual([2, 2]);
+  expect(app.modelRequests).toEqual([]);
+});
+
 for (const endpoint of ['account', 'incidents']) {
   test(`retries failed support ${endpoint} without presenting missing data as empty history`, async ({
     page,

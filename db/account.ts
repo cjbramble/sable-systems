@@ -1,6 +1,7 @@
 import type { AuthenticatedUser } from './auth';
 import { AS_OF_DATE } from './seed';
 import type { AccountSummary } from '@/lib/contracts';
+import { orderStatusCountSql } from '@/lib/order-status-groups';
 
 export async function getAccountSummary(
   db: D1Database,
@@ -9,8 +10,8 @@ export async function getAccountSummary(
   const orderCounts = await db
     .prepare(`SELECT
       COUNT(*) AS total_orders,
-      SUM(CASE WHEN status NOT IN ('delivered', 'cancelled', 'scheduled') THEN 1 ELSE 0 END) AS active_orders,
-      SUM(CASE WHEN status = 'scheduled' THEN 1 ELSE 0 END) AS scheduled_orders
+      ${orderStatusCountSql('active')} AS active_orders,
+      ${orderStatusCountSql('scheduled')} AS scheduled_orders
       FROM orders WHERE customer_id = ?`)
     .bind(user.distributorId)
     .first<{

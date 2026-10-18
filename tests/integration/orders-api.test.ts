@@ -1,9 +1,11 @@
 import { describe, expect, vi } from 'vitest';
 
 import { GET, POST } from '@/app/api/orders/route';
+import { getOrderHistory } from '@/db/orders';
 import { placeChargeAccountOrder } from '@/db/shop';
 import type { OrderHistoryResponse, OrderStatus } from '@/lib/contracts';
 import {
+  checkoutCommand,
   createCheckoutFixture,
   snapshotCheckoutState,
 } from '../fixtures/checkout';
@@ -105,6 +107,243 @@ describe('orders API', () => {
         summary,
       });
     }
+  });
+
+  test('filters, pages, and searches history against raw rows', async ({
+    database,
+    supportApi,
+    onTestFinished,
+  }) => {
+    // One seed order temporarily carries LIKE wildcards in its PO.
+    const wildcardPo = 'WILD%CARD_PO\\X';
+    const target = await database
+      .prepare(`SELECT order_id, customer_po_number FROM orders
+        WHERE customer_id = 'WHS-0427' ORDER BY order_id LIMIT 1`)
+      .first<{ order_id: string; customer_po_number: string }>();
+    expect(target).not.toBeNull();
+    await database
+      .prepare('UPDATE orders SET customer_po_number = ? WHERE order_id = ?')
+      .bind(wildcardPo, target!.order_id)
+      .run();
+    onTestFinished(async () => {
+      await database
+        .prepare('UPDATE orders SET customer_po_number = ? WHERE order_id = ?')
+        .bind(target!.customer_po_number, target!.order_id)
+        .run();
+    });
+
+    // Seeded orders on one day share a creation time, so raw order-ID order
+    // breaks ties the same way the history query does.
+    const { results: rows } = await database
+      .prepare(`SELECT o.order_id, o.customer_po_number, o.status,
+        u.display_name
+        FROM orders o JOIN users u ON u.user_id = o.placed_by_user_id
+        WHERE o.customer_id = 'WHS-0427'
+        ORDER BY o.created_on DESC, o.order_id DESC`)
+      .all<{
+        order_id: string;
+        customer_po_number: string;
+        status: OrderStatus;
+        display_name: string;
+      }>();
+    expect(rows).toHaveLength(648);
+    const user = await loadActiveUserFixture(database, 'USR-CPD-001');
+    const session = await supportApi.session(user);
+    const history = async (parameters: Record<string, string>) => {
+      const url = new URL('http://localhost/api/orders');
+      for (const [name, value] of Object.entries(parameters))
+        url.searchParams.set(name, value);
+      const response = await GET(
+        new Request(url, { headers: session.request({}).headers }),
+      );
+      expect(response.status, url.search).toBe(200);
+      return (await response.json()) as OrderHistoryResponse;
+    };
+    const ids = (orders: { order_id: string }[]) =>
+      orders.map((order) => order.order_id);
+    const listedIds = (listed: OrderHistoryResponse) =>
+      listed.orders.map((order) => order.orderId);
+
+    const statusFilters: [string, OrderStatus[] | null][] = [
+      ['all', null],
+      [
+        'active',
+        [
+          'confirmed',
+          'allocating',
+          'backordered',
+          'partially_shipped',
+          'shipped',
+          'on_hold',
+        ],
+      ],
+      ['scheduled', ['scheduled']],
+      ['fulfilled', ['delivered']],
+      ['closed', ['cancelled']],
+    ];
+    for (const [status, statuses] of statusFilters) {
+      const expected = rows.filter(
+        (row) => !statuses || statuses.includes(row.status),
+      );
+      expect(expected.length, status).toBeGreaterThan(0);
+      const listed = await history({ status });
+      expect(listed, status).toMatchObject({
+        page: 1,
+        total: expected.length,
+        totalPages: Math.ceil(expected.length / 25),
+      });
+      expect(listedIds(listed), status).toEqual(ids(expected.slice(0, 25)));
+    }
+    expect(rows.some((row) => row.status === 'on_hold')).toBe(true);
+
+    const lastPage = Math.ceil(rows.length / 25);
+    const pages: [string, number, number][] = [
+      ['second page', 2, 2],
+      ['last page', lastPage, lastPage],
+      ['past the last page', lastPage + 1, lastPage],
+      ['far past the last page', 10_000, lastPage],
+    ];
+    for (const [name, requested, served] of pages) {
+      const listed = await history({ page: String(requested) });
+      expect(listed, name).toMatchObject({
+        page: served,
+        total: rows.length,
+        totalPages: lastPage,
+      });
+      expect(listedIds(listed), name).toEqual(
+        ids(rows.slice((served - 1) * 25, served * 25)),
+      );
+    }
+    expect(
+      await history({ page: '3', query: 'no order matches this' }),
+    ).toMatchObject({ orders: [], page: 1, total: 0, totalPages: 1 });
+
+    const buyer = rows[0].display_name;
+    const matches = (query: string) =>
+      rows.filter((row) =>
+        [row.order_id, row.customer_po_number, row.display_name].some((value) =>
+          value.toLowerCase().includes(query.toLowerCase()),
+        ),
+      );
+    const searches: [string, string, number | null][] = [
+      ['buyer name', buyer, null],
+      ['partial lower-case buyer name', buyer.slice(1, -1).toLowerCase(), null],
+      [
+        'partial lower-case order ID',
+        rows[3].order_id.slice(4).toLowerCase(),
+        null,
+      ],
+      ['percent sign', '%', 1],
+      ['underscore', '_', 1],
+      ['backslash', '\\', 1],
+      ['literal wildcard run', 'd%card_po\\x', 1],
+      ['underscore is not a single-character wildcard', 'WILD_CARD', 0],
+      ['percent is not a multi-character wildcard', 'WILD%PO', 0],
+    ];
+    for (const [name, query, count] of searches) {
+      const expected = matches(query);
+      if (count !== null) expect(expected, name).toHaveLength(count);
+      else expect(expected.length, name).toBeGreaterThan(0);
+      const listed = await history({ query });
+      expect(listed.total, name).toBe(expected.length);
+      expect(listedIds(listed), name).toEqual(ids(expected.slice(0, 25)));
+    }
+    expect(
+      (await history({ query: '%' })).orders.map(
+        (order) => order.customerPoNumber,
+      ),
+    ).toEqual([wildcardPo]);
+  });
+
+  test('rejects an invalid page, status, or query length', async ({
+    database,
+    supportApi,
+  }) => {
+    const user = await loadActiveUserFixture(database, 'USR-MCS-001');
+    const session = await supportApi.session(user);
+    const status = async (parameters: Record<string, string>) => {
+      const url = new URL('http://localhost/api/orders');
+      for (const [name, value] of Object.entries(parameters))
+        url.searchParams.set(name, value);
+      const response = await GET(
+        new Request(url, { headers: session.request({}).headers }),
+      );
+      return response.status;
+    };
+    const cases: [string, Record<string, string>, number][] = [
+      ['page zero', { page: '0' }, 400],
+      ['negative page', { page: '-1' }, 400],
+      ['fractional page', { page: '1.5' }, 400],
+      ['non-numeric page', { page: 'two' }, 400],
+      ['page above the bound', { page: '10001' }, 400],
+      ['unknown status', { status: 'open' }, 400],
+      ['raw status name', { status: 'on_hold' }, 400],
+      ['81-character query', { query: 'x'.repeat(81) }, 400],
+      ['80-character query', { query: 'x'.repeat(80) }, 200],
+      ['highest page', { page: '10000' }, 200],
+    ];
+    for (const [name, parameters, expected] of cases)
+      expect(await status(parameters), name).toBe(expected);
+  });
+
+  test('lists same-day orders newest first whatever their random IDs', async ({
+    database,
+    onTestFinished,
+  }) => {
+    const purchaseOrders = ['MCS-TEST-SAME-DAY-A', 'MCS-TEST-SAME-DAY-B'];
+    for (const customerPoNumber of purchaseOrders)
+      await createCheckoutFixture(database, customerPoNumber, ['SBL-RPC-12']);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const user = await loadActiveUserFixture(database, 'USR-MCS-001');
+    // The earlier order gets the higher random ID, so ID order is wrong.
+    const randomIds = [199_998, 1];
+    const { results: existing } = await database
+      .prepare('SELECT order_id FROM orders WHERE order_id IN (?, ?)')
+      .bind('SBL-2026-999998', 'SBL-2026-800001')
+      .all();
+    expect(existing).toEqual([]);
+    const random = vi
+      .spyOn(crypto, 'getRandomValues')
+      .mockImplementation((array) => {
+        if (!(array instanceof Uint32Array) || array.length !== 1)
+          throw new Error('Unexpected random request during checkout');
+        array[0] = randomIds.shift()!;
+        return array;
+      });
+    const receipts = [];
+    try {
+      for (const [index, time] of ['09:00', '15:00'].entries()) {
+        vi.setSystemTime(new Date(`2026-09-10T${time}:00.000Z`));
+        receipts.push(
+          await placeChargeAccountOrder(
+            database,
+            checkoutCommand(purchaseOrders[index], {
+              requestedShipDate: '2026-10-15',
+            }),
+            user,
+          ),
+        );
+      }
+    } finally {
+      random.mockRestore();
+    }
+    expect(receipts.map((receipt) => receipt.orderId)).toEqual([
+      'SBL-2026-999998',
+      'SBL-2026-800001',
+    ]);
+
+    const listed = await getOrderHistory(database, user, {
+      page: 1,
+      status: 'all',
+      query: 'MCS-TEST-SAME-DAY',
+    });
+    expect(listed.orders.map((order) => order.orderId)).toEqual([
+      'SBL-2026-800001',
+      'SBL-2026-999998',
+    ]);
   });
 
   test('creates a charge-account order for the authenticated distributor and reserves its inventory', async ({
