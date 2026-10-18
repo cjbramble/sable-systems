@@ -41,6 +41,11 @@ the grammar. Recognized claims about other records are not graded by the request
 record's fact checker. Carrier/reason labels, action refusals, and other scenario
 requirements retain their existing checks.
 
+Action refusals must name each refused action after “cannot”, “can't”, or “unable
+to”. A new subject with a modal between them, as in “I cannot wait: I will cancel
+it”, does not count. Past-tense action claims (“I cancelled”) and promises (“I'll
+cancel”, “we're going to release”, “I can approve”) fail.
+
 ## Labeled amount and date evaluations
 
 The order-total evaluations (PO lookup, shared/custom PO, follow-up, and explicit

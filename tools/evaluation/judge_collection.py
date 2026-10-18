@@ -68,7 +68,7 @@ def evaluate_case(
                 case["question"], case["answer"], case["references"][0]
             )
             agrees = actual["passed"] == expected["passed"]
-            if "dimensions" in expected:
+            if kind == "answer":
                 agrees = agrees and all(
                     actual["dimensions"][key] == value
                     for key, value in expected["dimensions"].items()

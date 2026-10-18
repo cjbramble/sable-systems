@@ -55,6 +55,9 @@ request evidence and the network restriction to OpenRouter.
 | Standalone claim diagnostics | `FaithfulnessMetric`     | Strict mode; ambiguous claims are rejected                                       |
 
 The three answer dimensions must all pass; their scores are never averaged.
+Every answer check in the judge case collection labels all three dimensions, and
+the judge agrees only when each dimension matches. A rejection for an unrelated
+reason therefore counts as a disagreement.
 Wrong information can supply a requested field while failing factual support.
 Supported refusals can be complete. Ordinary wrong values do not automatically
 fail the independent support-policy metric.
