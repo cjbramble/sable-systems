@@ -130,7 +130,7 @@ npm run test:e2e
 | `npm run test:judge`  | Judge calibration; billed                                                 |
 
 Offline and browser tests use controlled responses and do not incur model charges.
-CI runs both on Linux. Browser and live-model suites run separately from
+CI runs both on Linux; the offline checks run on Node 22.13 (the minimum) and 24. Browser and live-model suites run separately from
 `npm run check`. Python npm commands require a POSIX shell.
 
 ### Judge evaluations
