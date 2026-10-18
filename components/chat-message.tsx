@@ -1,4 +1,5 @@
 import type { ComponentProps } from 'react';
+import Link from 'next/link';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { BadgeCheck, CircleUserRound, Sparkles } from 'lucide-react';
@@ -8,14 +9,15 @@ import { supportTimeLabel } from '@/lib/support-time';
 import { cn } from '@/lib/utils';
 import './chat-message.css';
 
-// A blocked target leaves no href. Render it as text: an empty href would
-// reload /support and drop unsaved drafts and recovery state. Only href and
-// title are forwarded, so no other attribute reaches the anchor.
+// Allowed targets are in-app paths; a client-side navigation avoids a full
+// page load. A blocked target leaves no href. Render it as text: an empty
+// href would reload /support and drop unsaved drafts and recovery state. Only
+// href and title are forwarded, so no other attribute reaches the anchor.
 function SafeLink({ href, title, children }: ComponentProps<'a'>) {
   return href ? (
-    <a href={href} title={title}>
+    <Link href={href} title={title}>
       {children}
-    </a>
+    </Link>
   ) : (
     <span>{children}</span>
   );

@@ -3,6 +3,7 @@ import type { SupportCommand, SupportReply } from '@/lib/chat-request';
 import type { SupportIncident } from '@/lib/support-incidents';
 import {
   initialSupportConversation,
+  hasUnsentSupportText,
   supportConversationReducer as reduce,
   supportDraft,
   type SupportConversationAction,
@@ -541,5 +542,52 @@ describe('support conversation drafts and exchanges', () => {
       incidents: [incident('INC-OTHER-SUBJECT')],
       activeIncidentId: 'INC-OTHER-SUBJECT',
     });
+  });
+});
+
+describe('unsent support text', () => {
+  it('counts drafts, unresolved sends, retained recoveries and deleted text', () => {
+    const state = loaded();
+    expect(hasUnsentSupportText(state)).toBe(false);
+    expect(
+      hasUnsentSupportText(
+        reduce(state, { type: 'edit', incidentId: secondId, message: '  ' }),
+      ),
+    ).toBe(false);
+    expect(
+      hasUnsentSupportText(
+        reduce(state, { type: 'edit', incidentId: secondId, message: 'Draft' }),
+      ),
+    ).toBe(true);
+    // The server may still save a pending send, so it does not count.
+    expect(hasUnsentSupportText(pending())).toBe(false);
+    for (const settled of [
+      reduce(pending(), {
+        type: 'failed',
+        request,
+        error: 'Failed',
+        requestNotSaved: true,
+      }),
+      reduce(pending(), { type: 'unconfirmed', request, error: 'Unknown' }),
+    ])
+      expect(hasUnsentSupportText(settled)).toBe(true);
+    const retained = apply(
+      pending(),
+      { type: 'edit', incidentId: firstId, message: 'Newer draft' },
+      { type: 'changed', request },
+      { type: 'edit', incidentId: firstId, message: '' },
+    );
+    expect(retained.recoveries[firstId].message).toBe(request.message);
+    expect(hasUnsentSupportText(retained)).toBe(true);
+    expect(
+      hasUnsentSupportText(
+        reduce(pending(), { type: 'unavailable', incidentId: firstId }),
+      ),
+    ).toBe(true);
+    expect(
+      hasUnsentSupportText(
+        reduce(pending(), { type: 'confirmed', request, reply }),
+      ),
+    ).toBe(false);
   });
 });

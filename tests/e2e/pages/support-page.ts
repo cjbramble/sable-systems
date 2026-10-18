@@ -151,8 +151,45 @@ export class SupportPage {
     return this.page.getByRole('textbox', { name: 'Message COV-E' });
   }
 
+  // The visually hidden region that announces replies, separate from the
+  // labeled model connection status.
+  get announcement() {
+    return this.page.locator('output:not([aria-label])');
+  }
+
   get responding() {
-    return this.page.getByLabel('COV-E is responding');
+    return this.page
+      .getByRole('status')
+      .filter({ hasText: 'COV-E is responding' });
+  }
+
+  get messageStage() {
+    return this.page.locator('.message-stage');
+  }
+
+  get sendButton() {
+    return this.page.getByRole('button', { name: 'Send message', exact: true });
+  }
+
+  get newIncidentButton() {
+    return this.page.getByRole('button', {
+      name: 'New service incident',
+      exact: true,
+    });
+  }
+
+  get selectedIncident() {
+    return this.incidents.locator('[aria-current="page"]');
+  }
+
+  get topics() {
+    return this.page.locator('.topic-list').getByRole('button');
+  }
+
+  get deletionError() {
+    return this.page
+      .getByRole('alert')
+      .filter({ hasText: 'Incident not deleted' });
   }
 
   get retryMessageButton() {
@@ -199,9 +236,7 @@ export class SupportPage {
   }
 
   async startIncident() {
-    await this.page
-      .getByRole('button', { name: 'New service incident', exact: true })
-      .click();
+    await this.newIncidentButton.click();
   }
 
   async sendMessage(content: string) {
