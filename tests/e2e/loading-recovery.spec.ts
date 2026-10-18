@@ -93,6 +93,84 @@ test('retries a catalog failure without losing the loaded account', async ({
   expect(app.modelRequests).toEqual([]);
 });
 
+test('shows fixed messages when a proxy returns HTML instead of JSON', async ({
+  page,
+  app,
+  loginPage,
+  shopPage,
+  ordersPage,
+}) => {
+  const proxyError = {
+    status: 502,
+    contentType: 'text/html',
+    body: '<!DOCTYPE html><title>Bad gateway</title>',
+  };
+  let catalogRequests = 0;
+  let historyRequests = 0;
+  await page.route('**/api/catalog', (route) =>
+    ++catalogRequests === 1 ? route.fulfill(proxyError) : route.continue(),
+  );
+  await page.route('**/api/orders?*', (route) =>
+    ++historyRequests === 1 ? route.fulfill(proxyError) : route.continue(),
+  );
+  await loginPage.goto('/shop');
+  await loginPage.signIn(
+    'imani.kade@meridiancivic.example',
+    'Sable-WHS-1098!',
+    '/shop',
+  );
+  await expect(shopPage.loadingError).toContainText('Catalog unavailable.');
+  await expect(shopPage.loadingError).not.toContainText('Unexpected token');
+  await shopPage.retryCatalog();
+  await expect(shopPage.loadingError).toHaveCount(0);
+
+  await ordersPage.goto();
+  await expect(ordersPage.loadingError).toContainText(
+    'Order history unavailable.',
+  );
+  await expect(ordersPage.loadingError).not.toContainText('Unexpected token');
+  await ordersPage.retryLoading();
+  await expect(ordersPage.table).toBeVisible();
+  expect([catalogRequests, historyRequests]).toEqual([2, 2]);
+  expect(app.modelRequests).toEqual([]);
+});
+
+test('follows a clamped history page without requesting it again', async ({
+  page,
+  app,
+  loginPage,
+  ordersPage,
+}) => {
+  const requestedPages: string[] = [];
+  await page.route('**/api/orders?*', async (route) => {
+    const url = new URL(route.request().url());
+    requestedPages.push(url.searchParams.get('page') ?? '');
+    if (url.searchParams.get('page') !== '2') return route.continue();
+    // Orders changed after page 1 loaded: the server now has only page 1.
+    url.searchParams.set('page', '1');
+    const response = await route.fetch({ url: url.toString() });
+    const body = (await response.json()) as { page: number };
+    expect(body.page).toBe(1);
+    return route.fulfill({ response, json: { ...body, totalPages: 1 } });
+  });
+  await loginPage.goto('/orders');
+  await loginPage.signIn(
+    'mara.venn@calderpike.example',
+    'Sable-WHS-0427!',
+    '/orders',
+  );
+  await expect(ordersPage.table).toBeVisible();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(page.locator('.orders-pagination strong')).toHaveText('01 / 01');
+  await expect(ordersPage.orderRows).toHaveCount(25);
+  await expect(
+    page.getByRole('button', { name: 'Previous', exact: true }),
+  ).toBeDisabled();
+  await expect(ordersPage.loadingError).toHaveCount(0);
+  expect(requestedPages).toEqual(['1', '2']);
+  expect(app.modelRequests).toEqual([]);
+});
+
 for (const endpoint of ['account', 'incidents']) {
   test(`retries failed support ${endpoint} without presenting missing data as empty history`, async ({
     page,

@@ -376,6 +376,10 @@
   color: #a77a6d;
 }
 
+.orders-status.is-attention {
+  color: #e08a4f;
+}
+
 .orders-money {
   color: #e0c47c !important;
   text-align: right !important;

@@ -5,6 +5,10 @@ import type {
   OrderHistoryResponse,
   OrderStatus,
 } from '@/lib/contracts';
+import {
+  orderStatusCountSql,
+  orderStatusGroupSql,
+} from '@/lib/order-status-groups';
 
 const ORDER_HISTORY_PAGE_SIZE = 25;
 
@@ -63,23 +67,17 @@ export function parseOrderHistoryInput(url: URL): OrderHistoryInput | null {
 }
 
 function statusClause(filter: OrderHistoryFilter) {
-  switch (filter) {
-    case 'active':
-      return "AND o.status NOT IN ('scheduled', 'delivered', 'cancelled')";
-    case 'scheduled':
-      return "AND o.status = 'scheduled'";
-    case 'fulfilled':
-      return "AND o.status = 'delivered'";
-    case 'closed':
-      return "AND o.status = 'cancelled'";
-    default:
-      return '';
-  }
+  return filter === 'all'
+    ? ''
+    : `AND ${orderStatusGroupSql(filter, 'o.status')}`;
 }
 
-function escapeLike(value: string) {
-  return value.replace(/[\\%_]/g, '\\$&');
-}
+// created_on holds only the UTC date and checkout order IDs are random, so
+// same-day orders are ordered by the time their creation event was recorded.
+const ORDER_CREATED_AT_SQL = `(SELECT MIN(julianday(e.occurred_at))
+      FROM order_events e
+      WHERE e.order_id = o.order_id
+        AND e.event_type IN ('order_created', 'order_confirmed'))`;
 
 export async function getOrderHistory(
   db: D1Database,
@@ -87,20 +85,22 @@ export async function getOrderHistory(
   input: OrderHistoryInput,
 ): Promise<OrderHistoryResponse> {
   const statusSql = statusClause(input.status);
+  // A substring match, not LIKE: search text has no wildcards to escape, and
+  // D1 rejects LIKE patterns over 50 bytes, below the 80-character query cap.
   const searchSql = input.query
     ? `AND (
-      o.order_id LIKE ? ESCAPE '\\' COLLATE NOCASE
-      OR o.customer_po_number LIKE ? ESCAPE '\\' COLLATE NOCASE
-      OR u.display_name LIKE ? ESCAPE '\\' COLLATE NOCASE
+      instr(lower(o.order_id), lower(?)) > 0
+      OR instr(lower(o.customer_po_number), lower(?)) > 0
+      OR instr(lower(u.display_name), lower(?)) > 0
     )`
     : '';
-  const search = `%${escapeLike(input.query)}%`;
-  const searchParams = input.query ? [search, search, search] : [];
-  const offset = (input.page - 1) * ORDER_HISTORY_PAGE_SIZE;
+  const searchParams = input.query
+    ? [input.query, input.query, input.query]
+    : [];
   const whereSql = `WHERE o.customer_id = ? ${statusSql} ${searchSql}`;
-
-  const rowsStatement = db
-    .prepare(`SELECT
+  const rowsStatement = (page: number) =>
+    db
+      .prepare(`SELECT
       o.order_id, o.customer_po_number, o.created_on, o.requested_ship_date,
       o.status, o.currency, o.order_total_cents,
       o.placed_by_user_id, u.display_name AS placed_by_name,
@@ -115,9 +115,14 @@ export async function getOrderHistory(
       GROUP BY order_id
     ) lines ON lines.order_id = o.order_id
     ${whereSql}
-    ORDER BY o.created_on DESC, o.order_id DESC
+    ORDER BY o.created_on DESC, ${ORDER_CREATED_AT_SQL} DESC, o.order_id DESC
     LIMIT ? OFFSET ?`)
-    .bind(user.distributorId, ...searchParams, ORDER_HISTORY_PAGE_SIZE, offset);
+      .bind(
+        user.distributorId,
+        ...searchParams,
+        ORDER_HISTORY_PAGE_SIZE,
+        (page - 1) * ORDER_HISTORY_PAGE_SIZE,
+      );
   const filteredCountStatement = db
     .prepare(`SELECT COUNT(*) AS total_orders
       FROM orders o
@@ -127,19 +132,27 @@ export async function getOrderHistory(
   const summaryStatement = db
     .prepare(`SELECT
       COUNT(*) AS total_orders,
-      SUM(CASE WHEN status NOT IN ('scheduled', 'delivered', 'cancelled') THEN 1 ELSE 0 END) AS active_orders,
-      SUM(CASE WHEN status = 'scheduled' THEN 1 ELSE 0 END) AS scheduled_orders,
-      SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) AS fulfilled_orders
+      ${orderStatusCountSql('active')} AS active_orders,
+      ${orderStatusCountSql('scheduled')} AS scheduled_orders,
+      ${orderStatusCountSql('fulfilled')} AS fulfilled_orders
       FROM orders WHERE customer_id = ?`)
     .bind(user.distributorId);
 
   const [rowsResult, filteredCountResult, summaryResult] = await db.batch<
     OrderRow | CountRow
-  >([rowsStatement, filteredCountStatement, summaryStatement]);
-  const rows = rowsResult.results as OrderRow[];
+  >([rowsStatement(input.page), filteredCountStatement, summaryStatement]);
   const filteredCount = filteredCountResult.results[0] as CountRow | undefined;
   const summary = summaryResult.results[0] as CountRow | undefined;
   const total = Number(filteredCount?.total_orders ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / ORDER_HISTORY_PAGE_SIZE));
+  // A page can fall past the end when orders change between requests; serve
+  // the last page instead of an empty one.
+  const page = Math.min(input.page, totalPages);
+  const rows = (
+    page === input.page
+      ? rowsResult.results
+      : (await rowsStatement(page).all<OrderRow>()).results
+  ) as OrderRow[];
 
   return {
     account: {
@@ -166,10 +179,10 @@ export async function getOrderHistory(
         unitCount: Number(row.unit_count),
       }),
     ),
-    page: input.page,
+    page,
     pageSize: ORDER_HISTORY_PAGE_SIZE,
     total,
-    totalPages: Math.max(1, Math.ceil(total / ORDER_HISTORY_PAGE_SIZE)),
+    totalPages,
     summary: {
       totalOrders: Number(summary?.total_orders ?? 0),
       activeOrders: Number(summary?.active_orders ?? 0),

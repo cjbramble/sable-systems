@@ -1,4 +1,5 @@
 import type { OrderStatus } from './contracts.ts';
+import { ORDER_STATUS_GROUPS, ORDER_STATUSES } from './order-status-groups.ts';
 
 type SupportOrderStatus = OrderStatus | 'active';
 export type SupportOrderStatusFilter =
@@ -11,27 +12,10 @@ export type SupportOrderStatusFilter =
 
 type Filter = Extract<SupportOrderStatusFilter, { kind: 'filter' }>;
 
-const ORDER_STATUSES: OrderStatus[] = [
-  'scheduled',
-  'confirmed',
-  'allocating',
-  'backordered',
-  'partially_shipped',
-  'shipped',
-  'delivered',
-  'on_hold',
-  'cancelled',
-];
-const INACTIVE_STATUSES = new Set<OrderStatus>([
-  'scheduled',
-  'delivered',
-  'cancelled',
-]);
-
 export function matchingOrderStatuses(filter: Filter): OrderStatus[] {
   const matches = (status: OrderStatus, requested: SupportOrderStatus) =>
     requested === 'active'
-      ? !INACTIVE_STATUSES.has(status)
+      ? ORDER_STATUS_GROUPS[status] === 'active'
       : status === requested;
   return ORDER_STATUSES.filter(
     (status) =>

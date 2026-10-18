@@ -94,3 +94,46 @@ test('checkout rejects a retired product even with available physical stock', as
   });
   expect(await snapshotCheckoutState(database)).toEqual(before);
 });
+
+test('catalog restock dates include only today or later', async ({
+  database,
+  onTestFinished,
+}) => {
+  const itemNumber = 'SBL-NL-4P';
+  const { results: original } = await database
+    .prepare(`SELECT location_id, expected_restock_date FROM inventory_balances
+      WHERE item_number = ? ORDER BY location_id`)
+    .bind(itemNumber)
+    .all<{ location_id: string; expected_restock_date: string | null }>();
+  expect(original.length).toBeGreaterThan(1);
+  onTestFinished(async () => {
+    await database.batch(
+      original.map((row) =>
+        database
+          .prepare(`UPDATE inventory_balances SET expected_restock_date = ?
+            WHERE item_number = ? AND location_id = ?`)
+          .bind(row.expected_restock_date, itemNumber, row.location_id),
+      ),
+    );
+  });
+  // The SQL compares against the database clock's UTC date.
+  const utcDate = (days: number) =>
+    new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+  const restockDate = async (dates: (string | null)[]) => {
+    await database.batch(
+      original.map((row, index) =>
+        database
+          .prepare(`UPDATE inventory_balances SET expected_restock_date = ?
+            WHERE item_number = ? AND location_id = ?`)
+          .bind(dates[index] ?? null, itemNumber, row.location_id),
+      ),
+    );
+    return (await getCatalog(database)).find(
+      (product) => product.itemNumber === itemNumber,
+    )!.restockDate;
+  };
+
+  expect(await restockDate([utcDate(-3), utcDate(30)])).toBe(utcDate(30));
+  expect(await restockDate([utcDate(-3), null])).toBeNull();
+  expect(await restockDate([utcDate(9), utcDate(30)])).toBe(utcDate(9));
+});

@@ -43,7 +43,8 @@ export async function getCatalog(db: D1Database): Promise<CatalogProduct[]> {
     CASE WHEN p.fulfillment_type = 'license' THEN NULL
       ELSE COALESCE(SUM(i.on_hand_quantity - i.reserved_quantity - i.quarantined_quantity), 0)
     END AS available_quantity,
-    MIN(i.expected_restock_date) AS restock_date
+    MIN(CASE WHEN i.expected_restock_date >= date('now')
+      THEN i.expected_restock_date END) AS restock_date
     FROM products p
     LEFT JOIN inventory_balances i ON i.item_number = p.item_number
     GROUP BY p.item_number

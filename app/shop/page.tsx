@@ -87,12 +87,13 @@ const requestedDestination = () => shopDestination(window.location.search);
 async function requestCatalog(signal: AbortSignal) {
   const response = await fetch('/api/catalog', { cache: 'no-store', signal });
   if (response.status === 401) return null;
-  const payload = (await response.json()) as {
+  // A proxy error page is HTML; show the fixed message, not a parse error.
+  const payload = (await response.json().catch(() => null)) as {
     products?: CatalogProduct[];
     error?: string;
-  };
-  if (!response.ok || !payload.products)
-    throw new Error(payload.error || 'Catalog unavailable.');
+  } | null;
+  if (!response.ok || !payload?.products)
+    throw new Error(payload?.error || 'Catalog unavailable.');
   return payload.products;
 }
 

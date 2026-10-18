@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { SyntheticEvent, useEffect, useState } from 'react';
+import { SyntheticEvent, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -38,6 +38,7 @@ import {
 } from '@/lib/client-session';
 import { SessionChangedNotice } from '@/components/session-changed-notice';
 import { formatCurrency, formatDate } from '@/lib/format';
+import { orderStatusTone } from '@/lib/order-status-groups';
 import { cn } from '@/lib/utils';
 
 import './orders.css';
@@ -54,13 +55,6 @@ function statusLabel(status: OrderStatus) {
   return status.replaceAll('_', ' ');
 }
 
-function statusTone(status: OrderStatus) {
-  if (status === 'delivered') return 'is-fulfilled';
-  if (status === 'scheduled') return 'is-scheduled';
-  if (status === 'cancelled' || status === 'on_hold') return 'is-closed';
-  return 'is-active';
-}
-
 export default function OrdersPage() {
   const { signOut, signingOut, signOutError } = useSignOut();
   const [data, setData] = useState<OrderHistoryResponse | null>(null);
@@ -73,8 +67,15 @@ export default function OrdersPage() {
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [redirecting, setRedirecting] = useState(false);
+  // A page the server already served in place of a missing one.
+  const servedPage = useRef<number | null>(null);
 
   useEffect(() => {
+    if (servedPage.current === page) {
+      servedPage.current = null;
+      return;
+    }
+    servedPage.current = null;
     const controller = new AbortController();
     const parameters = new URLSearchParams({
       page: String(page),
@@ -87,21 +88,30 @@ export default function OrdersPage() {
       signal: controller.signal,
     })
       .then(async (response) => {
-        const payload = (await response.json()) as OrderHistoryResponse & {
-          error?: string;
-        };
+        // A proxy error page is HTML; show the fixed message, not a parse error.
+        const payload = (await response.json().catch(() => null)) as
+          | (OrderHistoryResponse & { error?: string })
+          | null;
         if (controller.signal.aborted) return;
         if (response.status === 401) {
           setRedirecting(true);
           redirectToLogin('/orders');
           return;
         }
-        if (!response.ok)
-          throw new Error(payload.error || 'Order history unavailable.');
+        if (!response.ok || !payload?.orders)
+          throw new Error(payload?.error || 'Order history unavailable.');
         return payload;
       })
       .then((payload) => {
-        if (!controller.signal.aborted && payload) setData(payload);
+        if (controller.signal.aborted || !payload) return;
+        setData(payload);
+        // The server serves its last page when the requested one no longer
+        // exists. Follow it without fetching that page again.
+        if (payload.page !== page) {
+          servedPage.current = payload.page;
+          setLoading(false);
+          setPage(payload.page);
+        }
       })
       .catch((requestError: unknown) => {
         if (controller.signal.aborted) return;
@@ -310,94 +320,65 @@ export default function OrdersPage() {
             <p>Synchronizing order records…</p>
           </div>
         ) : data?.orders.length ? (
-          <>
-            <div className="orders-table-shell">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Order / Customer PO</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Placed by</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Requested ship</TableHead>
-                    <TableHead>Volume</TableHead>
-                    <TableHead className="orders-money">Total</TableHead>
+          <div className="orders-table-shell">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Order / Customer PO</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Placed by</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Requested ship</TableHead>
+                  <TableHead>Volume</TableHead>
+                  <TableHead className="orders-money">Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.orders.map((order) => (
+                  <TableRow key={order.orderId}>
+                    <TableCell>
+                      <strong className="orders-order-id">
+                        {order.orderId}
+                      </strong>
+                      <span className="orders-po">
+                        PO {order.customerPoNumber}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className={cn(
+                          'orders-status',
+                          orderStatusTone(order.status),
+                        )}
+                      >
+                        <i /> {statusLabel(order.status)}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <strong className="orders-buyer">
+                        {order.placedByName}
+                      </strong>
+                      <span className="orders-user-id">
+                        {order.placedByUserId}
+                      </span>
+                    </TableCell>
+                    <TableCell>{formatDate(order.createdOn)}</TableCell>
+                    <TableCell>{formatDate(order.requestedShipDate)}</TableCell>
+                    <TableCell>
+                      {order.lineCount}{' '}
+                      {order.lineCount === 1 ? 'line' : 'lines'}
+                      <span className="orders-units">
+                        {order.unitCount.toLocaleString()} units
+                      </span>
+                    </TableCell>
+                    <TableCell className="orders-money">
+                      {formatCurrency(order.orderTotalCents, order.currency)}
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.orders.map((order) => (
-                    <TableRow key={order.orderId}>
-                      <TableCell>
-                        <strong className="orders-order-id">
-                          {order.orderId}
-                        </strong>
-                        <span className="orders-po">
-                          PO {order.customerPoNumber}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <span
-                          className={cn(
-                            'orders-status',
-                            statusTone(order.status),
-                          )}
-                        >
-                          <i /> {statusLabel(order.status)}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <strong className="orders-buyer">
-                          {order.placedByName}
-                        </strong>
-                        <span className="orders-user-id">
-                          {order.placedByUserId}
-                        </span>
-                      </TableCell>
-                      <TableCell>{formatDate(order.createdOn)}</TableCell>
-                      <TableCell>
-                        {formatDate(order.requestedShipDate)}
-                      </TableCell>
-                      <TableCell>
-                        {order.lineCount}{' '}
-                        {order.lineCount === 1 ? 'line' : 'lines'}
-                        <span className="orders-units">
-                          {order.unitCount.toLocaleString()} units
-                        </span>
-                      </TableCell>
-                      <TableCell className="orders-money">
-                        {formatCurrency(order.orderTotalCents, order.currency)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            <footer className="orders-pagination">
-              <span>
-                Showing {rangeStart}–{rangeEnd} of {data.total} matching orders
-              </span>
-              <div>
-                <Button
-                  variant="outline"
-                  disabled={data.page <= 1}
-                  onClick={() => choosePage(Math.max(1, data.page - 1))}
-                >
-                  <ArrowLeft /> Previous
-                </Button>
-                <strong>
-                  {String(data.page).padStart(2, '0')} /{' '}
-                  {String(data.totalPages).padStart(2, '0')}
-                </strong>
-                <Button
-                  variant="outline"
-                  disabled={data.page >= data.totalPages}
-                  onClick={() => choosePage(data.page + 1)}
-                >
-                  Next <ArrowRight />
-                </Button>
-              </div>
-            </footer>
-          </>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         ) : (
           <div className="orders-state">
             <Search />
@@ -405,6 +386,33 @@ export default function OrdersPage() {
             <p>Change the status filter or search by order ID, PO, or buyer.</p>
           </div>
         )}
+        {!error && !loading && data?.total ? (
+          <footer className="orders-pagination">
+            <span>
+              Showing {rangeStart}–{rangeEnd} of {data.total} matching orders
+            </span>
+            <div>
+              <Button
+                variant="outline"
+                disabled={data.page <= 1}
+                onClick={() => choosePage(Math.max(1, data.page - 1))}
+              >
+                <ArrowLeft /> Previous
+              </Button>
+              <strong>
+                {String(data.page).padStart(2, '0')} /{' '}
+                {String(data.totalPages).padStart(2, '0')}
+              </strong>
+              <Button
+                variant="outline"
+                disabled={data.page >= data.totalPages}
+                onClick={() => choosePage(data.page + 1)}
+              >
+                Next <ArrowRight />
+              </Button>
+            </div>
+          </footer>
+        ) : null}
       </section>
     </main>
   );
