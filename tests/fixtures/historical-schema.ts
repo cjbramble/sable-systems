@@ -304,6 +304,19 @@ const replacements13 = [
 ) STRICT`,
 ];
 
+// Frozen replacement from 3f53036 (schema 14, session activity removed).
+const replacements14 = [
+  `CREATE TABLE IF NOT EXISTS sessions (
+  session_id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT,
+  user_agent TEXT
+) STRICT`,
+];
+
 export type HistoricalSchemaVersion =
   | '6'
   | '7'
@@ -312,14 +325,20 @@ export type HistoricalSchemaVersion =
   | '10'
   | '11'
   | '12'
-  | '13';
+  | '13'
+  | '14';
 
 export function historicalSchemaStatements(version: HistoricalSchemaVersion) {
   return [
+    ...(Number(version) >= 14 ? replacements14 : []),
     ...schema6.filter(
       (sql) =>
-        Number(version) < 10 ||
-        !/^CREATE TABLE IF NOT EXISTS (shipment_items|return_items) /.test(sql),
+        (Number(version) < 10 ||
+          !/^CREATE TABLE IF NOT EXISTS (shipment_items|return_items) /.test(
+            sql,
+          )) &&
+        (Number(version) < 14 ||
+          !sql.startsWith('CREATE TABLE IF NOT EXISTS sessions ')),
     ),
     ...(Number(version) >= 7 ? additions7 : []),
     ...(Number(version) >= 13 ? replacements13 : []),

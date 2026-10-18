@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = '14';
+export const SCHEMA_VERSION = '15';
 export const SEED_VERSION = 'sable-distribution-2026-09-02-v8';
 
 export const METADATA_TABLE_SQL = `CREATE TABLE IF NOT EXISTS metadata (
@@ -116,9 +116,6 @@ const ACCOUNT_CHARGES_TABLE_SQL = `CREATE TABLE IF NOT EXISTS account_charges (
   authorization_code TEXT NOT NULL UNIQUE,
   authorized_at TEXT NOT NULL
 ) STRICT`;
-
-const ACCOUNT_CHARGES_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_account_charges_order
-  ON account_charges(order_id)`;
 
 const CHECKOUT_COMMANDS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS checkout_commands (
   command_id TEXT PRIMARY KEY,
@@ -262,6 +259,8 @@ export const schemaStatements = [
   ) STRICT`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_returns_parent_order
     ON returns(return_id, order_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_returns_order
+    ON returns(order_id, requested_on DESC, return_id DESC)`,
   RETURN_ITEMS_TABLE_SQL,
   ACCOUNT_CHARGES_TABLE_SQL,
   CHECKOUT_COMMANDS_TABLE_SQL,
@@ -269,9 +268,6 @@ export const schemaStatements = [
   ORDER_USER_UPDATE_TRIGGER_SQL,
   `CREATE INDEX IF NOT EXISTS idx_orders_customer_ship_date
     ON orders(customer_id, requested_ship_date)`,
-  `CREATE INDEX IF NOT EXISTS idx_orders_customer_open
-    ON orders(customer_id, status)
-    WHERE status NOT IN ('delivered', 'cancelled')`,
   ORDER_HISTORY_INDEX_SQL,
   ORDER_USER_INDEX_SQL,
   SESSIONS_USER_INDEX_SQL,
@@ -282,9 +278,6 @@ export const schemaStatements = [
     ON order_events(order_id, occurred_at)`,
   `CREATE INDEX IF NOT EXISTS idx_shipments_order
     ON shipments(order_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_inventory_item
-    ON inventory_balances(item_number)`,
-  ACCOUNT_CHARGES_INDEX_SQL,
 ] as const;
 
 // Tables owned by this schema; used to reject unmarked foreign database layouts.

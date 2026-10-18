@@ -17,6 +17,14 @@ export async function hasUnsupportedLegacyLayout(db: D1Database) {
 
 const REVISION_TABLES = ['support_incidents', 'support_messages'] as const;
 
+// Schema 15 retired an index no query uses and two that duplicate indexes
+// SQLite builds for UNIQUE and PRIMARY KEY constraints.
+const RETIRED_INDEXES = [
+  'idx_orders_customer_open',
+  'idx_account_charges_order',
+  'idx_inventory_item',
+] as const;
+
 async function columnsOf(db: D1Database, table: string) {
   const { results } = await db
     .prepare(`PRAGMA table_info(${table})`)
@@ -41,6 +49,9 @@ export async function planSchemaUpgrades(db: D1Database) {
   );
   if (removesSessionActivity)
     statements.push('ALTER TABLE sessions DROP COLUMN last_seen_at');
+  statements.push(
+    ...RETIRED_INDEXES.map((index) => `DROP INDEX IF EXISTS ${index}`),
+  );
   return { statements, addsRevisions, removesSessionActivity };
 }
 

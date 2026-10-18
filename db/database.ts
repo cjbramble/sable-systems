@@ -8,6 +8,7 @@ import {
   SEED_VERSION,
 } from './schema';
 import { buildSeedStatements, buildSupportSeedStatements } from './seed';
+import { logServerError } from '@/lib/server-log';
 import {
   hasUnsupportedLegacyLayout,
   planSchemaUpgrades,
@@ -33,6 +34,7 @@ const SUPPORTED_SCHEMA_VERSIONS = new Set([
   '11',
   '12',
   '13',
+  '14',
   SCHEMA_VERSION,
 ]);
 let initialization: Promise<D1Database> | null = null;
@@ -53,7 +55,8 @@ async function initializeDatabase(
 
   let cachedSeed: ReturnType<typeof buildSeedStatements> | undefined;
   const seed = () => (cachedSeed ??= buildSeedStatements());
-  const state = await inspectDatabase(db, () => seed().length);
+  let state = await inspectDatabase(db, () => seed().length);
+  if (isCurrent(state)) return db;
   const seedStatements = state.kind === 'ready' ? [] : seed();
   if (await hasUnsupportedLegacyLayout(db)) unsupportedDatabase();
   const upgrades = await planSchemaUpgrades(db);
@@ -67,15 +70,20 @@ async function initializeDatabase(
     await auditOrderLineParents(db);
   if (state.kind === 'empty') {
     // Claim only an empty database, atomically, before any schema/seed work.
+    // Another Worker may claim it first; then continue from its checkpoint.
     await db.batch([
       db.prepare(METADATA_TABLE_SQL),
       db
-        .prepare('INSERT INTO metadata (key, value) VALUES (?, ?)')
+        .prepare(`INSERT INTO metadata (key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO NOTHING`)
         .bind(
           INITIALIZATION_KEY,
           JSON.stringify({ version: INITIALIZATION_VERSION, nextStatement: 0 }),
         ),
     ]);
+    state = await inspectDatabase(db, () => seed().length);
+    if (state.kind === 'empty') unsupportedDatabase();
+    if (isCurrent(state)) return db;
   }
 
   const schemaBatch = schemaStatements.map((sql) => db.prepare(sql));
@@ -115,40 +123,72 @@ async function initializeDatabase(
     if (state.seedVersion !== SEED_VERSION) await upgradeSeed(db);
     await seedSupportIncidents(db);
     if (upgradingSchema || state.seedVersion !== SEED_VERSION)
-      await db.prepare('PRAGMA optimize').run();
+      await optimize(db);
     return db;
   }
 
-  const nextStatement = state.kind === 'pending' ? state.nextStatement : 0;
-  for (
-    let index = nextStatement;
-    index < seedStatements.length;
-    index += BATCH_SIZE
-  ) {
+  let index = state.nextStatement;
+  while (index < seedStatements.length) {
+    const next = Math.min(index + BATCH_SIZE, seedStatements.length);
     const batch = seedStatements
-      .slice(index, index + BATCH_SIZE)
+      .slice(index, next)
       .map((statement) => db.prepare(statement.sql).bind(...statement.params));
     // D1 batches commit atomically: progress never advances past a failed batch.
-    await db.batch([
-      ...batch,
-      progressStatement(
-        db,
-        Math.min(index + BATCH_SIZE, seedStatements.length),
-      ),
-    ]);
+    try {
+      await db.batch([...batch, progressStatement(db, next)]);
+      index = next;
+    } catch (error) {
+      // Every seed row has a key, so a batch another Worker already committed
+      // fails whole. Continue only when its checkpoint shows that commit.
+      if (!isConstraintError(error)) throw error;
+      const current = await inspectDatabase(db, () => seed().length);
+      if (isCurrent(current)) return db;
+      if (current.kind !== 'pending' || current.nextStatement <= index)
+        throw error;
+      index = current.nextStatement;
+    }
   }
   await seedSupportIncidents(db);
   await db.batch([
     db
-      .prepare('INSERT INTO metadata (key, value) VALUES (?, ?)')
+      .prepare(`INSERT INTO metadata (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO NOTHING`)
       .bind('schema_version', SCHEMA_VERSION),
     db
-      .prepare('INSERT INTO metadata (key, value) VALUES (?, ?)')
+      .prepare(`INSERT INTO metadata (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO NOTHING`)
       .bind('seed_version', SEED_VERSION),
     db.prepare('DELETE FROM metadata WHERE key = ?').bind(INITIALIZATION_KEY),
   ]);
-  await db.prepare('PRAGMA optimize').run();
+  // A concurrent Worker may have written the markers first; confirm them.
+  if (!isCurrent(await inspectDatabase(db, () => seed().length)))
+    throw new Error(
+      'Database initialization finished with unexpected version metadata.',
+    );
+  await optimize(db);
   return db;
+}
+
+function isCurrent(state: DatabaseState) {
+  return (
+    state.kind === 'ready' &&
+    state.schemaVersion === SCHEMA_VERSION &&
+    state.seedVersion === SEED_VERSION &&
+    state.incidentVersion === '1'
+  );
+}
+
+function isConstraintError(error: unknown) {
+  return error instanceof Error && /constraint failed/i.test(error.message);
+}
+
+// Statistics upkeep only; initialization has already committed its markers.
+async function optimize(db: D1Database) {
+  try {
+    await db.prepare('PRAGMA optimize').run();
+  } catch (error) {
+    logServerError('database optimize', error);
+  }
 }
 
 async function schemaMigrationCompleted(
@@ -169,7 +209,12 @@ async function schemaMigrationCompleted(
 type DatabaseState =
   | { kind: 'empty' }
   | { kind: 'pending'; nextStatement: number }
-  | { kind: 'ready'; schemaVersion: string; seedVersion: string };
+  | {
+      kind: 'ready';
+      schemaVersion: string;
+      seedVersion: string;
+      incidentVersion: string | undefined;
+    };
 
 function unsupportedDatabase(): never {
   throw new Error(
@@ -243,7 +288,7 @@ async function inspectDatabase(
       !SUPPORTED_SCHEMA_VERSIONS.has(schemaVersion)
     )
       unsupportedDatabase();
-    return { kind: 'ready', schemaVersion, seedVersion };
+    return { kind: 'ready', schemaVersion, seedVersion, incidentVersion };
   }
 
   // Schema-only local databases are safe to seed; unmarked records are not.
@@ -274,8 +319,18 @@ async function seedSupportIncidents(db: D1Database) {
   ).map(({ sql, params }) => db.prepare(sql).bind(...params));
   statements.push(
     db
-      .prepare('INSERT INTO metadata (key, value) VALUES (?, ?)')
+      .prepare(`INSERT INTO metadata (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO NOTHING`)
       .bind(markerKey, '1'),
   );
-  await db.batch(statements);
+  try {
+    await db.batch(statements);
+  } catch (error) {
+    // Another Worker may have committed the same history rows and marker.
+    const current = await db
+      .prepare('SELECT value FROM metadata WHERE key = ?')
+      .bind(markerKey)
+      .first<{ value: string }>();
+    if (!isConstraintError(error) || current?.value !== '1') throw error;
+  }
 }
