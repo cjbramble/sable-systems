@@ -9,9 +9,16 @@ import { cn } from '@/lib/utils';
 import './chat-message.css';
 
 // A blocked target leaves no href. Render it as text: an empty href would
-// reload /support and drop unsaved drafts and recovery state.
-function SafeLink({ href, children }: ComponentProps<'a'>) {
-  return href ? <a href={href}>{children}</a> : <span>{children}</span>;
+// reload /support and drop unsaved drafts and recovery state. Only href and
+// title are forwarded, so no other attribute reaches the anchor.
+function SafeLink({ href, title, children }: ComponentProps<'a'>) {
+  return href ? (
+    <a href={href} title={title}>
+      {children}
+    </a>
+  ) : (
+    <span>{children}</span>
+  );
 }
 
 type ChatMessageProps = {

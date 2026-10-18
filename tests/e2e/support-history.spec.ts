@@ -463,8 +463,8 @@ test.describe('Markdown rendering', () => {
     const unsafeReply = [
       'Archived reply sample.',
       '',
-      '[In-app history](/orders)',
-      '[Outside portal](https://security-audit.invalid/verify)',
+      '[In-app history](/orders "View orders")',
+      '[Outside portal](https://security-audit.invalid/verify "Verify account")',
       '[Uppercase portal](HTTPS://security-audit.invalid/verify)',
       '[Protocol-relative portal](//security-audit.invalid/verify)',
       '[Backslash portal](/\\security-audit.invalid/verify)',
@@ -531,6 +531,13 @@ test.describe('Markdown rendering', () => {
       'href',
       '/orders',
     );
+    await expect(message.link('In-app history')).toHaveAttribute(
+      'title',
+      'View orders',
+    );
+    await expect(
+      message.bubble.locator('[title="Verify account"]'),
+    ).toHaveCount(0);
     for (const name of [
       'Outside portal',
       'Uppercase portal',
