@@ -8,7 +8,12 @@ import { BrandWordmark } from '@/components/brand-wordmark';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { safeLoginDestination } from '@/lib/auth-navigation';
-import { notifySessionChanged } from '@/lib/client-session';
+import {
+  notifySessionChanged,
+  withAuthRequestTimeout,
+} from '@/lib/client-session';
+
+const LOGIN_FAILED_MESSAGE = 'Access could not be verified.';
 
 const requestedDestination = () => safeLoginDestination(window.location.search);
 
@@ -29,7 +34,11 @@ export default function LoginPage() {
     const controller = new AbortController();
     pageRequest.current = controller;
     const destination = requestedDestination();
-    fetch('/api/auth/session', { cache: 'no-store', signal: controller.signal })
+    // A stalled check times out so the form becomes usable instead of waiting.
+    fetch('/api/auth/session', {
+      cache: 'no-store',
+      signal: withAuthRequestTimeout(controller.signal),
+    })
       .then((response) => {
         if (!controller.signal.aborted && response.ok)
           window.location.replace(destination);
@@ -50,28 +59,27 @@ export default function LoginPage() {
     const destination = requestedDestination();
     setSubmitting(true);
     setError('');
+    let message = LOGIN_FAILED_MESSAGE;
     try {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
-        signal,
+        signal: withAuthRequestTimeout(signal),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
-      const payload = (await response.json()) as { error?: string };
       if (signal.aborted) return;
-      if (!response.ok)
-        throw new Error(payload.error || 'Access could not be verified.');
-      notifySessionChanged();
-      window.location.replace(destination);
-    } catch (requestError) {
-      if (signal.aborted) return;
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Access could not be verified.',
-      );
-      setSubmitting(false);
+      if (response.ok) {
+        notifySessionChanged();
+        window.location.replace(destination);
+        return;
+      }
+      message = await loginErrorMessage(response);
+    } catch {
+      // A network failure or timeout keeps the generic retry message.
     }
+    if (signal.aborted) return;
+    setError(message);
+    setSubmitting(false);
   }
 
   return (
@@ -171,4 +179,14 @@ export default function LoginPage() {
       </section>
     </main>
   );
+}
+
+async function loginErrorMessage(response: Response) {
+  // Proxy and dev-server failures can return HTML or an empty body.
+  const payload: unknown = await response.json().catch(() => null);
+  const error =
+    payload && typeof payload === 'object'
+      ? (payload as { error?: unknown }).error
+      : undefined;
+  return typeof error === 'string' && error ? error : LOGIN_FAILED_MESSAGE;
 }

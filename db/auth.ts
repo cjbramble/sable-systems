@@ -3,6 +3,11 @@ import { isLocalDemoRequest } from '@/lib/local-demo';
 const SESSION_COOKIE = 'sable_session';
 const SESSION_DURATION_SECONDS = 60 * 60 * 12;
 const PASSWORD_MAX_LENGTH = 256;
+// Unknown or inactive accounts still pay for one PBKDF2 derivation, so response
+// time does not reveal which emails belong to active accounts. Keep the
+// iteration count in step with the seeded credentials.
+const DUMMY_PASSWORD_SALT = 'c2FibGUtZHVtbXktc2FsdA';
+const DUMMY_PASSWORD_ITERATIONS = 210_000;
 
 export type AuthenticatedUser = {
   userId: string;
@@ -72,7 +77,14 @@ export async function authenticateCredentials(
         AND d.account_status = 'active'`)
     .bind(email.toLowerCase())
     .first<CredentialRow>();
-  if (!row) return null;
+  if (!row) {
+    await derivePasswordHash(
+      password,
+      DUMMY_PASSWORD_SALT,
+      DUMMY_PASSWORD_ITERATIONS,
+    );
+    return null;
+  }
 
   const candidateHash = await derivePasswordHash(
     password,
@@ -95,8 +107,12 @@ export async function createSession(
   const tokenHash = await hashToken(token);
   const sessionId = `SES-${crypto.randomUUID().toUpperCase()}`;
   const nowIso = now.toISOString();
+  // Signing in replaces the session this browser presented, so the earlier
+  // token stops working in the same write that issues the new one.
+  const revokePresented = await revokeSessionStatement(db, request, nowIso);
 
   await db.batch([
+    ...(revokePresented ? [revokePresented] : []),
     db
       .prepare(
         'DELETE FROM sessions WHERE expires_at <= ? OR revoked_at IS NOT NULL',
@@ -163,12 +179,24 @@ export async function getAuthenticatedUser(
 }
 
 export async function revokeSession(db: D1Database, request: Request) {
+  const statement = await revokeSessionStatement(
+    db,
+    request,
+    new Date().toISOString(),
+  );
+  if (statement) await statement.run();
+}
+
+async function revokeSessionStatement(
+  db: D1Database,
+  request: Request,
+  revokedAt: string,
+) {
   const token = getCookie(request, SESSION_COOKIE);
-  if (!token) return;
-  await db
+  if (!token) return null;
+  return db
     .prepare('UPDATE sessions SET revoked_at = ? WHERE token_hash = ?')
-    .bind(new Date().toISOString(), await hashToken(token))
-    .run();
+    .bind(revokedAt, await hashToken(token));
 }
 
 export function clearSessionCookie(request: Request) {
