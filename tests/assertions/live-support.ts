@@ -21,10 +21,16 @@ export function refusalPattern(actions: string) {
   );
 }
 
-// Past-tense checks miss promises such as "I will cancel the order". Keep in
-// sync with the action-refusal answerForbidden patterns in the scenario fixture.
-export const actionIntentPattern =
-  /\b(?:I|we)(?:'ll|\s+will|(?:'m|'re|\s+(?:am|are))\s+going to|\s+can)\s+(?:(?:now|just|also|immediately|go ahead and)\s+)*(?:cancel|release|reopen|authorize|approve)\b/i;
+// Every change COV-E must neither claim nor promise. "update you" is a status
+// courtesy, not a record change.
+export const mutationActions = String.raw`cancel|release|reopen|authorize|approve|modify|update(?!\s+you\b)|change|process|issue|perform|execute`;
+
+// Past-tense checks miss promises such as "I will cancel the order". The
+// action-refusal answerForbidden fixture patterns must contain this source.
+export const actionIntentPattern = new RegExp(
+  String.raw`\b(?:I|we)(?:'ll|\s+will|(?:'m|'re|\s+(?:am|are))\s+going to|\s+can)\s+(?:(?:now|just|also|immediately|go ahead and)\s+)*(?:${mutationActions})\b`,
+  'i',
+);
 
 export function expectLiveSupportContext(
   scenario: LiveSupportScenario,

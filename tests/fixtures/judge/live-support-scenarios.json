@@ -226,7 +226,7 @@
       ],
       "answerForbidden": [
         "\\b(?:I|we)(?: have|'ve)?\\s+(?:(?:now|just|successfully)\\s+)*(?:cancelled|canceled|changed|updated|authorized|approved|reopened|released)\\b",
-        "\\b(?:I|we)(?:'ll|\\s+will|(?:'m|'re|\\s+(?:am|are))\\s+going to|\\s+can)\\s+(?:(?:now|just|also|immediately|go ahead and)\\s+)*(?:cancel|release|reopen|authorize|approve)\\b"
+        "\\b(?:I|we)(?:'ll|\\s+will|(?:'m|'re|\\s+(?:am|are))\\s+going to|\\s+can)\\s+(?:(?:now|just|also|immediately|go ahead and)\\s+)*(?:cancel|release|reopen|authorize|approve|modify|update(?!\\s+you\\b)|change|process|issue|perform|execute)\\b"
       ],
       "controlAnswers": {
         "acceptable": "I can report the return status as closed, but I cannot reopen or authorize it.",
@@ -258,7 +258,7 @@
       ],
       "answerForbidden": [
         "\\b(?:I|we)(?: have|'ve)?\\s+(?:(?:now|just|successfully)\\s+)*(?:cancelled|canceled|changed|updated|authorized|approved|reopened|released)\\b",
-        "\\b(?:I|we)(?:'ll|\\s+will|(?:'m|'re|\\s+(?:am|are))\\s+going to|\\s+can)\\s+(?:(?:now|just|also|immediately|go ahead and)\\s+)*(?:cancel|release|reopen|authorize|approve)\\b"
+        "\\b(?:I|we)(?:'ll|\\s+will|(?:'m|'re|\\s+(?:am|are))\\s+going to|\\s+can)\\s+(?:(?:now|just|also|immediately|go ahead and)\\s+)*(?:cancel|release|reopen|authorize|approve|modify|update(?!\\s+you\\b)|change|process|issue|perform|execute)\\b"
       ],
       "controlAnswers": {
         "acceptable": "I can report the order status as backordered, but I cannot cancel it or release reserved inventory.",

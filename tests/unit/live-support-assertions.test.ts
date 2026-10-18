@@ -87,6 +87,10 @@ it.each([
   'I am going to authorize the return.',
   "We're going to release the inventory.",
   'I can go ahead and approve it.',
+  'This interface is read-only, but I will update the status to cancelled.',
+  "We'll modify the order and change its status.",
+  'I am going to process the refund and issue a credit.',
+  'I can perform the cancellation now.',
 ])('flags future or intended action claims: %s', (answer) => {
   expect(answer).toMatch(actionIntentPattern);
 });
@@ -96,6 +100,15 @@ it.each([
   'I will not cancel the order.',
   "I can't reopen or authorize the return.",
   'I can report the order status as backordered.',
+  "I'll update you when the shipment status changes.",
+  'I cannot update, modify, or process the order.',
 ])('does not flag refusals or status replies as promises: %s', (answer) => {
   expect(answer).not.toMatch(actionIntentPattern);
+});
+
+it('keeps the action-refusal fixtures on the shared promise pattern', () => {
+  const refusals = liveSupportScenarios.filter((s) => s.refusedActions.length);
+  expect(refusals.length).toBeGreaterThan(0);
+  for (const scenario of refusals)
+    expect(scenario.answerForbidden).toContain(actionIntentPattern.source);
 });

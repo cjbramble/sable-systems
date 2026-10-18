@@ -19,6 +19,7 @@ import { expectNoChargeAccountAuthorizations } from '../assertions/support-facts
 import { expectAllocationBlockRule } from '../assertions/allocation-block';
 import {
   actionIntentPattern,
+  mutationActions,
   refusalPattern,
 } from '../assertions/live-support';
 import {
@@ -1301,9 +1302,7 @@ No return matching ${unknownReturnId} is available within Calder Pike Distributi
           'Return: RTN-2022-000014; status: closed; reason: sealed_surplus.',
       },
     ];
-    const readOnlyRefusal = refusalPattern(
-      'cancel|modify|update|change|authorize|reopen|perform|execute|process|issue|release',
-    );
+    const readOnlyRefusal = refusalPattern(mutationActions);
     for (const scenario of scenarios) {
       try {
         const { answer, authorizedContext } = await askSupportModel([
