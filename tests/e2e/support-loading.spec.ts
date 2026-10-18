@@ -174,9 +174,7 @@ for (const endpoint of endpoints) {
         if (failure === '401') {
           await expect(loginPage.heading).toBeVisible();
           await expect(page).toHaveURL(
-            (url) =>
-              url.pathname === '/login' &&
-              url.searchParams.get('next') === '/support',
+            `/login?next=${encodeURIComponent('/support')}`,
           );
         } else {
           await expect(supportPage.loadingError.locator('p')).toHaveText(

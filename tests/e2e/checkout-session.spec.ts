@@ -206,10 +206,7 @@ test('signing out in another tab invalidates the open checkout', async ({
   try {
     await other.goto('/orders');
     await other.getByRole('button', { name: 'Sign out', exact: true }).click();
-    await expect(page).toHaveURL(
-      (url) =>
-        url.pathname === '/login' && url.searchParams.get('next') === '/shop',
-    );
+    await expect(page).toHaveURL(`/login?next=${encodeURIComponent('/shop')}`);
     await expect(shopPage.chargeConsent).toHaveCount(0);
   } finally {
     await other.close();
@@ -236,9 +233,7 @@ test('resuming a tab after logout removes old account state and returns to login
     document.dispatchEvent(new Event('visibilitychange')),
   );
   await expect(page).toHaveURL(
-    (url) =>
-      url.pathname === '/login' &&
-      url.searchParams.get('next') === '/shop?category=Power',
+    `/login?next=${encodeURIComponent('/shop?category=Power')}`,
   );
   await expect(shopPage.signedInUser).toHaveCount(0);
 });
