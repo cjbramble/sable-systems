@@ -27,6 +27,52 @@ export function calendarDateIn(timeZone: string, instant: string): string {
   }).format(new Date(instant));
 }
 
+// Shifts a YYYY-MM-DD calendar date. February 29 plus whole years lands on
+// March 1 in a common year, which keeps the horizon at least that long.
+export function addCalendarDays(date: string, days: number, years = 0) {
+  const shifted = new Date(`${date}T00:00:00.000Z`);
+  shifted.setUTCFullYear(
+    shifted.getUTCFullYear() + years,
+    shifted.getUTCMonth(),
+    shifted.getUTCDate() + days,
+  );
+  return shifted.toISOString().slice(0, 10);
+}
+
+export const SHIP_DATE_HORIZON_YEARS = 5;
+// Matches the seeded release orders, which ship four or more months out.
+export const SCHEDULED_AFTER_DAYS = 90;
+
+type ShipDateProduct = { fulfillmentType: string; leadTimeDays: number };
+
+// Physical lines need their lead time; licenses are delivered immediately.
+export function orderLeadTimeDays(products: ShipDateProduct[]) {
+  return Math.max(
+    0,
+    ...products
+      .filter((product) => product.fulfillmentType === 'physical')
+      .map((product) => product.leadTimeDays),
+  );
+}
+
+// The allowed ship dates for an order, from the customer's local today.
+export function shipDateWindow(localToday: string, leadTimeDays: number) {
+  return {
+    earliest: addCalendarDays(localToday, leadTimeDays),
+    latest: addCalendarDays(localToday, 0, SHIP_DATE_HORIZON_YEARS),
+  };
+}
+
+// Orders shipping beyond the scheduling window wait as scheduled releases.
+export function initialOrderStatus(
+  requestedShipDate: string,
+  localToday: string,
+): 'confirmed' | 'scheduled' {
+  return requestedShipDate > addCalendarDays(localToday, SCHEDULED_AFTER_DAYS)
+    ? 'scheduled'
+    : 'confirmed';
+}
+
 function isTimeZone(value: string): boolean {
   if (!value || value.length > 64) return false;
   try {

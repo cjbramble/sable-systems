@@ -354,6 +354,64 @@ describe('durable checkout recovery', () => {
     }
   });
 
+  for (const recoveryFails of [false, true]) {
+    test(`returns the original rejection when recording it fails${recoveryFails ? ' and recovery fails too' : ''}`, async ({
+      database,
+      onTestFinished,
+    }) => {
+      const input = checkoutCommand(
+        `RECOVER-CLAIM-FAILS${recoveryFails ? '-TWICE' : ''}`,
+        { requestedShipDate: '2020-01-01' },
+      );
+      await createCheckoutFixture(database, input.customerPoNumber, [cell]);
+      const user = await loadActiveUserFixture(database, 'USR-MCS-001');
+      const before = await snapshotCheckoutState(database);
+      const originalPrepare = database.prepare.bind(database);
+      // The claim fails; optionally so does the recovery read after it.
+      let claimAttempted = false;
+      const prepare = vi
+        .spyOn(database, 'prepare')
+        .mockImplementation((sql) => {
+          const claim = sql.includes('ON CONFLICT(command_id) DO NOTHING');
+          const recovery =
+            claimAttempted &&
+            recoveryFails &&
+            sql.includes('FROM checkout_commands WHERE command_id');
+          claimAttempted ||= claim;
+          return claim || recovery
+            ? originalPrepare('SELECT * FROM missing_claims WHERE ?')
+            : originalPrepare(sql);
+        });
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      onTestFinished(() => {
+        prepare.mockRestore();
+        log.mockRestore();
+      });
+
+      await expect(
+        placeChargeAccountOrder(database, input, user),
+      ).rejects.toMatchObject({
+        status: 422,
+        message: 'Requested ship date cannot be in the past.',
+      });
+      expect(log).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /^\[checkout rejection claim\] Error: .*missing_claims/,
+        ),
+      );
+      prepare.mockRestore();
+      expect(
+        await database
+          .prepare(
+            'SELECT command_id FROM checkout_commands WHERE command_id = ?',
+          )
+          .bind(input.commandId)
+          .first(),
+      ).toBeNull();
+      expect(await snapshotCheckoutState(database)).toEqual(before);
+    });
+  }
+
   test('does not misclassify unrelated CHECK or UNIQUE failures as customer corrections', async ({
     database,
     supportApi,

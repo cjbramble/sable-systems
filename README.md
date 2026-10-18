@@ -77,6 +77,7 @@ Sign in at `/login` with a demo account:
 
 If checkout loses its response, use **Retry this order** to recover the original
 receipt. After closing or reloading the page, check order history before ordering again.
+See [Ordering](docs/ordering.md) for ship-date limits, order status, and recovery options.
 
 ## Local data
 

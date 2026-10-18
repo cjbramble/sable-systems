@@ -55,7 +55,12 @@ import {
 import { shopDestination } from '@/lib/auth-navigation';
 import { reconcileCart, type CartSelections } from '@/lib/cart';
 import { formatCurrency } from '@/lib/format';
-import { parseCheckoutFailure, parseCheckoutReceipt } from '@/lib/checkout';
+import {
+  orderLeadTimeDays,
+  parseCheckoutFailure,
+  parseCheckoutReceipt,
+  shipDateWindow,
+} from '@/lib/checkout';
 
 type ShopCategory = 'All' | CatalogCategory;
 
@@ -129,6 +134,10 @@ export default function ShopPage() {
   const [checkoutCommand, setCheckoutCommand] = useState<CheckoutInput | null>(
     null,
   );
+  // Unverified attempts of the current command. After a failed retry the
+  // buyer can look the order up or deliberately start over.
+  const [uncertainAttempts, setUncertainAttempts] = useState(0);
+  const [confirmingStartOver, setConfirmingStartOver] = useState(false);
   const checkoutLocked = submitting || checkoutCommand !== null;
   const [confirmation, setConfirmation] = useState<CheckoutReceipt | null>(
     null,
@@ -256,6 +265,14 @@ export default function ShopPage() {
   useEffect(() => {
     if (cartOpen) cartOutcomeHeading.current?.focus();
   }, [cartOpen, confirmation, cartLines.length]);
+  // The server checks the same window against the browser's local date.
+  const shipDates = shipDateWindow(
+    dateOffset(0),
+    orderLeadTimeDays(cartLines.flatMap(({ product }) => product ?? [])),
+  );
+  // A longer lead time moves the date forward; consent is cleared with the cart.
+  const orderShipDate =
+    shipDate && shipDate < shipDates.earliest ? shipDates.earliest : shipDate;
 
   const money = (cents: number) => formatCurrency(cents, account?.currency);
   const cartTotalLabel = subtotal === null ? 'Unavailable' : money(subtotal);
@@ -327,7 +344,7 @@ export default function ShopPage() {
         customerId: account.customerId,
       },
       customerPoNumber: poNumber,
-      requestedShipDate: shipDate,
+      requestedShipDate: orderShipDate,
       shippingRegion: region,
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       items: cartLines.map(({ itemNumber, quantity, product }) => ({
@@ -338,7 +355,17 @@ export default function ShopPage() {
       })),
     };
     setCheckoutCommand(command);
+    setUncertainAttempts(0);
     await sendOrder(command);
+  }
+
+  function startOver() {
+    if (checkoutPending.current) return;
+    setCheckoutCommand(null);
+    setUncertainAttempts(0);
+    setConfirmingStartOver(false);
+    setChargeAccountAuthorized(false);
+    setCheckoutError('');
   }
 
   async function sendOrder(command: CheckoutInput) {
@@ -354,6 +381,7 @@ export default function ShopPage() {
       return;
     checkoutPending.current = true;
     setSubmitting(true);
+    setConfirmingStartOver(false);
     setCheckoutError('');
     try {
       const response = await fetch('/api/orders', {
@@ -401,6 +429,7 @@ export default function ShopPage() {
     } catch {
       if (signal.aborted) return;
       setChargeAccountAuthorized(false);
+      setUncertainAttempts((attempts) => attempts + 1);
       setCheckoutError(
         'Order confirmation could not be verified. The order may already be placed. Retry this order to recover its receipt.',
       );
@@ -814,8 +843,9 @@ export default function ShopPage() {
                       id="ship-date"
                       required
                       type="date"
-                      min={dateOffset(0)}
-                      value={shipDate}
+                      min={shipDates.earliest}
+                      max={shipDates.latest}
+                      value={orderShipDate}
                       disabled={checkoutLocked}
                       onChange={(event) => {
                         if (!checkoutPending.current && !checkoutCommand) {
@@ -871,16 +901,67 @@ export default function ShopPage() {
                   </p>
                 ) : null}
                 {checkoutCommand ? (
-                  <Button
-                    className="place-order"
-                    size="lg"
-                    type="button"
-                    disabled={submitting || accountStatus !== 'ready'}
-                    onClick={() => void sendOrder(checkoutCommand)}
-                  >
-                    {submitting ? 'Reserving inventory…' : 'Retry this order'}{' '}
-                    <ArrowRight />
-                  </Button>
+                  <>
+                    <Button
+                      className="place-order"
+                      size="lg"
+                      type="button"
+                      disabled={submitting || accountStatus !== 'ready'}
+                      onClick={() => void sendOrder(checkoutCommand)}
+                    >
+                      {submitting ? 'Reserving inventory…' : 'Retry this order'}{' '}
+                      <ArrowRight />
+                    </Button>
+                    {uncertainAttempts > 1 && !submitting ? (
+                      <div className="checkout-uncertain">
+                        <p>
+                          If retrying keeps failing, check order history for PO{' '}
+                          {checkoutCommand.customerPoNumber} before ordering
+                          again.
+                        </p>
+                        <a
+                          className="order-history-link"
+                          href={`/orders?${new URLSearchParams({ query: checkoutCommand.customerPoNumber })}`}
+                          target="_blank"
+                          rel="noopener"
+                        >
+                          Check order history <ArrowRight />
+                        </a>
+                        {confirmingStartOver ? (
+                          <div className="checkout-start-over">
+                            <p className="checkout-error">
+                              This order may already be placed. Starting over
+                              can charge the account twice. Keep the same PO
+                              reference: if the first order went through, the
+                              new one is rejected instead of duplicated.
+                            </p>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              onClick={startOver}
+                            >
+                              Start over anyway
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              onClick={() => setConfirmingStartOver(false)}
+                            >
+                              Keep this order
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => setConfirmingStartOver(true)}
+                          >
+                            Start over
+                          </Button>
+                        )}
+                      </div>
+                    ) : null}
+                  </>
                 ) : (
                   <Button
                     className="place-order"

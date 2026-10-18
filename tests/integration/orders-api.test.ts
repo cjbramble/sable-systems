@@ -3,7 +3,11 @@ import { describe, expect, vi } from 'vitest';
 import { GET, POST } from '@/app/api/orders/route';
 import { getOrderHistory } from '@/db/orders';
 import { placeChargeAccountOrder } from '@/db/shop';
-import type { OrderHistoryResponse, OrderStatus } from '@/lib/contracts';
+import type {
+  CheckoutInput,
+  OrderHistoryResponse,
+  OrderStatus,
+} from '@/lib/contracts';
 import {
   checkoutCommand,
   createCheckoutFixture,
@@ -646,14 +650,168 @@ describe('orders API', () => {
     );
     // A request without a time zone uses the UTC date.
     await expect(order('2026-09-09')).rejects.toMatchObject(past);
-    const receipt = await order('2026-09-09', 'Pacific/Honolulu');
+    // The 18-day lead time also counts from the customer's local date.
+    await expect(order('2026-09-27')).rejects.toMatchObject({
+      status: 422,
+      message:
+        'Requested ship date must be on or after 2026-09-28 to cover the 18-day lead time.',
+    });
+    const receipt = await order('2026-09-27', 'Pacific/Honolulu');
 
     expect((await ordersForPO()).results).toEqual([
       expect.objectContaining({
         order_id: receipt.orderId,
         created_on: '2026-09-10',
-        requested_ship_date: '2026-09-09',
+        requested_ship_date: '2026-09-27',
       }),
+    ]);
+  });
+
+  test('requires the order lead time, caps the horizon, and schedules far-future orders', async ({
+    database,
+    onTestFinished,
+  }) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    // 10:30 UTC on 09-10 is 00:30 on 09-11 in Kiritimati (UTC+14).
+    vi.setSystemTime(new Date('2026-09-10T10:30:00.000Z'));
+    const user = await loadActiveUserFixture(database, 'USR-MCS-001');
+    const cell = {
+      itemNumber: 'SBL-RPC-12',
+      quantity: 8,
+      expectedUnitPriceCents: 68000,
+    };
+    // SBL-KTA-T7 has the longest active lead time: 60 days.
+    const tendon = await database
+      .prepare(
+        "SELECT case_pack, unit_price_cents, lead_time_days FROM products WHERE item_number = 'SBL-KTA-T7'",
+      )
+      .first<{
+        case_pack: number;
+        unit_price_cents: number;
+        lead_time_days: number;
+      }>();
+    expect(tendon?.lead_time_days).toBe(60);
+    const tendonLine = {
+      itemNumber: 'SBL-KTA-T7',
+      quantity: tendon!.case_pack,
+      expectedUnitPriceCents: tendon!.unit_price_cents,
+    };
+    const license = await database
+      .prepare(
+        "SELECT case_pack, unit_price_cents FROM products WHERE item_number = 'SBL-PAL-1Y'",
+      )
+      .first<{ case_pack: number; unit_price_cents: number }>();
+    const licenseLine = {
+      itemNumber: 'SBL-PAL-1Y',
+      quantity: license!.case_pack,
+      expectedUnitPriceCents: license!.unit_price_cents,
+    };
+    const order = (
+      customerPoNumber: string,
+      requestedShipDate: string,
+      items: CheckoutInput['items'],
+      timeZone?: string,
+    ) =>
+      placeChargeAccountOrder(
+        database,
+        checkoutCommand(customerPoNumber, {
+          requestedShipDate,
+          items,
+          ...(timeZone === undefined ? {} : { timeZone }),
+        }),
+        user,
+      );
+    const statusOf = async (customerPoNumber: string) =>
+      database
+        .prepare('SELECT status FROM orders WHERE customer_po_number = ?')
+        .bind(customerPoNumber)
+        .first('status');
+
+    const rejectedPo = 'MCS-TEST-SHIP-WINDOW-REJECT';
+    await createCheckoutFixture(database, rejectedPo, [
+      'SBL-RPC-12',
+      'SBL-KTA-T7',
+    ]);
+    const before = await snapshotCheckoutState(database);
+    // The largest physical lead time wins, counted from the local date.
+    await expect(
+      order(rejectedPo, '2026-11-09', [cell, tendonLine], 'Pacific/Kiritimati'),
+    ).rejects.toMatchObject({
+      status: 422,
+      message:
+        'Requested ship date must be on or after 2026-11-10 to cover the 60-day lead time.',
+    });
+    // Five years from the local date is the last allowed ship date.
+    await expect(
+      order(rejectedPo, '2031-09-12', [cell], 'Pacific/Kiritimati'),
+    ).rejects.toMatchObject({
+      status: 422,
+      message: 'Requested ship date must be on or before 2031-09-11.',
+    });
+    await expect(order(rejectedPo, '9999-12-31', [cell])).rejects.toMatchObject(
+      {
+        status: 422,
+        message: 'Requested ship date must be on or before 2031-09-10.',
+      },
+    );
+    expect(await snapshotCheckoutState(database)).toEqual(before);
+
+    const accepted = [
+      // Licenses have no lead time, so they can ship on the local date.
+      ['MCS-TEST-SHIP-LICENSE', '2026-09-11', [licenseLine], 'confirmed'],
+      ['MCS-TEST-SHIP-LEAD', '2026-11-10', [cell, tendonLine], 'confirmed'],
+      // Up to 90 days after the local date stays confirmed; later is scheduled.
+      ['MCS-TEST-SHIP-90', '2026-12-10', [cell], 'confirmed'],
+      ['MCS-TEST-SHIP-91', '2026-12-11', [cell], 'scheduled'],
+      ['MCS-TEST-SHIP-LAST', '2031-09-11', [cell], 'scheduled'],
+    ] as const;
+    for (const [
+      customerPoNumber,
+      requestedShipDate,
+      items,
+      status,
+    ] of accepted) {
+      await createCheckoutFixture(
+        database,
+        customerPoNumber,
+        items.map((line) => line.itemNumber) as [string, ...string[]],
+      );
+      await order(
+        customerPoNumber,
+        requestedShipDate,
+        [...items],
+        'Pacific/Kiritimati',
+      );
+      expect(await statusOf(customerPoNumber), customerPoNumber).toBe(status);
+    }
+    // Without a time zone the UTC date applies: 2026-12-10 is 91 days out.
+    await createCheckoutFixture(database, 'MCS-TEST-SHIP-UTC', ['SBL-RPC-12']);
+    await order('MCS-TEST-SHIP-UTC', '2026-12-10', [cell]);
+    expect(await statusOf('MCS-TEST-SHIP-UTC')).toBe('scheduled');
+
+    // New scheduled orders appear under the Scheduled filter, not Active.
+    const listed = async (status: 'active' | 'scheduled') =>
+      (
+        await getOrderHistory(database, user, {
+          page: 1,
+          status,
+          query: 'MCS-TEST-SHIP-',
+        })
+      ).orders
+        .map((row) => row.customerPoNumber)
+        .toSorted();
+    expect(await listed('scheduled')).toEqual([
+      'MCS-TEST-SHIP-91',
+      'MCS-TEST-SHIP-LAST',
+      'MCS-TEST-SHIP-UTC',
+    ]);
+    expect(await listed('active')).toEqual([
+      'MCS-TEST-SHIP-90',
+      'MCS-TEST-SHIP-LEAD',
+      'MCS-TEST-SHIP-LICENSE',
     ]);
   });
 
@@ -691,7 +849,8 @@ describe('orders API', () => {
             customerId: user.distributorId,
           },
           customerPoNumber,
-          requestedShipDate: '2028-02-29',
+          // The earliest date the 18-day lead time allows.
+          requestedShipDate: '2028-03-18',
           shippingRegion: 'Great Lakes District',
           items: [
             {
@@ -712,7 +871,7 @@ describe('orders API', () => {
     expect((await ordersForPO()).results).toEqual([
       expect.objectContaining({
         created_on: '2028-02-29',
-        requested_ship_date: '2028-02-29',
+        requested_ship_date: '2028-03-18',
       }),
     ]);
     expect(

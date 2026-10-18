@@ -51,6 +51,18 @@ const filters: { value: OrderHistoryFilter; label: string }[] = [
   { value: 'closed', label: 'Closed' },
 ];
 
+const MAX_QUERY_LENGTH = 80;
+
+// Checkout links here with ?query=<PO> to find an unverified order. The page
+// renders a loading state until history arrives, so the server never renders
+// the search field with a different value.
+function linkedQuery() {
+  if (typeof window === 'undefined') return '';
+  return (new URLSearchParams(window.location.search).get('query') ?? '')
+    .trim()
+    .slice(0, MAX_QUERY_LENGTH);
+}
+
 function statusLabel(status: OrderStatus) {
   return status.replaceAll('_', ' ');
 }
@@ -61,8 +73,8 @@ export default function OrdersPage() {
   const { sessionChanged } = useSessionGuard(data?.account ?? null, '/orders');
   const [filter, setFilter] = useState<OrderHistoryFilter>('all');
   const [page, setPage] = useState(1);
-  const [searchInput, setSearchInput] = useState('');
-  const [query, setQuery] = useState('');
+  const [searchInput, setSearchInput] = useState(linkedQuery);
+  const [query, setQuery] = useState(linkedQuery);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
@@ -299,7 +311,7 @@ export default function OrdersPage() {
             <Input
               id="order-history-search"
               value={searchInput}
-              maxLength={80}
+              maxLength={MAX_QUERY_LENGTH}
               onChange={(event) => setSearchInput(event.target.value)}
               placeholder="Order ID, PO, or buyer"
             />
