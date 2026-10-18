@@ -41,7 +41,8 @@ const LINK_PATTERNS = [
   // Email addresses (GFM turns these into mailto: links).
   /([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi,
   // Bare domains such as "sable-billing.example" or "evil.co.uk/login".
-  /(?<![\w@.-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}(?:\/[^\s)]*)?)(?![\w-])/gi, // IPv4 hosts, with an optional port and path, such as "192.0.2.1:8080/verify".
+  /(?<![\w@.-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}(?:\/[^\s)]*)?)(?![\w-])/gi,
+  // IPv4 hosts, with an optional port and path, such as "192.0.2.1:8080/verify".
   /(?<![\w.])((?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?(?:\/[^\s)]*)?)(?![\w.])/g,
   // IPv6 hosts in URL brackets, or bare with "::" or at least five groups, so
   // times such as "10:30:45" do not match.

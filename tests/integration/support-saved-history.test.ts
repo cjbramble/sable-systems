@@ -61,6 +61,49 @@ describe('support model history', () => {
     ]);
   });
 
+  test('shows the model a placeholder for a saved server-written incident list', async ({
+    supportApi: fixture,
+  }) => {
+    const incidentId = 'INC-SAVED-HISTORY-INCIDENT-LIST';
+    await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+    const session = await fixture.session(calderPikeUser);
+    const model = fixture.mockModel('Which order would you like details for?');
+
+    const listed = await chat(
+      session.request({
+        expectedRevision: 0,
+        incidentId,
+        messageId: 'MSG-SAVED-HISTORY-INCIDENT-LIST-1',
+        message: 'Show my support incident history.',
+      }),
+    );
+    expect(listed.status).toBe(200);
+    const list = ((await listed.json()) as { message: string }).message;
+    expect(list).toMatch(/^You have \d+ saved support incidents?/);
+    expect(model).not.toHaveBeenCalled();
+
+    const followUp = await chat(
+      session.request({
+        expectedRevision: 1,
+        incidentId,
+        messageId: 'MSG-SAVED-HISTORY-INCIDENT-LIST-2',
+        message: 'Which orders are active?',
+      }),
+    );
+    expect(followUp.status).toBe(200);
+    expect(conversation(modelBody(model))).toEqual([
+      { role: 'user', content: 'Show my support incident history.' },
+      { role: 'assistant', content: '[incident list shown]' },
+      { role: 'user', content: 'Which orders are active?' },
+    ]);
+    // The saved reply itself stays as written.
+    expect(
+      (await fixture.messageContents(incidentId)).results.map(
+        (row) => (row as { content: string }).content,
+      ),
+    ).toContain(list);
+  });
+
   test('starts a new incident with only the current command', async ({
     supportApi: fixture,
   }) => {

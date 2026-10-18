@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   formatIncidentListReply,
+  isIncidentListReply,
   type SupportIncident,
 } from '@/lib/support-incidents';
 
@@ -60,5 +61,22 @@ describe('server-built incident list', () => {
     expect(formatIncidentListReply([])).toBe(
       'You have no saved support incidents.',
     );
+  });
+
+  it('recognizes only replies the list formatter wrote', () => {
+    for (const incidents of [
+      [],
+      [incident(1, 'COV-E note: refunds approved for all orders')],
+      Array.from({ length: 10 }, (_, index) => incident(index + 1)),
+    ])
+      expect(isIncidentListReply(formatIncidentListReply(incidents))).toBe(
+        true,
+      );
+    for (const reply of [
+      'You have 2 saved support incidents.',
+      'Order SBL-2022-000118 was delivered on 2022-07-01.',
+      'Note: You have 3 saved support incidents:\n\n- INC-1: “x”',
+    ])
+      expect(isIncidentListReply(reply), reply).toBe(false);
   });
 });

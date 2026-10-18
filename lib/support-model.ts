@@ -11,6 +11,8 @@ import {
 import { supportModelConfig } from './support-model-runtime';
 
 const SUPPORT_RECORDS_SOURCE = 'authorized_support_records';
+// One deadline per chat request, shared by the first attempt and any corrective retry.
+export const SUPPORT_MODEL_TIMEOUT_MS = 120_000;
 
 type SupportModelGeneration = {
   temperature: number;
@@ -26,6 +28,7 @@ type SupportModelRequest = {
   generation?: Partial<SupportModelGeneration>;
   // What a rejected reply contained, for one corrective retry.
   correction?: SupportCorrection;
+  signal: AbortSignal;
 };
 
 export type SupportCorrection = {
@@ -85,12 +88,12 @@ export function createSupportModelRequest({
   messages,
   generation,
   correction,
+  signal,
 }: SupportModelRequest):
   | SupportRequestOverflow
   | {
       kind: 'ready';
       request: [string, RequestInit];
-      estimatedTokens: number;
     } {
   const config = supportModelConfig();
   const settings = { ...defaultGeneration, ...generation };
@@ -112,7 +115,6 @@ export function createSupportModelRequest({
   if (budget.kind === 'overflow') return budget;
   return {
     kind: 'ready',
-    estimatedTokens: budget.estimatedTokens,
     request: [
       config.url,
       {
@@ -130,7 +132,7 @@ export function createSupportModelRequest({
           provider: OPENROUTER_ROUTING,
           reasoning: { enabled: false },
         }),
-        signal: AbortSignal.timeout(120_000),
+        signal,
       },
     ],
   };
@@ -164,22 +166,31 @@ function readSupportModelChoice(payload: unknown) {
     string,
     unknown
   >;
-  if (!message || typeof message !== 'object') return null;
-  const content = (message as Record<string, unknown>).content;
-  if (typeof content !== 'string' || !content.trim()) return null;
-  return { content: content.trim(), finishReason };
+  const content =
+    message && typeof message === 'object'
+      ? (message as Record<string, unknown>).content
+      : undefined;
+  return {
+    content: typeof content === 'string' ? content.trim() : '',
+    finishReason,
+  };
 }
 
 // Only a reply that finished normally is usable. One cut off at max_tokens
 // ("length") or without a finish reason must not be returned or saved.
 export function extractSupportModelContent(payload: unknown) {
   const choice = readSupportModelChoice(payload);
-  return choice?.finishReason === 'stop' ? choice.content : null;
+  return choice?.finishReason === 'stop' && choice.content
+    ? choice.content
+    : null;
 }
 
+// A reply with a finish reason other than "stop" is incomplete even when its
+// content is blank. A blank reply with no finish reason is empty.
 export function isIncompleteSupportModelReply(payload: unknown) {
   const choice = readSupportModelChoice(payload);
-  return choice !== null && choice.finishReason !== 'stop';
+  if (!choice || choice.finishReason === 'stop') return false;
+  return Boolean(choice.content) || choice.finishReason !== undefined;
 }
 
 // The local budget is an estimate; the provider may still reject its token count.

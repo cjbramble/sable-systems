@@ -57,8 +57,12 @@ identifiers the customer only asked about don't count. All-caps codes without
 digits count after "number", "code", "ID", or "#"; dates such as 10/09/2026 are
 not codes. Order destinations
 must be one line, and support records show them as quoted strings, so stored
-text cannot add record lines. Referrals that don't name SABLE, such as "contact the
-accounts department", are not detected.
+text cannot add record lines. Department, team, desk, hotline, and division
+referrals are flagged without SABLE in front when a word such as "contact", "ask",
+"call", "email", or "refer … to" introduces them, or when they are "at SABLE".
+Units introduced by "a", "your", or "local" read as outside or customer-side and
+pass. Saved incident lists reach the model as "[incident list shown]", so their
+customer-written titles never read as the assistant's own words.
 
 Tests: `tests/integration/support-prompt-injection.test.ts`,
 `tests/unit/support-reply-links.test.ts`, and the Markdown tests in

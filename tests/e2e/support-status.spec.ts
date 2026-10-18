@@ -56,7 +56,7 @@ test('distinguishes checking, offline, and online model status', async ({
     await statusGate;
     await route.continue();
   });
-  app.setModelMetadata({ error: { message: 'Unauthorized' } });
+  await app.setModelMetadata({ error: { message: 'Unauthorized' } });
   try {
     await loginPage.goto();
     await loginPage.signIn('mara.venn@calderpike.example', 'Sable-WHS-0427!');
@@ -83,7 +83,7 @@ test('distinguishes checking, offline, and online model status', async ({
       'rgb(47, 29, 26)',
     );
 
-    app.setModelMetadata({ data: { limit_remaining: 1 } });
+    await app.setModelMetadata({ data: { limit_remaining: 1 } });
     await supportPage.reload();
     await expect(supportPage.runtimeStatus).toHaveText('COV-E NODE // ONLINE');
     await expect(supportPage.runtimeStatus).toBeVisible();

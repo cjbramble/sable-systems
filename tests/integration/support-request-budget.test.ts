@@ -2,6 +2,7 @@ import { afterEach, expect, vi } from 'vitest';
 import { POST } from '@/app/api/chat/route';
 import * as support from '@/db/support';
 import * as runtime from '@/lib/support-model-runtime';
+import * as budget from '@/lib/support-request-budget';
 import { createSupportModelRequest } from '@/lib/support-model';
 import { getSupportModelConfig } from '@/lib/support-model-config.mjs';
 import { calderPikeUser } from '../fixtures/users';
@@ -32,18 +33,22 @@ for (const correctionOverflow of [false, true]) {
       const runtimeConfig = vi
         .spyOn(runtime, 'supportModelConfig')
         .mockReturnValue(config);
+      const estimate = vi.spyOn(budget, 'budgetSupportMessages');
       const initial = createSupportModelRequest({
         distributorName: calderPikeUser.distributorDisplayName,
         distributorId: calderPikeUser.distributorId,
         authorizedContext: context.records,
         messages: history,
+        signal: new AbortController().signal,
       });
-      if (initial.kind !== 'ready')
+      const [initialBudget] = estimate.mock.results;
+      estimate.mockRestore();
+      if (initial.kind !== 'ready' || initialBudget?.type !== 'return')
         throw new Error('Expected first request to fit');
       if (correctionOverflow)
         runtimeConfig.mockReturnValue({
           ...config,
-          contextTokens: initial.estimatedTokens,
+          contextTokens: initialBudget.value.estimatedTokens,
         });
       else
         vi.spyOn(support, 'buildSupportContext').mockResolvedValue({

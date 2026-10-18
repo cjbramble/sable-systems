@@ -76,11 +76,16 @@ it('accepts model content only from a reply that finished normally', () => {
   expect(hasSupportModelErrorEnvelope(reply('error'))).toBe(true);
   expect(hasSupportModelErrorEnvelope(reply('length'))).toBe(false);
   expect(isIncompleteSupportModelReply(reply('error'))).toBe(false);
-  // An empty reply is reported as empty, not as incomplete.
+  // A cut-off reply is incomplete even when its content is blank; only a
+  // finished blank reply is empty.
+  const blank = (finishReason: string) => ({
+    choices: [{ finish_reason: finishReason, message: { content: ' ' } }],
+  });
+  expect(isIncompleteSupportModelReply(blank('length'))).toBe(true);
+  expect(isIncompleteSupportModelReply(blank('stop'))).toBe(false);
+  expect(extractSupportModelContent(blank('stop'))).toBeNull();
   expect(
-    isIncompleteSupportModelReply({
-      choices: [{ finish_reason: 'length', message: { content: ' ' } }],
-    }),
+    isIncompleteSupportModelReply({ choices: [{ message: { content: '' } }] }),
   ).toBe(false);
 });
 

@@ -21,7 +21,7 @@ test('sends only the current message after loading a long saved reply', async ({
 }) => {
   await page.clock.install();
   await page.clock.pauseAt(new Date());
-  app.setModelMetadata({ error: { message: 'Unavailable' } });
+  await app.setModelMetadata({ error: { message: 'Unavailable' } });
   const incidentId = 'INC-USR-CPD-001-01';
   await app.database
     .prepare(
@@ -89,7 +89,7 @@ test('keeps a pending exchange owned by its incident and replays a saved but los
 }) => {
   await page.clock.install();
   await page.clock.pauseAt(new Date());
-  app.setModelMetadata({ error: { message: 'Unavailable' } });
+  await app.setModelMetadata({ error: { message: 'Unavailable' } });
   await supportPage.reload();
   await expect(supportPage.runtimeStatus).toHaveText('NODE // OFFLINE');
   const received = Promise.withResolvers<void>();

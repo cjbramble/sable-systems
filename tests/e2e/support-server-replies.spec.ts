@@ -57,7 +57,7 @@ test.describe('server-built replies', () => {
   }) => {
     await page.clock.install();
     await page.clock.pauseAt(new Date());
-    app.setModelMetadata({ error: { message: 'Unavailable' } });
+    await app.setModelMetadata({ error: { message: 'Unavailable' } });
     await supportPage.reload();
     await expect(supportPage.runtimeStatus).toHaveText('NODE // OFFLINE');
     await supportPage.startIncident();

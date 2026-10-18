@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, vi } from 'vitest';
 import { POST } from '@/app/api/chat/route';
-import { GET } from '@/app/api/status/route';
 import {
   getSupportModelConfig,
   OPENROUTER_CHAT_URL,
@@ -9,6 +8,7 @@ import {
 import * as runtime from '@/lib/support-model-runtime';
 import { test } from '../fixtures/support-integration';
 import { calderPikeUser } from '../fixtures/users';
+import { uncachedModelStatus } from '../fixtures/model-status';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -44,7 +44,7 @@ for (const endpoint of ['completion', 'readiness'] as const) {
                     message: 'Help with a shipment.',
                   }),
                 )
-              : await GET();
+              : await uncachedModelStatus();
 
           // These observations come from the outbound service, not RequestInit.
           expect(await (await fetch(observedUrl)).json()).toEqual([

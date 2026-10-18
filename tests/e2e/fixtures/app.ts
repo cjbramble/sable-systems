@@ -6,6 +6,7 @@ import {
 } from 'miniflare';
 import { createBuiltApp } from '../../../tools/runtime/built-app';
 import { OPENROUTER_MODEL } from '../../../lib/support-model-config.mjs';
+import { MODEL_READINESS_CACHE_MS } from '../../../lib/model-readiness.mjs';
 
 import { LoginPage } from '../pages/login-page';
 import { HomePage } from '../pages/home-page';
@@ -17,7 +18,8 @@ type App = {
   url: string;
   database: Awaited<ReturnType<Miniflare['getD1Database']>>;
   modelRequests: unknown[];
-  setModelMetadata: (payload: unknown) => void;
+  // Resolves once the app's cached readiness result has expired.
+  setModelMetadata: (payload: unknown) => Promise<void>;
 };
 
 type Fixtures = {
@@ -94,8 +96,11 @@ export const test = base.extend<Fixtures>({
         url: url.origin,
         database,
         modelRequests,
-        setModelMetadata(payload) {
+        async setModelMetadata(payload) {
           modelMetadata = payload;
+          await new Promise((resolve) =>
+            setTimeout(resolve, MODEL_READINESS_CACHE_MS),
+          );
         },
       });
     } finally {

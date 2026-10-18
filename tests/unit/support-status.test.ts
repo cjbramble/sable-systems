@@ -107,19 +107,21 @@ describe('support status polling', () => {
     expect(states).toEqual(['offline', 'ready']);
   });
 
-  it('aborts an unread error body and reports offline without waiting for the deadline', async () => {
-    fetchStatus
-      .mockResolvedValueOnce(
-        new Response(new ReadableStream(), { status: 503 }),
-      )
-      .mockResolvedValueOnce(Response.json({ ready: true }));
-    start();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(states).toEqual(['offline']);
-    expect(fetchStatus.mock.calls[0][1]?.signal?.aborted).toBe(true);
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(states).toEqual(['offline', 'ready']);
-  });
+  // 401 is an ended session; the page's other requests handle sign-in.
+  it.each([401, 503])(
+    'aborts an unread %i body and reports offline without waiting for the deadline',
+    async (status) => {
+      fetchStatus
+        .mockResolvedValueOnce(new Response(new ReadableStream(), { status }))
+        .mockResolvedValueOnce(Response.json({ ready: true }));
+      start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(states).toEqual(['offline']);
+      expect(fetchStatus.mock.calls[0][1]?.signal?.aborted).toBe(true);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(states).toEqual(['offline', 'ready']);
+    },
+  );
 
   it('ends a hung fetch after five seconds even when it ignores cancellation', async () => {
     const first = deferred<Response>();
