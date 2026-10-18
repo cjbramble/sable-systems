@@ -88,8 +88,10 @@ orders, shipments, returns, and support records. Existing data is preserved.
 - [Schema](db/schema.ts) and [seed data](db/seed.ts): database definitions.
 
 Runtime state and reports are Git-ignored. Supported database upgrades run on
-startup. If an upgrade is rejected, preserve the database and inspect the error
-before attempting a repair or reset.
+startup, including seed data corrections: they rewrite only the seeded records
+and keep orders, sessions, and conversations you created. If an upgrade is
+rejected, preserve the database and inspect the error before attempting a
+repair or reset.
 
 ## Security boundaries
 

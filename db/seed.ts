@@ -850,6 +850,10 @@ function appendOrderRecords(records: SeedRecord[], row: OrderSeed) {
     row.requestedShipDate,
     row.status === 'delivered' ? -2 : 0,
   );
+  const plannedDelivery = addDays(row.requestedShipDate, 5);
+  // The flagship delayed shipment keeps its missed estimate on purpose.
+  const delayed =
+    row.status === 'partially_shipped' && row.orderId === 'SBL-2026-000417';
   const shipmentTimeline = [
     'delivered',
     'shipped',
@@ -859,15 +863,25 @@ function appendOrderRecords(records: SeedRecord[], row: OrderSeed) {
         // Early-year generated orders can be created on their requested ship date.
         shippedOn:
           plannedShippedOn < row.createdOn ? row.createdOn : plannedShippedOn,
-        estimatedDeliveryDate: addDays(row.requestedShipDate, 5),
+        // A shipment still moving at the as-of date can't already be due.
+        estimatedDeliveryDate:
+          row.status !== 'delivered' &&
+          !delayed &&
+          plannedDelivery <= AS_OF_DATE
+            ? addDays(AS_OF_DATE, 3)
+            : plannedDelivery,
         deliveredOn:
           row.status === 'delivered' ? addDays(row.requestedShipDate, 4) : null,
       }
     : null;
+  // Status events happen on or before the as-of date; a future ship date is
+  // when the order is due, not when its status was recorded.
   const statusDate =
     shipmentTimeline?.deliveredOn ??
     shipmentTimeline?.shippedOn ??
-    row.requestedShipDate;
+    (row.requestedShipDate <= AS_OF_DATE
+      ? row.requestedShipDate
+      : earliestDate(addDays(row.createdOn, 7), AS_OF_DATE));
   const itemRows = row.items.map((item, index) => {
     const catalog = productById.get(item.itemNumber);
     if (!catalog) throw new Error(`Unknown seed product ${item.itemNumber}`);
@@ -877,10 +891,13 @@ function appendOrderRecords(records: SeedRecord[], row: OrderSeed) {
       catalog.casePack,
       index,
     );
+    // Licenses are allocated digitally; they never travel in a shipment.
+    const freight = catalog.fulfillmentType !== 'license';
     return {
       catalog,
       lineNumber: index + 1,
       quantity: item.quantity,
+      freight,
       ...quantities,
     };
   });
@@ -946,8 +963,7 @@ function appendOrderRecords(records: SeedRecord[], row: OrderSeed) {
     const shipmentStatus =
       row.status === 'delivered'
         ? 'delivered'
-        : row.status === 'partially_shipped' &&
-            row.orderId === 'SBL-2026-000417'
+        : delayed
           ? 'delayed'
           : 'in_transit';
     records.push({
@@ -963,7 +979,9 @@ function appendOrderRecords(records: SeedRecord[], row: OrderSeed) {
         delivered_on: shipmentTimeline.deliveredOn,
       },
     });
-    for (const item of itemRows.filter((candidate) => candidate.shipped > 0)) {
+    for (const item of itemRows.filter(
+      (candidate) => candidate.freight && candidate.shipped > 0,
+    )) {
       records.push({
         table: 'shipment_items',
         values: {
@@ -987,10 +1005,11 @@ function quantitiesForStatus(
     return { allocated: quantity, shipped: quantity, cancelled: 0 };
   if (status === 'cancelled')
     return { allocated: 0, shipped: 0, cancelled: quantity };
+  // Even lines ship half their packs, rounded down, so the first line is
+  // always short and the order is genuinely partial.
   if (status === 'partially_shipped') {
-    const packs = Math.max(
-      1,
-      Math.floor(quantity / casePack / (lineIndex % 2 === 0 ? 2 : 1)),
+    const packs = Math.floor(
+      quantity / casePack / (lineIndex % 2 === 0 ? 2 : 1),
     );
     return {
       allocated: quantity,
@@ -1050,6 +1069,10 @@ function statusDescription(status: OrderStatus) {
 
 function isoDate(year: number, month: number, day: number) {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function earliestDate(left: string, right: string) {
+  return left < right ? left : right;
 }
 
 function addDays(value: string, days: number) {

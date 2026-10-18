@@ -13,6 +13,7 @@ import {
   planSchemaUpgrades,
   schemaAlterationsCompleted,
 } from './schema-upgrades';
+import { UPGRADABLE_SEED_VERSIONS, upgradeSeed } from './seed-upgrade';
 import {
   auditOrderLineParents,
   hasLegacyOrderLineTables,
@@ -111,8 +112,10 @@ async function initializeDatabase(
     throw error;
   }
   if (state.kind === 'ready') {
+    if (state.seedVersion !== SEED_VERSION) await upgradeSeed(db);
     await seedSupportIncidents(db);
-    if (upgradingSchema) await db.prepare('PRAGMA optimize').run();
+    if (upgradingSchema || state.seedVersion !== SEED_VERSION)
+      await db.prepare('PRAGMA optimize').run();
     return db;
   }
 
@@ -166,7 +169,7 @@ async function schemaMigrationCompleted(
 type DatabaseState =
   | { kind: 'empty' }
   | { kind: 'pending'; nextStatement: number }
-  | { kind: 'ready'; schemaVersion: string };
+  | { kind: 'ready'; schemaVersion: string; seedVersion: string };
 
 function unsupportedDatabase(): never {
   throw new Error(
@@ -233,12 +236,14 @@ async function inspectDatabase(
 
   if (seedVersion !== undefined || schemaVersion !== undefined) {
     if (
-      seedVersion !== SEED_VERSION ||
+      seedVersion === undefined ||
+      (seedVersion !== SEED_VERSION &&
+        !UPGRADABLE_SEED_VERSIONS.has(seedVersion)) ||
       schemaVersion === undefined ||
       !SUPPORTED_SCHEMA_VERSIONS.has(schemaVersion)
     )
       unsupportedDatabase();
-    return { kind: 'ready', schemaVersion };
+    return { kind: 'ready', schemaVersion, seedVersion };
   }
 
   // Schema-only local databases are safe to seed; unmarked records are not.
