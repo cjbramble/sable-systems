@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { createProcessScope, exitStatus } from './lib/process-scope.mjs';
 import { loadLocalEnvironment } from './lib/environment.mjs';
 import { createLineFramer } from './lib/line-framer.mjs';
-import { parseModelTestArgs } from './lib/model-test-args.mjs';
+import { parseModelTestArgs, shellQuote } from './lib/model-test-args.mjs';
 import {
   getSupportModelConfig,
   supportModelHeaders,
@@ -97,7 +97,7 @@ try {
   testExitCode = code;
   if (!scope.stopping && !runJudge) {
     console.info(
-      `Skipped the billed judge (--no-judge). To judge later: npm run test:judge -- --transcript ${transcriptPath}`,
+      `Skipped the billed judge (--no-judge). To judge later: npm run test:judge -- --transcript ${shellQuote(transcriptPath)}`,
     );
     await scope.stop(code);
   } else if (!scope.stopping) {

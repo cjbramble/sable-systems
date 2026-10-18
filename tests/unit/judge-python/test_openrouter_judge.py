@@ -27,6 +27,16 @@ class Verdict(BaseModel):
     reason: str
 
 
+class OfflineSocket:
+    """Record the timeouts the transport applies before blocking socket calls."""
+
+    def __init__(self):
+        self.timeouts = []
+
+    def settimeout(self, value):
+        self.timeouts.append(value)
+
+
 @pytest.fixture
 def transport(monkeypatch):
     state = {
@@ -38,6 +48,7 @@ def transport(monkeypatch):
     class Connection:
         def __init__(self, host, port, timeout):
             state["destination"] = (host, port, timeout)
+            self.sock = OfflineSocket()
 
         def set_tunnel(self, host, port):
             state["tunnel"] = (host, port)
@@ -311,7 +322,7 @@ def test_retired_model_setting_cannot_change_luna(
 def test_failed_transport_keeps_bounded_redacted_evidence(monkeypatch, transport, kind):
     class FailureConnection:
         def __init__(self, *args, **kwargs):
-            pass
+            self.sock = OfflineSocket()
 
         def request(self, *args):
             if kind == "timeout":

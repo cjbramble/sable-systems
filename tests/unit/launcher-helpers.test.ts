@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createLineFramer } from '../../scripts/lib/line-framer.mjs';
-import { parseModelTestArgs } from '../../scripts/lib/model-test-args.mjs';
+import {
+  parseModelTestArgs,
+  shellQuote,
+} from '../../scripts/lib/model-test-args.mjs';
 import { createProcessScope } from '../../scripts/lib/process-scope.mjs';
 
 describe('line framer', () => {
@@ -50,6 +53,20 @@ describe('model test arguments', () => {
       expect(() => parseModelTestArgs(args)).toThrow(/verbose|Silent/);
     },
   );
+});
+
+describe('shell quoting', () => {
+  it('leaves plain paths readable', () => {
+    expect(shellQuote('/repo/reports/model-runs/a-1.log')).toBe(
+      '/repo/reports/model-runs/a-1.log',
+    );
+  });
+
+  it('single-quotes paths with spaces, quotes, and shell syntax', () => {
+    expect(shellQuote("/My Repos/it's $HOME/`date`;*.log")).toBe(
+      String.raw`'/My Repos/it'\''s $HOME/` + "`date`;*.log'",
+    );
+  });
 });
 
 it('refuses to start launchers on Windows', () => {

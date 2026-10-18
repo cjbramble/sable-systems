@@ -25,6 +25,16 @@ class Verdict(BaseModel):
     reason: str
 
 
+class OfflineSocket:
+    """Record the timeouts the transport applies before blocking socket calls."""
+
+    def __init__(self):
+        self.timeouts = []
+
+    def settimeout(self, value):
+        self.timeouts.append(value)
+
+
 @pytest.fixture
 def http_sequence(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "retry-test-secret")
@@ -34,6 +44,7 @@ def http_sequence(monkeypatch):
 
     class Connection:
         def __init__(self, *args, **kwargs):
+            self.sock = OfflineSocket()
             self.response = state["responses"].pop(0)
             self.status = self.response[0]
             self.stream = None
@@ -167,12 +178,14 @@ def test_trickling_response_stops_at_total_deadline(monkeypatch):
     clock = {"now": 0.0, "reads": 0}
     monkeypatch.setattr(time, "monotonic", lambda: clock["now"])
 
+    sock = OfflineSocket()
+
     class Trickle:
         status = 200
         length = 1_000
 
         def __init__(self, *args, **kwargs):
-            pass
+            self.sock = sock
 
         def request(self, *args):
             pass
@@ -198,6 +211,8 @@ def test_trickling_response_stops_at_total_deadline(monkeypatch):
     assert calls[0]["responseComplete"] is False
     assert calls[0]["rawResponse"] == "x" * clock["reads"]
     assert clock["reads"] == 10
+    # Every blocking call is capped by the time left, not a fresh 180 seconds.
+    assert sock.timeouts == [10, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
 
 
 @pytest.mark.parametrize("status", [400, 401, 402, 403, 404, 501])
@@ -271,7 +286,7 @@ def test_premature_http_body_eof_is_not_retried(monkeypatch, http_sequence):
 
     class Connection:
         def __init__(self, *args, **kwargs):
-            pass
+            self.sock = OfflineSocket()
 
         def request(self, method, path, body, headers):
             http_sequence["sent"].append(json.loads(body))

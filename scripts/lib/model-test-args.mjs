@@ -28,3 +28,13 @@ export function parseModelTestArgs(suppliedArgs) {
   }
   return { vitestArgs, judge };
 }
+
+/**
+ * Quote a value for a copyable POSIX shell command.
+ * @param {string} value
+ */
+export function shellQuote(value) {
+  return /^[\w@%+=:,./-]+$/.test(value)
+    ? value
+    : `'${value.replaceAll("'", `'\\''`)}'`;
+}

@@ -4,7 +4,9 @@ import http.client
 import json
 import os
 import random
+import socket
 import time
+from collections.abc import Callable
 from contextlib import closing
 from email.utils import parsedate_to_datetime
 from typing import NoReturn
@@ -63,17 +65,20 @@ def retry_delay(retry_after: str | None, attempt: int) -> float | None:
     return delay if delay <= RETRY_POLICY["maxDelaySeconds"] else None
 
 
-def check_deadline(deadline: float, record: RequestRecord) -> None:
-    if time.monotonic() >= deadline:
+def bound_socket(sock: socket.socket, deadline: float, record: RequestRecord) -> None:
+    """Fail at the deadline, or cap the next blocking socket call by the time left."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
         record["deadlineExceeded"] = True
         raise RequestDeadlineExceeded("Judge request exceeded its total deadline")
+    sock.settimeout(min(SOCKET_TIMEOUT_SECONDS, remaining))
 
 
 def read_response(
     response: http.client.HTTPResponse,
     record: RequestRecord,
     key: str,
-    deadline: float,
+    before_read: Callable[[], None],
 ) -> bytes:
     """Capture bounded, redacted evidence before validating the HTTP body."""
     read_error: Exception | None = None
@@ -81,7 +86,7 @@ def read_response(
     size = 0
     try:
         while size <= MAX_RESPONSE_BYTES:
-            check_deadline(deadline, record)
+            before_read()
             chunk = response.read(min(READ_CHUNK_BYTES, MAX_RESPONSE_BYTES + 1 - size))
             if not chunk:
                 break
@@ -182,8 +187,8 @@ def request_verdict[Response: BaseModel](
     logical_request = len(requests) + 1
     deadline = time.monotonic() + RETRY_POLICY["requestDeadlineSeconds"]
     for attempt in range(1, RETRY_POLICY["maxRetries"] + 2):
-        # A zero timeout would make the socket non-blocking; the deadline check
-        # below rejects an exhausted budget instead.
+        # Bounds connecting and sending; a zero timeout would make the socket
+        # non-blocking, and the retry check below keeps the remainder positive.
         timeout = min(SOCKET_TIMEOUT_SECONDS, max(0.001, deadline - time.monotonic()))
         connection = http.client.HTTPSConnection(*destination, timeout=timeout)
         if proxy_url:
@@ -199,16 +204,26 @@ def request_verdict[Response: BaseModel](
             }
             requests.append(record)
             try:
-                check_deadline(deadline, record)
                 connection.request(
                     "POST", "/api/v1/chat/completions", json.dumps(body), headers
                 )
+                # The response keeps using this socket after http.client releases it.
+                sock = connection.sock
+
+                def bound(
+                    sock: socket.socket = sock, record: RequestRecord = record
+                ) -> None:
+                    bound_socket(sock, deadline, record)
+
+                bound()
                 response = connection.getresponse()
                 record["httpStatus"] = response.status
-                raw = read_response(response, record, key, deadline)
+                raw = read_response(response, record, key, bound)
                 return parse_verdict(raw, schema, record, key)
             except Exception as error:
                 record["errorType"] = type(error).__name__
+                if time.monotonic() >= deadline:
+                    record["deadlineExceeded"] = True
                 incomplete = (
                     isinstance(error, http.client.IncompleteRead)
                     and record.get("httpStatus") == 200
