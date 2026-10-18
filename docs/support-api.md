@@ -26,7 +26,11 @@ references. Multiple matching records within the account prompt clarification.
 For a single unresolved reference, a reply such as “It’s the order ID” or “the
 customer PO” selects the named field without repeating the reference.
 Follow-ups such as “that order” retain their named entity; a shipment mentioned in an answer
-does not replace the customer's order. Multiple or missing conversational targets
+does not replace the customer's order. A product named by its full name or alias
+can be the target of “it”, and after a list question “it” means the one record or
+item the answer named. Category words such as “power” or “security” request a
+category only beside a catalog cue (“power products”, “in stock”), so they do not
+replace a record follow-up. Multiple or missing conversational targets
 also ask for clarification. Clarification replies are saved and replayed like other
 successful replies, without a model call or model quota consumption.
 

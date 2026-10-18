@@ -13,7 +13,7 @@ import {
   SupportMessageTextConflictError,
   SupportRevisionConflictError,
 } from '@/db/incidents';
-import { buildSupportContext } from '@/db/support';
+import { buildSupportContext, loadSupportProductTerms } from '@/db/support';
 import {
   MAX_MODEL_RESPONSE_BYTES,
   MAX_SUPPORT_REPLY_LENGTH,
@@ -206,7 +206,10 @@ export async function answerSupportMessage(
 
     // Single-topic incident lists are pure records: build them on the server so a
     // customer-written title cannot lead the model to hide or rewrite one.
-    const intents = classifySupportQueries(history);
+    const intents = classifySupportQueries(
+      history,
+      await loadSupportProductTerms(db),
+    );
     if (intents.length === 1 && intents[0].kind === 'incidents')
       return await reply(
         formatIncidentListReply(await listSupportIncidents(db, user)),

@@ -18,6 +18,7 @@ import {
   isCatalogCategory,
   type CatalogCategory,
 } from './catalog-categories.ts';
+import { findProductMentions, type ProductTerms } from './product-mentions.ts';
 
 export type SupportQueryIntent =
   | SupportRecordReference
@@ -51,13 +52,41 @@ const INCIDENT_TOPIC_SOURCE =
   '(?:(?:support|service)\\s+incidents?|incident\\s+(?:history|records?)|past\\s+incidents?)';
 const INCIDENT_TOPIC = new RegExp(`\\b${INCIDENT_TOPIC_SOURCE}\\b`, 'i');
 
+// Category names are everyday words ("a power outage", "a security review"),
+// so they name a category only beside a catalog noun or in a stock question.
+const CATEGORY_NOUN =
+  /^\s+(?:products?|items?|category|categories|catalog|line|lineup|range|gear|parts|hardware|equipment|stock|inventory|offerings?|availability)\b/;
+const CATEGORY_LABEL = /\b(?:category|catalog)\s+(?:of\s+|for\s+)?$/;
+const STOCK_CUE =
+  /\b(?:(?:you|we)\s+(?:sell|carry|offer|stock)|for\s+sale|(?:can|could)\s+i\s+(?:buy|purchase)|in\s+stock|stock(?:ed)?|inventory|catalog|availability|available|backorder(?:ed)?|products?|prices?|pricing|lead[ -]times?|case[ -]packs?)\b/;
+
 function requestedCategory(message: string) {
-  for (const word of message.match(/[a-z]+/g) ?? []) {
+  const stockQuestion = STOCK_CUE.test(message);
+  for (const match of message.matchAll(/[a-z]+/g)) {
+    const [word] = match;
     const titleCase = `${word[0].toUpperCase()}${word.slice(1)}`;
-    if (isCatalogCategory(titleCase)) return titleCase;
+    if (!isCatalogCategory(titleCase)) continue;
+    const before = message.slice(0, match.index);
+    const after = message.slice(match.index + word.length);
+    if (
+      stockQuestion ||
+      CATEGORY_NOUN.test(after) ||
+      CATEGORY_LABEL.test(before)
+    )
+      return titleCase;
   }
   return undefined;
 }
+
+// Generic stock words also describe records: "my invoice is available",
+// "the warehouse my order shipped from". Beside a record noun they need a
+// product, item, or category to make the question a catalog request.
+const GENERIC_CATALOG_WORDS =
+  /\b(?:item|available|availability|warehouse|fulfillment location)\b/;
+const STRONG_CATALOG_WORDS =
+  /\b(?:product|catalog|inventory|stock|backorder|compare|versus|vs\.?|where stocked)\b/;
+const RECORD_NOUN =
+  /\b(?:orders?|shipments?|returns?|invoices?|packages?|tracking|incidents?|account|payments?|refunds?|credits?)\b/;
 
 const AMOUNT_BEFORE =
   /(?:\$\s*|\b(?:over|under|above|below|exceeding|(?:more|less|greater|fewer)\s+than|at\s+(?:least|most))\s+\$?\s*)$/;
@@ -108,7 +137,12 @@ function parseYearFilter(
   return year === undefined ? { kind: 'none' } : { kind: 'year', year };
 }
 
-function classifyCurrentTopic(latest: string): SupportQueryIntent {
+// `namesRecord` says the caller removed a named record from `latest`; that
+// record owns its noun, so the rest of the message can still ask about stock.
+function classifyCurrentTopic(
+  latest: string,
+  namesRecord = false,
+): SupportQueryIntent {
   const normalized = latest.toLowerCase();
   const items = itemReferences(latest);
   const category = requestedCategory(normalized);
@@ -153,9 +187,9 @@ function classifyCurrentTopic(latest: string): SupportQueryIntent {
     items.length > 0 ||
     quantities.length > 0 ||
     category ||
-    /\b(product|item|catalog|inventory|availability|available|stock|backorder|compare|versus|vs\.?|where stocked|warehouse|fulfillment location)\b/.test(
-      normalized,
-    )
+    STRONG_CATALOG_WORDS.test(normalized) ||
+    (GENERIC_CATALOG_WORDS.test(normalized) &&
+      (namesRecord || !RECORD_NOUN.test(normalized)))
   ) {
     return {
       kind: 'catalog',
@@ -221,8 +255,10 @@ function uniqueReferences(occurrences: ReferenceOccurrence[]) {
   return references;
 }
 
+// An empty target leaves the assistant's mentions available as fallbacks.
 function rememberCustomer(frame: ConversationFrame, target: Target) {
-  frame.active = target;
+  frame.active =
+    target.references.length || target.items.length ? target : undefined;
   for (const kind of ['order', 'shipment', 'return'] as const) {
     const references = target.references.filter(
       (reference) => reference.kind === kind,
@@ -326,8 +362,11 @@ function resolveFollowUp(
 // Replay the bounded saved window. Assistant mentions provide entity-specific
 // fallbacks but never replace the customer's active target. New explicit topics
 // reset the frame; resolved follow-ups keep related targets within that frame.
+// `products` supplies the names and aliases that name a product without its
+// item number; the frame records those products as items.
 export function classifySupportQuery(
   messages: ChatHistoryMessage[],
+  products: readonly ProductTerms[] = [],
 ): SupportQueryIntent {
   let frame = emptyFrame();
   let intent: SupportQueryIntent = { kind: 'summary', message: '' };
@@ -336,7 +375,7 @@ export function classifySupportQuery(
     const { occurrences, remainder } = parseSupportReferences(latest);
     const normalized = remainder.toLowerCase();
     const references = uniqueReferences(occurrences);
-    const items = itemReferences(remainder);
+    const numberedItems = itemReferences(remainder);
     if (message.role === 'assistant') {
       for (const kind of ['order', 'shipment', 'return'] as const) {
         const matching = references.filter(
@@ -344,6 +383,15 @@ export function classifySupportQuery(
         );
         if (matching.length) frame.assistant[kind] = matching;
       }
+      // Product names in a reply about records describe their lines.
+      const items = references.length
+        ? numberedItems
+        : [
+            ...numberedItems,
+            ...mentionedProducts(normalized, products).filter(
+              (item) => !numberedItems.includes(item),
+            ),
+          ];
       if (references.length || items.length)
         frame.assistantActive = { references, items };
       continue;
@@ -368,9 +416,25 @@ export function classifySupportQuery(
       /\b(?:it|its|those|them|both)\b|\b(?:about|for) that\s*[?.!]*$/.test(
         normalized,
       );
+    // A product name can describe a line on the record under discussion
+    // ("the controller on that order", "was it shipped with the controller?");
+    // with a record cue, or a pronoun outside a catalog question, it does not
+    // replace that record.
+    const recordTarget = [frame.active, frame.assistantActive].some(
+      (target) => target && !('kind' in target) && target.references.length,
+    );
+    const named =
+      entityCues.length ||
+      (recordTarget && followUp && current.kind !== 'catalog')
+        ? []
+        : mentionedProducts(normalized, products).filter(
+            (item) => !numberedItems.includes(item),
+          );
+    const items = [...numberedItems, ...named];
+    // A category word with a record cue or pronoun describes that record.
     const currentTopic =
       items.length > 0 ||
-      requestedCategory(normalized) ||
+      (!followUp && requestedCategory(normalized)) ||
       /\b(?:orders|purchases?|releases?|incidents?|my account|account tier)\b/.test(
         normalized,
       );
@@ -381,7 +445,11 @@ export function classifySupportQuery(
       (!followUp && current.kind !== 'summary')
     ) {
       frame = emptyFrame();
-      rememberCustomer(frame, { references, items });
+      // Products filter an order search; the orders it finds are the targets.
+      rememberCustomer(frame, {
+        references,
+        items: current.kind === 'orders' ? [] : items,
+      });
       intent = references[0] ?? current;
     } else if (answer) {
       intent = refineNamespace(frame, answer);
@@ -393,6 +461,21 @@ export function classifySupportQuery(
     } else intent = current;
   }
   return intent;
+}
+
+function mentionedProducts(
+  normalized: string,
+  products: readonly ProductTerms[],
+): string[] {
+  if (!products.length) return [];
+  const { explicitProducts, keywordProducts } = findProductMentions(
+    normalized,
+    products,
+    parseQuantityOccurrences(normalized),
+  );
+  return [...explicitProducts, ...keywordProducts].map(
+    (product) => product.item_number,
+  );
 }
 
 type RequestBoundary = { start: number; end: number; coordinated: boolean };
@@ -504,8 +587,9 @@ function catalogSubjectStart(
 // their own position instead of being appended after every named record.
 export function classifySupportQueries(
   messages: ChatHistoryMessage[],
+  products: readonly ProductTerms[] = [],
 ): SupportQueryIntent[] {
-  const primary = classifySupportQuery(messages);
+  const primary = classifySupportQuery(messages, products);
   const latest = messages.at(-1)?.content.trim() ?? '';
   const { occurrences, remainder } = parseSupportReferences(latest);
   const records = uniqueReferences(occurrences);
@@ -543,7 +627,7 @@ export function classifySupportQueries(
     const hasRecord = occurrences.some(
       (reference) => reference.start < end && reference.end > start,
     );
-    const request = classifyCurrentTopic(clause);
+    const request = classifyCurrentTopic(clause, hasRecord);
     // Explicit account ownership permits later pronouns about that fact.
     // Subjects and prepositional references still tie fields to a named record.
     const accountOwnsPronoun =
@@ -569,14 +653,19 @@ export function classifySupportQueries(
       const precedingTargets = parseSupportReferences(preceding);
       const hasPrecedingTarget =
         precedingTargets.occurrences.length > 0 ||
-        itemReferences(precedingTargets.remainder).length > 0;
-      const resolved = classifySupportQuery([
-        ...priorMessages,
-        ...(hasPrecedingTarget
-          ? [{ role: 'user' as const, content: preceding }]
-          : []),
-        { role: 'user', content: clause },
-      ]);
+        itemReferences(precedingTargets.remainder).length > 0 ||
+        mentionedProducts(precedingTargets.remainder.toLowerCase(), products)
+          .length > 0;
+      const resolved = classifySupportQuery(
+        [
+          ...priorMessages,
+          ...(hasPrecedingTarget
+            ? [{ role: 'user' as const, content: preceding }]
+            : []),
+          { role: 'user', content: clause },
+        ],
+        products,
+      );
       if (resolved.kind === 'clarification') {
         requests.push({ intent: resolved, start });
         catalogCharacters.fill(' ', start, end);
@@ -615,11 +704,11 @@ export function classifySupportQueries(
   }
   const catalogMessage = catalogCharacters.join('');
   const catalog = records.length
-    ? classifyCurrentTopic(catalogMessage)
-    : classifySupportQuery([
-        ...priorMessages,
-        { role: 'user', content: catalogMessage },
-      ]);
+    ? classifyCurrentTopic(catalogMessage, true)
+    : classifySupportQuery(
+        [...priorMessages, { role: 'user', content: catalogMessage }],
+        products,
+      );
   if (
     catalogStart !== undefined &&
     (catalog.kind === 'catalog' || catalog.kind === 'clarification')
