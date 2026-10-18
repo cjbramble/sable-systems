@@ -19,8 +19,10 @@ Select a thumbnail to open the video.
 
 ## Setup
 
-Requires Node.js 22.13+ and an [OpenRouter API key](https://openrouter.ai/settings/keys)
-with credits.
+Requires macOS or Linux, Node.js 22.13+, and an
+[OpenRouter API key](https://openrouter.ai/settings/keys) with credits. The
+launchers (`npm run dev`, `test:model`, `test:judge`) and Python npm commands do
+not run on native Windows; use WSL there.
 
 ```sh
 npm ci
@@ -128,12 +130,17 @@ npm run test:e2e
 | `npm test`            | App unit and integration tests                                            |
 | `npm run test:python` | Python evaluator tests                                                    |
 | `npm run test:e2e`    | Build and browser tests                                                   |
-| `npm run test:model`  | Live chatbot tests, repeated samples, and advisory judging; billed        |
+| `npm run test:model`  | Live chatbot tests and repeated samples, then advisory judging; billed    |
 | `npm run test:judge`  | Judge calibration; billed                                                 |
 
 Offline and browser tests use controlled responses and do not incur model charges.
 CI runs both on Linux; the offline checks run on Node 22.13 (the minimum) and 24. Browser and live-model suites run separately from
-`npm run check`. Python npm commands require a POSIX shell.
+`npm run check`.
+
+`npm run test:model` judges any repeated samples automatically: about 200 judge
+calls at high reasoning effort for a full run, billed in addition to the chatbot
+calls. Add `-- --no-judge` to skip judging; the launcher prints the
+`npm run test:judge -- --transcript …` command for judging the saved transcript later.
 
 ### Judge evaluations
 
@@ -161,5 +168,5 @@ Grading disagreements fail; execution errors remain errors. Rate limits (429),
 transient provider errors (500/502/503/504, including errors inside HTTP 200
 responses), and incomplete HTTP 200 bodies share a limit of three retries per
 request. Retries use backoff and honor `Retry-After` up to 60 seconds; longer waits
-remain errors. Grading failures are not retried.
+remain errors. Each request, including its retries and waits, stops after 10 minutes. Grading failures are not retried.
 DeepEval telemetry and cloud reporting are disabled; reports stay local.

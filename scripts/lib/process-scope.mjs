@@ -19,8 +19,7 @@ function hasErrorCode(error, code) {
 function signalOwned(record, signal) {
   if (!record.child.pid) return;
   try {
-    if (process.platform === 'win32') record.child.kill(signal);
-    else process.kill(-record.child.pid, signal);
+    process.kill(-record.child.pid, signal);
   } catch (error) {
     if (!hasErrorCode(error, 'ESRCH')) throw error;
   }
@@ -29,8 +28,6 @@ function signalOwned(record, signal) {
 /** @param {OwnedProcess} record */
 function isRunning(record) {
   if (!record.child.pid) return false;
-  if (process.platform === 'win32')
-    return record.child.exitCode === null && record.child.signalCode === null;
   try {
     process.kill(-record.child.pid, 0);
     return true;
@@ -45,11 +42,15 @@ export function exitStatus({ code, signal, error }) {
   return signal || error ? 1 : (code ?? 1);
 }
 
-/** @param {{signalCodes?: Partial<Record<NodeJS.Signals, number>>, graceMs?: number}} [options] */
+/** @param {{signalCodes?: Partial<Record<NodeJS.Signals, number>>, graceMs?: number, platform?: NodeJS.Platform}} [options] */
 export function createProcessScope({
   signalCodes = { SIGINT: 130, SIGTERM: 143 },
   graceMs = 3000,
+  platform = process.platform,
 } = {}) {
+  // Process-group ownership and signals are POSIX-only; see the README.
+  if (platform === 'win32')
+    throw new Error('Launchers require macOS or Linux. On Windows, use WSL.');
   const controller = new AbortController();
   /** @type {Set<OwnedProcess>} */
   const records = new Set();
@@ -61,10 +62,7 @@ export function createProcessScope({
   /** @param {string} command @param {string[]} args @param {import('node:child_process').SpawnOptions} [options] */
   function start(command, args, options = {}) {
     controller.signal.throwIfAborted();
-    const child = spawn(command, args, {
-      ...options,
-      detached: process.platform !== 'win32',
-    });
+    const child = spawn(command, args, { ...options, detached: true });
     /** @type {NodeJS.ErrnoException | undefined} */
     let error;
     /** @type {Promise<ProcessResult>} */

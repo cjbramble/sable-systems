@@ -38,6 +38,14 @@ if (role === 'vitest') {
       if (message.event === 'ready') process.exit(0);
     });
   }
+  if (scenario === 'test-interleaved') {
+    // Split one stdout record and write a stderr line between its parts.
+    process.stdout.write('Split record: {"sample":');
+    setTimeout(() => {
+      process.stderr.write('worker warning\n');
+      setTimeout(() => process.stdout.write('1}\n', () => process.exit(0)), 40);
+    }, 40);
+  }
   if (scenario.endsWith('normal')) {
     setTimeout(
       () => process.stdout.write('final test verdict\n', () => process.exit(0)),
