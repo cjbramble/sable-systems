@@ -253,6 +253,51 @@ test('leaving login cancels its delayed session check without redirecting the ne
   }
 });
 
+test('a stalled login session check times out and leaves the form usable', async ({
+  page,
+  loginPage,
+}) => {
+  // The browser gives up after the ten-second auth request timeout.
+  test.slow();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/auth/session', async (route) => {
+    await held;
+    // The browser has normally aborted this request by now; a late reply is moot.
+    await route
+      .fulfill({ status: 401, json: { authenticated: false } })
+      .catch(() => undefined);
+  });
+  try {
+    const requested = page.waitForRequest(
+      (request) => new URL(request.url()).pathname === '/api/auth/session',
+    );
+    await loginPage.goto('/orders');
+    const request = await requested;
+    const timedOut = page.waitForEvent('requestfailed', {
+      predicate: (failed) => failed === request,
+      timeout: 20_000,
+    });
+    await expect(
+      page.getByRole('button', { name: 'Checking channel…', exact: true }),
+    ).toBeDisabled();
+    await timedOut;
+    await expect(
+      page.getByRole('button', {
+        name: 'Enter authorized channel',
+        exact: true,
+      }),
+    ).toBeEnabled();
+    await expect(page).toHaveURL((url) => url.pathname === '/login');
+  } finally {
+    release();
+    await page.unroute('**/api/auth/session');
+  }
+  await loginPage.signIn(email, password, '/orders');
+});
+
 for (const source of ['catalog', 'account', 'checkout'] as const) {
   test(`preserves the current shop category after ${source} authentication expires`, async ({
     page,

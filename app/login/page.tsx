@@ -34,7 +34,11 @@ export default function LoginPage() {
     const controller = new AbortController();
     pageRequest.current = controller;
     const destination = requestedDestination();
-    fetch('/api/auth/session', { cache: 'no-store', signal: controller.signal })
+    // A stalled check times out so the form becomes usable instead of waiting.
+    fetch('/api/auth/session', {
+      cache: 'no-store',
+      signal: withAuthRequestTimeout(controller.signal),
+    })
       .then((response) => {
         if (!controller.signal.aborted && response.ok)
           window.location.replace(destination);
