@@ -225,11 +225,15 @@ test.for([401, 402, 403, 429, 500, 503])(
 
 test.for([
   ['17', '17'],
-  [new Date(Date.now() + 90_000).toUTCString(), /^(8[89]|9[01])$/],
+  ['an HTTP date 90 seconds ahead', /^(8[89]|9[01])$/],
   ['soon', null],
 ] as const)(
   'passes a provider 429 Retry-After of %s through to the client',
-  async ([header, expected], { supportApi: fixture }) => {
+  async ([value, expected], { supportApi: fixture }) => {
+    // Build the date just before the request so a slow runner cannot drift it.
+    const header = value.startsWith('an HTTP date')
+      ? new Date(Date.now() + 90_000).toUTCString()
+      : value;
     useOpenRouter();
     const { response } = await sendFailingRequest(
       fixture,
@@ -247,8 +251,8 @@ test.for([
   },
 );
 
-test.for(['top', 'choice'])(
-  'reports an HTTP 200 %s-level error envelope as model unavailable',
+test.for(['top', 'choice', 'finish-reason'])(
+  'reports an HTTP 200 %s error envelope as model unavailable',
   async (level, { supportApi: fixture }) => {
     const choice = {
       finish_reason: 'stop',
@@ -262,13 +266,35 @@ test.for(['top', 'choice'])(
       Response.json(
         level === 'top'
           ? { error, choices: [choice] }
-          : { choices: [{ ...choice, error }] },
+          : level === 'choice'
+            ? { choices: [{ ...choice, error }] }
+            : { choices: [{ ...choice, finish_reason: 'error' }] },
       ),
     );
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual(modelUnavailable);
     expect(logged).toBe(
       '[support answer (model)] Error: provider error envelope: HTTP 200',
+    );
+  },
+);
+
+test.for([301, 307])(
+  'reports a provider redirect %i as model unavailable and logs only the status',
+  async (status, { supportApi: fixture }) => {
+    useOpenRouter();
+    const { response, logged } = await sendFailingRequest(
+      fixture,
+      `REDIRECT-${status}`,
+      new Response(upstreamDetail, {
+        status,
+        headers: { Location: 'https://example.invalid/' },
+      }),
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual(modelUnavailable);
+    expect(logged).toBe(
+      `[support answer (model)] Error: provider redirect: HTTP ${status}`,
     );
   },
 );

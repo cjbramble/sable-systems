@@ -244,7 +244,7 @@ export async function answerSupportMessage(
       const modelResponse = await fetchModel(modelUrl, modelRequest);
       if (modelResponse.status >= 300 && modelResponse.status < 400) {
         await modelResponse.body?.cancel();
-        return unsavedFailure({ error: failureOutcomes.model.error }, 'model');
+        return providerUnavailable('provider redirect', modelResponse.status);
       }
       // Read success and error bodies under the same request deadline.
       let modelPayload: unknown = null;
