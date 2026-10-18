@@ -135,6 +135,42 @@ test('shows fixed messages when a proxy returns HTML instead of JSON', async ({
   expect(app.modelRequests).toEqual([]);
 });
 
+test('follows a clamped history page without requesting it again', async ({
+  page,
+  app,
+  loginPage,
+  ordersPage,
+}) => {
+  const requestedPages: string[] = [];
+  await page.route('**/api/orders?*', async (route) => {
+    const url = new URL(route.request().url());
+    requestedPages.push(url.searchParams.get('page') ?? '');
+    if (url.searchParams.get('page') !== '2') return route.continue();
+    // Orders changed after page 1 loaded: the server now has only page 1.
+    url.searchParams.set('page', '1');
+    const response = await route.fetch({ url: url.toString() });
+    const body = (await response.json()) as { page: number };
+    expect(body.page).toBe(1);
+    return route.fulfill({ response, json: { ...body, totalPages: 1 } });
+  });
+  await loginPage.goto('/orders');
+  await loginPage.signIn(
+    'mara.venn@calderpike.example',
+    'Sable-WHS-0427!',
+    '/orders',
+  );
+  await expect(ordersPage.table).toBeVisible();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(page.locator('.orders-pagination strong')).toHaveText('01 / 01');
+  await expect(ordersPage.orderRows).toHaveCount(25);
+  await expect(
+    page.getByRole('button', { name: 'Previous', exact: true }),
+  ).toBeDisabled();
+  await expect(ordersPage.loadingError).toHaveCount(0);
+  expect(requestedPages).toEqual(['1', '2']);
+  expect(app.modelRequests).toEqual([]);
+});
+
 for (const endpoint of ['account', 'incidents']) {
   test(`retries failed support ${endpoint} without presenting missing data as empty history`, async ({
     page,

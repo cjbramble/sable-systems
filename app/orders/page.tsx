@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { SyntheticEvent, useEffect, useState } from 'react';
+import { SyntheticEvent, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -67,8 +67,15 @@ export default function OrdersPage() {
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [redirecting, setRedirecting] = useState(false);
+  // A page the server already served in place of a missing one.
+  const servedPage = useRef<number | null>(null);
 
   useEffect(() => {
+    if (servedPage.current === page) {
+      servedPage.current = null;
+      return;
+    }
+    servedPage.current = null;
     const controller = new AbortController();
     const parameters = new URLSearchParams({
       page: String(page),
@@ -98,8 +105,13 @@ export default function OrdersPage() {
       .then((payload) => {
         if (controller.signal.aborted || !payload) return;
         setData(payload);
-        // The server serves its last page when the requested one no longer exists.
-        if (payload.page !== page) setPage(payload.page);
+        // The server serves its last page when the requested one no longer
+        // exists. Follow it without fetching that page again.
+        if (payload.page !== page) {
+          servedPage.current = payload.page;
+          setLoading(false);
+          setPage(payload.page);
+        }
       })
       .catch((requestError: unknown) => {
         if (controller.signal.aborted) return;
