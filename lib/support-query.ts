@@ -6,7 +6,9 @@ import {
 } from './support-order-status.ts';
 import {
   parseQuantityOccurrences,
+  quantityUnits,
   type QuantityOccurrence,
+  type QuantityUnits,
 } from './support-quantities.ts';
 import {
   itemReferences,
@@ -142,6 +144,7 @@ function parseYearFilter(
 function classifyCurrentTopic(
   latest: string,
   namesRecord = false,
+  units?: QuantityUnits,
 ): SupportQueryIntent {
   const normalized = latest.toLowerCase();
   const items = itemReferences(latest);
@@ -182,7 +185,7 @@ function classifyCurrentTopic(
 
   if (INCIDENT_TOPIC.test(normalized)) return { kind: 'incidents' };
 
-  const quantities = parseQuantityOccurrences(normalized);
+  const quantities = parseQuantityOccurrences(normalized, units);
   if (
     items.length > 0 ||
     quantities.length > 0 ||
@@ -329,6 +332,7 @@ function refineNamespace(
 function resolveFollowUp(
   latest: string,
   frame: ConversationFrame,
+  units: QuantityUnits,
   entity?: RecordKind,
 ): SupportQueryIntent {
   const target = entity
@@ -354,7 +358,11 @@ function resolveFollowUp(
   }
   if (target.items.length) {
     rememberCustomer(frame, target);
-    return classifyCurrentTopic(`${latest} ${target.items.join(' ')}`);
+    return classifyCurrentTopic(
+      `${latest} ${target.items.join(' ')}`,
+      false,
+      units,
+    );
   }
   return clarify(frame, entity ?? 'record', 'missing_target');
 }
@@ -368,11 +376,16 @@ export function classifySupportQuery(
   messages: ChatHistoryMessage[],
   products: readonly ProductTerms[] = [],
 ): SupportQueryIntent {
+  const units = productUnits(products);
   let frame = emptyFrame();
   let intent: SupportQueryIntent = { kind: 'summary', message: '' };
   for (const message of messages) {
     const latest = message.content.trim();
-    const { occurrences, remainder } = parseSupportReferences(latest);
+    const { occurrences, remainder } = parseSupportReferences(
+      latest,
+      undefined,
+      units,
+    );
     const normalized = remainder.toLowerCase();
     const references = uniqueReferences(occurrences);
     const numberedItems = itemReferences(remainder);
@@ -407,7 +420,7 @@ export function classifySupportQuery(
         ),
       ),
     ];
-    const current = classifyCurrentTopic(remainder);
+    const current = classifyCurrentTopic(remainder, false, units);
     const followUp =
       entityCues.length > 0 ||
       (current.kind === 'catalog' &&
@@ -457,10 +470,15 @@ export function classifySupportQuery(
       intent =
         entityCues.length > 1
           ? clarify(frame, 'record', 'multiple_targets')
-          : resolveFollowUp(remainder, frame, entityCues[0]);
+          : resolveFollowUp(remainder, frame, units, entityCues[0]);
     } else intent = current;
   }
   return intent;
+}
+
+// Catalog unit labels ("cell", "seat", "kit") also count a product.
+function productUnits(products: readonly ProductTerms[]) {
+  return quantityUnits(products.map((product) => product.unit_label));
 }
 
 function mentionedProducts(
@@ -471,7 +489,7 @@ function mentionedProducts(
   const { explicitProducts, keywordProducts } = findProductMentions(
     normalized,
     products,
-    parseQuantityOccurrences(normalized),
+    parseQuantityOccurrences(normalized, productUnits(products)),
   );
   return [...explicitProducts, ...keywordProducts].map(
     (product) => product.item_number,
@@ -483,6 +501,7 @@ type RequestBoundary = { start: number; end: number; coordinated: boolean };
 function requestBoundaries(
   latest: string,
   remainder: string,
+  units: QuantityUnits,
 ): RequestBoundary[] {
   const boundaries = Array.from(
     latest.matchAll(COMPOUND_REQUEST_BOUNDARY),
@@ -499,12 +518,12 @@ function requestBoundaries(
   for (const [index, start] of starts.entries()) {
     const end = ends[index];
     const clause = remainder.slice(start, end);
-    if (classifyCurrentTopic(clause).kind === 'orders') continue;
+    if (classifyCurrentTopic(clause, false, units).kind === 'orders') continue;
     for (const match of clause.matchAll(/\b(?:and|also)\s+/gi)) {
       const left = clause.slice(0, match.index);
       const right = clause.slice(match.index + match[0].length);
-      const leftKind = classifyCurrentTopic(left).kind;
-      const rightTopic = classifyCurrentTopic(right);
+      const leftKind = classifyCurrentTopic(left, false, units).kind;
+      const rightTopic = classifyCurrentTopic(right, false, units);
       const separateCatalogSubject =
         rightTopic.kind === 'catalog' &&
         (itemReferences(right).length > 0 ||
@@ -590,8 +609,13 @@ export function classifySupportQueries(
   products: readonly ProductTerms[] = [],
 ): SupportQueryIntent[] {
   const primary = classifySupportQuery(messages, products);
+  const units = productUnits(products);
   const latest = messages.at(-1)?.content.trim() ?? '';
-  const { occurrences, remainder } = parseSupportReferences(latest);
+  const { occurrences, remainder } = parseSupportReferences(
+    latest,
+    undefined,
+    units,
+  );
   const records = uniqueReferences(occurrences);
   if (!records.length && primary.kind === 'clarification') return [primary];
   const priorMessages = messages.slice(0, -1);
@@ -607,7 +631,7 @@ export function classifySupportQueries(
   // quantities and reference labels retain their existing interpretation.
   const catalogCharacters = remainder.split('');
   let catalogStart: number | undefined;
-  const boundaries = requestBoundaries(latest, remainder);
+  const boundaries = requestBoundaries(latest, remainder, units);
   const starts = [0, ...boundaries.map((boundary) => boundary.end)];
   const ends = [...boundaries.map((boundary) => boundary.start), latest.length];
   let searchRequested = false;
@@ -627,7 +651,7 @@ export function classifySupportQueries(
     const hasRecord = occurrences.some(
       (reference) => reference.start < end && reference.end > start,
     );
-    const request = classifyCurrentTopic(clause, hasRecord);
+    const request = classifyCurrentTopic(clause, hasRecord, units);
     // Explicit account ownership permits later pronouns about that fact.
     // Subjects and prepositional references still tie fields to a named record.
     const accountOwnsPronoun =
@@ -650,7 +674,11 @@ export function classifySupportQueries(
       (request.kind !== 'account' || recordContinuation)
     ) {
       const preceding = latest.slice(0, start);
-      const precedingTargets = parseSupportReferences(preceding);
+      const precedingTargets = parseSupportReferences(
+        preceding,
+        undefined,
+        units,
+      );
       const hasPrecedingTarget =
         precedingTargets.occurrences.length > 0 ||
         itemReferences(precedingTargets.remainder).length > 0 ||
@@ -704,7 +732,7 @@ export function classifySupportQueries(
   }
   const catalogMessage = catalogCharacters.join('');
   const catalog = records.length
-    ? classifyCurrentTopic(catalogMessage, true)
+    ? classifyCurrentTopic(catalogMessage, true, units)
     : classifySupportQuery(
         [...priorMessages, { role: 'user', content: catalogMessage }],
         products,

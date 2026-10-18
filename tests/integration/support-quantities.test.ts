@@ -430,3 +430,32 @@ describe('saved quantity clarification', () => {
       );
   });
 });
+
+describe('quantities without a generic unit noun', () => {
+  for (const [content, quantity] of [
+    ['Do you have 100 SBL-RPC-12 in stock?', 100],
+    ['Can I order 12 SBL-RPC-12?', 12],
+    ['Do you have 24 Redline power cells?', 24],
+  ] as const)
+    test(`checks the requested amount: ${content}`, async ({ database }) => {
+      const records = await catalogRecords(database, content);
+      expect(records).toContain('Product: SBL-RPC-12 ');
+      expect(records).toContain(`Requested quantity ${quantity}:`);
+    });
+
+  for (const content of [
+    'Do you have two Redline power cells?',
+    'Can I get a dozen SBL-RPC-12?',
+  ])
+    test(`asks for digits instead of ignoring "${content}"`, async ({
+      database,
+    }) => {
+      expect(
+        await buildSupportContext(database, ask(content), calderPikeUser),
+      ).toEqual({
+        kind: 'clarification',
+        message:
+          'Please provide a whole-number quantity of units for each item, using digits with optional comma grouping.',
+      });
+    });
+});

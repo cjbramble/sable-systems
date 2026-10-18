@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   bindProductQuantities,
   parseQuantityOccurrences,
+  quantityUnits,
   type ProductMention,
 } from '@/lib/support-quantities';
 
@@ -281,4 +282,87 @@ it('keeps punctuation and repeated identifiers within a shared product group', (
       ['B', 8],
     ]),
   );
+});
+
+describe('quantities without a generic unit noun', () => {
+  const catalogUnits = quantityUnits(['cell', 'seat', 'assembly', 'kit']);
+  const genericUnits = quantityUnits();
+  const values = (message: string, units = catalogUnits) =>
+    parseQuantityOccurrences(message, units).map(({ raw, quantity }) => ({
+      raw,
+      quantity,
+    }));
+  const valid = (raw: string, value: number) => ({
+    raw,
+    quantity: { kind: 'valid', value },
+  });
+  const spelled = (raw: string) => ({
+    raw,
+    quantity: { kind: 'invalid', reason: 'syntax' },
+  });
+
+  it.each([
+    ['Do you have 100 SBL-RPC-12 in stock?', '100', 100],
+    ['Can I order 12 SBL-RPC-12?', '12', 12],
+    ['Price 1,000 sbl-swc-12 please.', '1,000', 1000],
+  ])(
+    'reads a number directly before an item number: %s',
+    (message, raw, value) => {
+      expect(values(message, genericUnits)).toEqual([valid(raw, value)]);
+    },
+  );
+
+  it('binds numbers before item numbers to those items', () => {
+    expect(bind('Do you have 100 SBL-RPC-12 and 5 SBL-SWC-12?')).toEqual(
+      assigned([
+        ['A', 100],
+        ['B', 5],
+      ]),
+    );
+  });
+
+  it.each([
+    'Did 2 SBL-2026-000417 lines ship?',
+    'Is 12SBL-RPC-12 a valid item?',
+  ])(
+    'does not read a number before an order ID or a fused token: %s',
+    (message) => {
+      expect(values(message, genericUnits)).toEqual([]);
+    },
+  );
+
+  it.each([
+    ['Do you have 12 Redline power cells?', '12', 12],
+    ['Are 40 seats of Palisade available?', '40', 40],
+    ['Price for 3 tendon assemblies', '3', 3],
+    ['6 maintenance kits', '6', 6],
+  ])('reads a catalog unit label or its plural: %s', (message, raw, value) => {
+    expect(values(message)).toEqual([valid(raw, value)]);
+    // Without the catalog labels these nouns are not units.
+    expect(values(message, genericUnits)).toEqual([]);
+  });
+
+  it.each([
+    ['Do you have two Redline power cells?', 'two'],
+    ['Can I get a dozen units?', 'a dozen'],
+    ['Price for twenty-five units of SBL-RPC-12', 'twenty-five'],
+    ['Do you have three hundred and twelve hubs?', 'three hundred and twelve'],
+    ['Can I order two SBL-RPC-12?', 'two'],
+    ['Do you have two four-port hubs?', 'two'],
+  ])('asks for digits when a quantity is spelled out: %s', (message, raw) => {
+    expect(values(message)).toEqual([spelled(raw)]);
+  });
+
+  it('asks for digits when a multiplier word follows the number', () => {
+    expect(values('Do you have 2 dozen units?')).toEqual([spelled('2')]);
+  });
+
+  it.each([
+    'Which one unit ships first?',
+    'Is one of the hubs in stock?',
+    'Do you have four-port hubs?',
+    'Price is ten dollars per unit.',
+  ])('ignores number words that are not a quantity: %s', (message) => {
+    expect(values(message)).toEqual([]);
+  });
 });

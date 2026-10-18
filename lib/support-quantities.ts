@@ -29,6 +29,53 @@ type QuantityAssignment =
 // Retain support's six-digit quantity range. Checkout has its own order limit.
 const MAX_SUPPORT_QUANTITY = 999_999;
 
+// Nouns that count a product. Catalog unit labels extend these generic ones,
+// so "12 cells" is a quantity once the caller passes the product labels.
+const GENERIC_UNITS = [
+  'unit',
+  'license',
+  'controller',
+  'array',
+  'module',
+  'hub',
+  'node',
+  'pack',
+];
+
+export type QuantityUnits = { readonly key: string; readonly source: string };
+
+function plural(label: string) {
+  if (/[^aeiou]y$/.test(label)) return `${label.slice(0, -1)}ies`;
+  if (/(?:s|x|ch|sh)$/.test(label)) return `${label}es`;
+  return `${label}s`;
+}
+
+const MAX_CACHED_UNITS = 8;
+const unitSets = new Map<string, QuantityUnits>();
+
+export function quantityUnits(labels: Iterable<string> = []): QuantityUnits {
+  const singular = new Set(GENERIC_UNITS);
+  for (const label of labels) {
+    const normalized = label.trim().toLowerCase();
+    // Labels are catalog data; only plain words become part of the pattern.
+    if (/^[a-z]+$/.test(normalized)) singular.add(normalized);
+  }
+  const key = [...singular].sort().join(',');
+  let units = unitSets.get(key);
+  if (!units) {
+    const words = [...singular]
+      .flatMap((label) => [label, plural(label)])
+      .sort((left, right) => right.length - left.length);
+    units = Object.freeze({ key, source: words.join('|') });
+    if (unitSets.size >= MAX_CACHED_UNITS)
+      unitSets.delete(unitSets.keys().next().value!);
+    unitSets.set(key, units);
+  }
+  return units;
+}
+
+const DEFAULT_UNITS = quantityUnits();
+
 // Classification re-reads saved history for every clause of the latest
 // message, so identical messages are parsed once. Entries are pure results.
 const MAX_CACHED_MESSAGES = 64;
@@ -36,13 +83,15 @@ const parsedMessages = new Map<string, readonly QuantityOccurrence[]>();
 
 export function parseQuantityOccurrences(
   message: string,
+  units: QuantityUnits = DEFAULT_UNITS,
 ): QuantityOccurrence[] {
-  let parsed = parsedMessages.get(message);
+  const cacheKey = `${units.key}\n${message}`;
+  let parsed = parsedMessages.get(cacheKey);
   if (!parsed) {
-    parsed = Object.freeze(scanQuantityOccurrences(message));
+    parsed = Object.freeze(scanQuantityOccurrences(message, units));
     if (parsedMessages.size >= MAX_CACHED_MESSAGES)
       parsedMessages.delete(parsedMessages.keys().next().value!);
-    parsedMessages.set(message, parsed);
+    parsedMessages.set(cacheKey, parsed);
   }
   return parsed.map((occurrence) => ({
     ...occurrence,
@@ -50,6 +99,9 @@ export function parseQuantityOccurrences(
   }));
 }
 
+const NUMBER_WORD =
+  '(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|dozen)';
+const MULTIPLIER = /\b(?:dozen|hundred|thousand|million)\b/i;
 const NUMBER_CHARACTER = /[\d.,/e+\-−–—]/i;
 const NUMBER_TOKEN = /^(?:[+\-−–—])?(?:\d|\.\d)[\d.,/e+\-−–—]*$/i;
 const BOUNDARY_BEFORE_NUMBER = /[\w.,/+\-−–—$]/;
@@ -86,25 +138,63 @@ function expressionStart(message: string, start: number, floor: number) {
   }
 }
 
-function scanQuantityOccurrences(message: string): QuantityOccurrence[] {
+// What may follow a quantity: up to two modifiers and a unit noun, or an item
+// number directly ("100 SBL-RPC-12"). Order IDs (SBL-2026-…) are not items.
+function quantityTail(units: QuantityUnits) {
+  return `(?:(?:\\s+[a-z-]+){0,2}\\s+(?:${units.source})\\b|(?=\\s+sbl-(?!\\d{4}-)[a-z0-9][a-z0-9-]*(?![\\w-])))`;
+}
+
+const MAX_CACHED_PATTERNS = 8;
+const patterns = new Map<string, { digits: RegExp; words: RegExp }>();
+
+function quantityPatterns(units: QuantityUnits) {
+  let compiled = patterns.get(units.key);
+  if (!compiled) {
+    const tail = quantityTail(units);
+    compiled = {
+      // Consume the complete numeric expression before validating it. In
+      // particular, punctuation, signs, exponents, and grouped digits cannot
+      // expose a valid suffix. The bounded repeat keeps long runs of numbers
+      // linear; expressionStart restores the start of a longer run, which is
+      // invalid syntax either way. The outer boundaries exclude SKU/model
+      // suffixes and attached capacity units.
+      digits: new RegExp(
+        `(?<![\\w.,/+\\-−–—$])((?:[+\\-−–—]\\s*)?(?:\\d|\\.\\d)[\\d.,/e+\\-−–—]*(?:[ \\t]+(?:(?:to|through|and)[ \\t]+)?[\\d.,/+\\-−–—][\\d.,/e+\\-−–—]*){0,8})(?![\\w.,/+\\-−–—])(?!\\s*(?:tb|gb|mb|kb|m)\\b)${tail}`,
+        'gi',
+      ),
+      // Spelled-out amounts ("two", "a dozen", "twenty-five") are quantities
+      // the lookup can't check, so they ask for digits instead of being ignored.
+      words: new RegExp(
+        `(?<![\\w-])((?:(?:a|half[ \\t]+a)[ \\t]+)?${NUMBER_WORD}(?:(?:[ \\t]+(?:and[ \\t]+)?|-)${NUMBER_WORD}){0,5})(?![\\w-])${tail}`,
+        'gi',
+      ),
+    };
+    if (patterns.size >= MAX_CACHED_PATTERNS)
+      patterns.delete(patterns.keys().next().value!);
+    patterns.set(units.key, compiled);
+  }
+  return compiled;
+}
+
+function scanQuantityOccurrences(
+  message: string,
+  units: QuantityUnits,
+): QuantityOccurrence[] {
+  const { digits, words } = quantityPatterns(units);
   const occurrences: QuantityOccurrence[] = [];
-  // Consume the complete numeric expression before validating it. In particular,
-  // punctuation, signs, exponents, and grouped digits cannot expose a valid suffix.
-  // The bounded repeat keeps long runs of numbers linear; expressionStart
-  // restores the start of a longer run, which is invalid syntax either way.
-  // The outer boundaries exclude SKU/model suffixes and attached capacity units.
-  const phrases =
-    /(?<![\w.,/+\-−–—$])((?:[+\-−–—]\s*)?(?:\d|\.\d)[\d.,/e+\-−–—]*(?:[ \t]+(?:(?:to|through|and)[ \t]+)?[\d.,/+\-−–—][\d.,/e+\-−–—]*){0,8})(?![\w.,/+\-−–—])(?!\s*(?:tb|gb|mb|kb|m)\b)(?:\s+[a-z-]+){0,2}\s+(?:units?|licenses?|controllers?|arrays?|modules?|hubs?|nodes?|packs?)\b/gi;
   let previousEnd = 0;
-  for (const match of message.matchAll(phrases)) {
+  for (const match of message.matchAll(digits)) {
+    const tail = match[0].slice(match[1].length);
     // A rate such as "680.00 per unit" is not an order quantity. Inspect only
     // this phrase so "1.5 units per item" still retains its invalid quantity.
-    if (/\bper\b/i.test(match[0].slice(match[1].length))) continue;
+    if (/\bper\b/i.test(tail)) continue;
     const start = expressionStart(message, match.index, previousEnd);
     const end = match.index + match[0].length;
     const raw = message.slice(start, match.index + match[1].length);
     previousEnd = end;
-    const validSyntax = /^(?:\d+|\d{1,3}(?:,\d{3})+)$/.test(raw);
+    // "2 dozen units" is not 2 units.
+    const validSyntax =
+      /^(?:\d+|\d{1,3}(?:,\d{3})+)$/.test(raw) && !MULTIPLIER.test(tail);
     const value = Number(raw.replaceAll(',', ''));
     const quantity: QuantityOccurrence['quantity'] = !validSyntax
       ? { kind: 'invalid', reason: 'syntax' }
@@ -113,7 +203,26 @@ function scanQuantityOccurrences(message: string): QuantityOccurrence[] {
         : { kind: 'valid', value };
     occurrences.push({ start, end, raw, quantity });
   }
-  return occurrences;
+  for (const match of message.matchAll(words)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    // A lone "one" is usually a pronoun: "which one", "one of the hubs".
+    if (
+      /^one$/i.test(match[1]) ||
+      /\bper\b/i.test(match[0].slice(match[1].length)) ||
+      occurrences.some(
+        (occurrence) => start < occurrence.end && end > occurrence.start,
+      )
+    )
+      continue;
+    occurrences.push({
+      start,
+      end,
+      raw: match[1],
+      quantity: { kind: 'invalid', reason: 'syntax' },
+    });
+  }
+  return occurrences.sort((left, right) => left.start - right.start);
 }
 
 function localTargets(

@@ -5,6 +5,7 @@ import {
   classifySupportQuery,
 } from '@/lib/support-query';
 import { parseCustomerPo } from '@/lib/support-references';
+import { findProductMentions } from '@/lib/product-mentions';
 
 it('shares the checkout PO contract and recognizes explicitly supplied references', () => {
   for (const po of [
@@ -1165,5 +1166,105 @@ describe('conversation frame targets', () => {
     expect(
       classifySupportQueries([user(content)], products).map(({ kind }) => kind),
     ).toContain('catalog');
+  });
+});
+
+describe('short product aliases and catalog unit labels', () => {
+  // Catalog terms as stored in the seed. "r2" belongs to two products.
+  const products = [
+    {
+      item_number: 'SBL-NL-4P',
+      product_name: 'Nerveline Four-Port Neural I/O Hub',
+      unit_label: 'hub',
+      search_terms: 'nerveline,neural io,neural i/o,hub',
+    },
+    {
+      item_number: 'SBL-GG-R2',
+      product_name: 'Ghostglass Retinal Display R2',
+      unit_label: 'display',
+      search_terms: 'ghostglass,retinal display,r2',
+    },
+    {
+      item_number: 'SBL-CSR-R2',
+      product_name: 'Coldstart Rack Controller R2',
+      unit_label: 'controller',
+      search_terms: 'coldstart,rack controller,r2',
+    },
+    {
+      item_number: 'SBL-RPC-12',
+      product_name: 'Redline Power Cell R12',
+      unit_label: 'cell',
+      search_terms: 'redline,power cell,r12',
+    },
+  ];
+  const named = (content: string) => {
+    const message = content.toLowerCase();
+    const { explicitProducts, keywordProducts } = findProductMentions(
+      message,
+      products,
+    );
+    return [...explicitProducts, ...keywordProducts].map(
+      (product) => product.item_number,
+    );
+  };
+
+  it.each([
+    ['What is the price of the hub?', ['SBL-NL-4P']],
+    ['Are hubs in stock?', ['SBL-NL-4P']],
+    ['What is the price of the r2?', []],
+    ['Is the github integration down?', []],
+  ])(
+    'matches a short alias owned by one product as a word: %s',
+    (content, items) => {
+      expect(named(content)).toEqual(items);
+    },
+  );
+
+  it('keeps "it" on a product named by a short alias', () => {
+    expect(
+      classifySupportQueries(
+        [
+          { role: 'user', content: 'What is the price of the hub?' },
+          { role: 'assistant', content: 'It is $1,200.00 per hub.' },
+          { role: 'user', content: 'Is it in stock?' },
+        ],
+        products,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        kind: 'catalog',
+        message: 'is it in stock? sbl-nl-4p',
+      }),
+    ]);
+  });
+
+  it.each([
+    ['Do you have 5 Redline power cells?', { kind: 'valid', value: 5 }],
+    [
+      'Do you have two Redline power cells?',
+      { kind: 'invalid', reason: 'syntax' },
+    ],
+    ['Do you have 100 SBL-RPC-12 in stock?', { kind: 'valid', value: 100 }],
+    ['Can I order 12 SBL-RPC-12?', { kind: 'valid', value: 12 }],
+  ])('reads the quantity in "%s"', (content, quantity) => {
+    expect(
+      classifySupportQueries([{ role: 'user', content }], products),
+    ).toEqual([
+      expect.objectContaining({
+        kind: 'catalog',
+        quantities: [expect.objectContaining({ quantity })],
+      }),
+    ]);
+  });
+
+  it('reads an order ID typed with non-breaking hyphens', () => {
+    expect(
+      classifySupportQueries(
+        [{ role: 'user', content: 'Where is my order SBL‑2026‑0001?' }],
+        products,
+      ),
+    ).toEqual([
+      { kind: 'order', namespace: 'order_id', identifier: 'SBL-2026-0001' },
+    ]);
   });
 });

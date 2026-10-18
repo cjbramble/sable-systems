@@ -8,7 +8,10 @@ export type SupportOrderStatusFilter =
       include: SupportOrderStatus[];
       exclude: SupportOrderStatus[];
     }
-  | { kind: 'clarification'; reason: 'unsupported' | 'contradictory' };
+  | {
+      kind: 'clarification';
+      reason: 'unsupported' | 'contradictory' | 'upcoming';
+    };
 
 type Filter = Extract<SupportOrderStatusFilter, { kind: 'filter' }>;
 
@@ -31,11 +34,12 @@ const STATUS_TERMS: [SupportOrderStatus, string][] = [
   ['on_hold', 'on[ -]hold'],
   ['backordered', 'backorder(?:ed)?'],
   ['cancelled', 'cancel(?:led|ed)?'],
-  ['delivered', 'deliver(?:ed|ies|y)?'],
+  // "delivery orders" and "deliveries" name the topic, not a status.
+  ['delivered', 'deliver(?:ed)?'],
   ['shipped', 'shipped'],
   ['allocating', 'allocat(?:ing|ion)'],
   ['confirmed', 'confirm(?:ed|ation)?'],
-  ['scheduled', 'schedul(?:ed|e)|future|upcoming'],
+  ['scheduled', 'schedul(?:ed|e)'],
   ['active', 'active|open'],
 ];
 const STATUS_SOURCE = `(?:${STATUS_TERMS.map(([, term]) => term).join('|')})`;
@@ -56,6 +60,9 @@ const UNSUPPORTED_NEGATION = new RegExp(
   `\\b(?:not|never|neither|without|except|excluding|non|no|\\w+n['’]t)\\b|\\b(?:hide|hiding|skip|skipping|omit|omitting|minus|ignore|ignoring|besides|other\\s+than|leave\\s+out|apart\\s+from)\\s+(?:(?:the|all|any|my|those|these|of)\\s+)*(?:${STATUS_SOURCE}|orders?|ones?|purchases?)\\b`,
   'i',
 );
+// "Upcoming" or "future" orders can mean scheduled releases or open orders
+// that have not arrived, so the customer chooses.
+const UPCOMING = /\b(?:upcoming|future)\b/i;
 const EXCLUSION = /^(?:excluding|except|without)\s+/i;
 const EXPLANATION =
   /^\s*(?:and\s+)?(?:please\s+)?(?:explain|describe|define)\b/i;
@@ -149,6 +156,8 @@ export function parseOrderStatusFilter(
   message: string,
 ): SupportOrderStatusFilter | undefined {
   const filter: Filter = { kind: 'filter', include: [], exclude: [] };
+  if (ORDER_NOUN.test(message) && UPCOMING.test(message))
+    return { kind: 'clarification', reason: 'upcoming' };
   for (const clause of message.split(
     /[;.!?]|\band\s+(?=(?:please\s+)?(?:explain|describe|define)\b)/i,
   )) {

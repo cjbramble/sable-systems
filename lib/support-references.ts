@@ -1,4 +1,7 @@
-import { parseQuantityOccurrences } from './support-quantities.ts';
+import {
+  parseQuantityOccurrences,
+  type QuantityUnits,
+} from './support-quantities.ts';
 
 // Checkout stores normalized customer references; support uses the same contract.
 export function parseCustomerPo(value: unknown): string | null {
@@ -7,8 +10,23 @@ export function parseCustomerPo(value: unknown): string | null {
   return /^[A-Z0-9][A-Z0-9-]{3,39}$/.test(normalized) ? normalized : null;
 }
 
+// IDs pasted from PDFs or email often carry typographic hyphens (U+2010 to
+// U+2015, U+2212). Only a hyphen between letters or digits changes, so a sign
+// or dash before a quantity keeps its meaning. Each character maps to one
+// character, so source positions stay valid.
+export function normalizeIdentifierHyphens(message: string): string {
+  return message.replace(
+    /(?<=[A-Z0-9])[\u2010-\u2015\u2212](?=[A-Z0-9])/gi,
+    '-',
+  );
+}
+
 function referenceTokens(message: string): string[] {
-  return message.match(/(?<![\w-])[A-Z0-9][A-Z0-9-]*(?![\w-])/gi) ?? [];
+  return (
+    normalizeIdentifierHyphens(message).match(
+      /(?<![\w-])[A-Z0-9][A-Z0-9-]*(?![\w-])/gi,
+    ) ?? []
+  );
 }
 
 export function itemReferences(message: string): string[] {
@@ -59,9 +77,11 @@ const FIELD_WORD =
 export function parseSupportReferences(
   message: string,
   candidateIdentifiers?: ReadonlySet<string>,
+  units?: QuantityUnits,
 ): ParsedSupportReferences {
+  message = normalizeIdentifierHyphens(message);
   const occurrences: ReferenceOccurrence[] = [];
-  const quantities = parseQuantityOccurrences(message);
+  const quantities = parseQuantityOccurrences(message, units);
   const labeledSpans: { start: number; end: number }[] = [];
   const labels =
     /(?<![\w-])(?:(?:customer\s+)?(?:PO|purchase\s+order)(?:\s+(?:number|reference))?|tracking(?:\s+(?:reference|number|ID))?|(?:order|shipment|return)(?:\s+(?:ID|number|reference))?)(?![\w-])/gi;
