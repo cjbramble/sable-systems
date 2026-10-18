@@ -338,10 +338,10 @@ for (const source of ['catalog', 'account', 'checkout'] as const) {
       await shopPage.goto('Power');
     }
 
+    // Match a URL, not a predicate: a predicate waits through waitForURL, which
+    // fails when the session check's redirect aborts the catalog's redirect.
     await expect(page).toHaveURL(
-      (url) =>
-        url.pathname === '/login' &&
-        url.searchParams.get('next') === '/shop?category=Power',
+      `/login?next=${encodeURIComponent('/shop?category=Power')}`,
     );
     await page.unrouteAll({ behavior: 'wait' });
     await loginPage.signIn(email, password, '/shop?category=Power');

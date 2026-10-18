@@ -106,6 +106,12 @@ export const test = base.extend<Fixtures>({
         `Unexpected outbound requests: ${unexpectedRequests.join(', ')}`,
       );
     }
+    // A skipped model call (for example a corrective retry) must not pass silently.
+    if (responseSequence?.length) {
+      throw new Error(
+        `${responseSequence.length} planned model response(s) were never requested`,
+      );
+    }
   },
   baseURL: async ({ app }, provide) => {
     await provide(app.url);

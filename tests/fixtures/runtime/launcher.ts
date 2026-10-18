@@ -119,9 +119,19 @@ export function launchFixture(scenario: string) {
   const pids = () => [
     ...new Set(events.flatMap((event) => (event.pid ? [event.pid] : []))),
   ];
+  // An exited PID may already belong to an unrelated process; never signal it.
+  const running = () => {
+    const exited = new Set(
+      events.flatMap((event) =>
+        event.event === 'child-exit' && event.pid ? [event.pid] : [],
+      ),
+    );
+    if (exit !== null) exited.add(child.pid!);
+    return [child.pid!, ...pids()].filter((pid) => !exited.has(pid));
+  };
   onTestFinished(async () => {
     // Only fixture-owned PIDs/groups, never a user service or a port-based target.
-    for (const pid of [child.pid!, ...pids()]) {
+    for (const pid of new Set(running())) {
       if (!alive(pid)) continue;
       try {
         process.kill(-pid, 'SIGKILL');
@@ -136,7 +146,7 @@ export function launchFixture(scenario: string) {
     }
     await closed;
     await waitFor(
-      () => pids().every((pid) => !alive(pid)),
+      () => running().every((pid) => !alive(pid)),
       'fixture cleanup stopped all descendants',
     );
     rmSync(directory, { recursive: true });
@@ -149,7 +159,7 @@ export function launchFixture(scenario: string) {
       await waitFor(() => exit !== null, 'launcher exited');
       expect(exit).toEqual({ code, signal: null });
       await waitFor(
-        () => pids().every((pid) => !alive(pid)),
+        () => running().every((pid) => !alive(pid)),
         'all owned descendants stopped',
       );
       await closed;

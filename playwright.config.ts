@@ -4,7 +4,8 @@ export default defineConfig({
   testDir: './tests/e2e',
   testMatch: '**/*.spec.ts',
   forbidOnly: Boolean(process.env.CI),
-  workers: 1,
+  // Each test starts its own app on a random port with in-memory D1.
+  workers: process.env.CI ? 2 : 1,
   retries: 0,
   timeout: 60_000,
   expect: { timeout: 10_000 },
