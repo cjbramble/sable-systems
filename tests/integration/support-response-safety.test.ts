@@ -545,9 +545,8 @@ describe('support response safety', () => {
     },
     {
       failure: 'HTTP',
-      expectedStatus: 502,
-      expectedError:
-        'The support model could not complete that request. Please try again.',
+      expectedStatus: 503,
+      expectedError: 'The support model is unavailable. Please try again.',
     },
     {
       failure: 'context-overflow',
@@ -593,9 +592,8 @@ describe('support response safety', () => {
       replyPayload: {
         error: { message: 'test: private upstream diagnostics' },
       },
-      expectedStatus: 502,
-      expectedError:
-        'The support model returned an empty response. Please try again.',
+      expectedStatus: 503,
+      expectedError: 'The support model is unavailable. Please try again.',
     },
     {
       failure: 'empty-choices',

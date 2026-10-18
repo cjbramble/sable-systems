@@ -136,14 +136,30 @@ export function createSupportModelRequest({
   };
 }
 
+// OpenRouter can report a provider failure inside an HTTP 200 body: an error
+// at the top level or on the first choice, or a first choice that finished
+// with "error". Any answer text beside it is not usable.
+export function hasSupportModelErrorEnvelope(payload: unknown) {
+  if (!payload || typeof payload !== 'object') return false;
+  if ((payload as Record<string, unknown>).error) return true;
+  const choices = (payload as Record<string, unknown>).choices;
+  if (!Array.isArray(choices)) return false;
+  const firstChoice = choices[0];
+  if (!firstChoice || typeof firstChoice !== 'object') return false;
+  const { error, finish_reason: finishReason } = firstChoice as Record<
+    string,
+    unknown
+  >;
+  return Boolean(error) || finishReason === 'error';
+}
+
 function readSupportModelChoice(payload: unknown) {
   if (!payload || typeof payload !== 'object') return null;
-  if ((payload as Record<string, unknown>).error) return null;
+  if (hasSupportModelErrorEnvelope(payload)) return null;
   const choices = (payload as Record<string, unknown>).choices;
   if (!Array.isArray(choices)) return null;
   const firstChoice = choices[0];
   if (!firstChoice || typeof firstChoice !== 'object') return null;
-  if ((firstChoice as Record<string, unknown>).error) return null;
   const { message, finish_reason: finishReason } = firstChoice as Record<
     string,
     unknown

@@ -3,6 +3,7 @@ import { expect, it } from 'vitest';
 import {
   extractSupportModelContent,
   isIncompleteSupportModelReply,
+  hasSupportModelErrorEnvelope,
 } from '@/lib/support-model';
 import { calderPikeUser } from '../fixtures/users';
 
@@ -71,6 +72,10 @@ it('accepts model content only from a reply that finished normally', () => {
   expect(isIncompleteSupportModelReply(reply('length'))).toBe(true);
   expect(isIncompleteSupportModelReply(reply())).toBe(true);
   expect(isIncompleteSupportModelReply(reply('stop'))).toBe(false);
+  // A provider error is reported as an error envelope, not as incomplete.
+  expect(hasSupportModelErrorEnvelope(reply('error'))).toBe(true);
+  expect(hasSupportModelErrorEnvelope(reply('length'))).toBe(false);
+  expect(isIncompleteSupportModelReply(reply('error'))).toBe(false);
   // An empty reply is reported as empty, not as incomplete.
   expect(
     isIncompleteSupportModelReply({

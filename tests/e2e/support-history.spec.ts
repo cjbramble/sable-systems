@@ -246,8 +246,7 @@ test.describe('model failure recovery', () => {
   const firstMessage = 'Help trace my shipment.';
   const followUpMessage = 'Which order details do you need?';
   const recoveredReply = 'Please provide the order number.';
-  const errorMessage =
-    'The support model could not complete that request. Please try again.';
+  const errorMessage = 'The support model is unavailable. Please try again.';
   const upstreamError = 'Controlled upstream failure for browser recovery test';
 
   test.use({
@@ -274,7 +273,7 @@ test.describe('model failure recovery', () => {
   }) => {
     await supportPage.startIncident();
     const failedResponse = await supportPage.sendMessage(firstMessage);
-    expect(failedResponse.status()).toBe(502);
+    expect(failedResponse.status()).toBe(503);
     expect(await failedResponse.json()).toEqual({
       error: errorMessage,
       code: 'request_not_saved',

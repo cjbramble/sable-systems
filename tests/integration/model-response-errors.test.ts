@@ -92,6 +92,8 @@ describe('model response failures', () => {
 
   const providerFailure =
     'The support model could not complete that request. Please try again.';
+  const providerUnavailable =
+    'The support model is unavailable. Please try again.';
   const contextFailure =
     'That message is too long for the support model. Shorten it and try again.';
   const errorBodies = [
@@ -106,8 +108,8 @@ describe('model response failures', () => {
       label: 'malformed HTTP 503',
       status: 503,
       body: '{"error":',
-      expectedStatus: 502,
-      error: providerFailure,
+      expectedStatus: 503,
+      error: providerUnavailable,
     },
     {
       label: 'null payload',
@@ -145,8 +147,8 @@ describe('model response failures', () => {
       label: 'context text on HTTP 503',
       status: 503,
       body: '{"error":{"message":"maximum context length"}}',
-      expectedStatus: 502,
-      error: providerFailure,
+      expectedStatus: 503,
+      error: providerUnavailable,
     },
   ];
 

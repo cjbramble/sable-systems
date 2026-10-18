@@ -106,6 +106,8 @@ terms and account privacy settings before using real customer data.
 Authentication, account-scoped lookups, quotas, and response guards remain in
 the application. Chat makes at most one corrective model retry. Missing credentials
 or provider failures return safe errors without saving a completed exchange.
+Provider outages, credit, credential, and rate-limit errors return 503 and are
+logged by status code; see [support API](support-api.md).
 Chat and readiness requests reject redirects. Chat's two-minute deadline covers
 response headers and bodies, including provider error responses. Timeouts return
 504; cancelled model requests return 503. Neither triggers a corrective retry.
