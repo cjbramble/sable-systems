@@ -206,9 +206,13 @@ function scanQuantityOccurrences(
   for (const match of message.matchAll(words)) {
     const start = match.index;
     const end = start + match[0].length;
-    // A lone "one" is usually a pronoun: "which one", "one of the hubs".
+    // A lone "one" can be a pronoun: "which one", "one of the hubs".
     if (
-      /^one$/i.test(match[1]) ||
+      (/^one$/i.test(match[1]) &&
+        (/^\s+of\b/i.test(match[0].slice(match[1].length)) ||
+          /\b(?:which|the|that|this|any|each|every|no|some)\s+$/i.test(
+            message.slice(0, start),
+          ))) ||
       /\bper\b/i.test(match[0].slice(match[1].length)) ||
       occurrences.some(
         (occurrence) => start < occurrence.end && end > occurrence.start,
@@ -225,7 +229,9 @@ function scanQuantityOccurrences(
   return occurrences.sort((left, right) => left.start - right.start);
 }
 
-function localTargets(
+// Products that a quantity's own phrase names: inside it ("8 Redline units"),
+// right after it ("8 units of SBL-RPC-12"), or right before it.
+export function localTargets(
   message: string,
   occurrence: QuantityOccurrence,
   mentions: ProductMention[],

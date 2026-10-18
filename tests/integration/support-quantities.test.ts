@@ -459,3 +459,33 @@ describe('quantities without a generic unit noun', () => {
       });
     });
 });
+
+describe('unit words that name a product', () => {
+  test('keeps a unit-only target when another product is named elsewhere', async ({
+    database,
+  }) => {
+    const records = await catalogRecords(
+      database,
+      'Do you have 5 hubs and is SBL-SWC-12 available?',
+    );
+    expect(productRecords(records, 'SBL-NL-4P')).toContain(
+      'Requested quantity 5:',
+    );
+    expect(productRecords(records, 'SBL-SWC-12')).not.toContain(
+      'Requested quantity',
+    );
+  });
+
+  test('still reads a unit as a measure when its own phrase names the product', async ({
+    database,
+  }) => {
+    const records = await catalogRecords(
+      database,
+      'Are 20 licenses of SBL-RLY-1Y available?',
+    );
+    expect(records.match(/^Product:/gm)).toHaveLength(1);
+    expect(productRecords(records, 'SBL-RLY-1Y')).toContain(
+      'Requested quantity 20:',
+    );
+  });
+});

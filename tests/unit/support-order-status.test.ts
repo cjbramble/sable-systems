@@ -45,6 +45,12 @@ describe('order status filters', () => {
     });
   });
 
+  it('keeps a status filter when "future" describes something else', () => {
+    expect(
+      classify('Show shipped orders for products with future availability.'),
+    ).toMatchObject({ kind: 'orders', statusFilter: filter(['shipped']) });
+  });
+
   it.each(['Show delivery orders.', 'Show my orders and deliveries.'])(
     'does not read a delivery noun as delivered: %s',
     (message) => {

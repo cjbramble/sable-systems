@@ -349,6 +349,8 @@ describe('quantities without a generic unit noun', () => {
     ['Do you have three hundred and twelve hubs?', 'three hundred and twelve'],
     ['Can I order two SBL-RPC-12?', 'two'],
     ['Do you have two four-port hubs?', 'two'],
+    ['Can I order one SBL-RPC-12?', 'one'],
+    ['Please reserve one unit of SBL-RPC-12', 'one'],
   ])('asks for digits when a quantity is spelled out: %s', (message, raw) => {
     expect(values(message)).toEqual([spelled(raw)]);
   });
@@ -360,6 +362,7 @@ describe('quantities without a generic unit noun', () => {
   it.each([
     'Which one unit ships first?',
     'Is one of the hubs in stock?',
+    'Is the one SBL-RPC-12 on my order delivered?',
     'Do you have four-port hubs?',
     'Price is ten dollars per unit.',
   ])('ignores number words that are not a quantity: %s', (message) => {

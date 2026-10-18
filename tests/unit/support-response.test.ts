@@ -11,6 +11,7 @@ import {
   hasGroundedSupportIdentifiers,
   unavailableRecordReply,
 } from '@/lib/support-response';
+import { quantityUnits } from '@/lib/support-quantities';
 
 const context = supportRecords([
   shipmentOutcome('SHP-2022-000012', 'AST-1234567890'),
@@ -254,4 +255,13 @@ describe('unavailable record replies', () => {
       }),
     ).toBeNull();
   });
+});
+
+it('reads a catalog unit quantity after "order" in a reply as a quantity', () => {
+  const reply = 'You can order 1000 cells of SBL-DMK-A9 once stock arrives.';
+  expect(
+    hasGroundedSupportIdentifiers(reply, context, quantityUnits(['cell'])),
+  ).toBe(true);
+  // Without the catalog labels, "1000" reads as an invented order reference.
+  expect(hasGroundedSupportIdentifiers(reply, context)).toBe(false);
 });

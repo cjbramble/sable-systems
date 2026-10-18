@@ -1,6 +1,8 @@
-import type {
-  ProductMention,
-  QuantityOccurrence,
+import {
+  localTargets,
+  quantityUnits,
+  type ProductMention,
+  type QuantityOccurrence,
 } from './support-quantities.ts';
 import { itemReferences } from './support-references.ts';
 
@@ -31,6 +33,11 @@ function termMentions(
     start = message.indexOf(term, end);
   }
   return mentions;
+}
+
+// Catalog unit labels ("cell", "seat", "kit") also count a product.
+export function productQuantityUnits(products: readonly ProductTerms[]) {
+  return quantityUnits(products.map((product) => product.unit_label));
 }
 
 function terms(product: ProductTerms) {
@@ -110,14 +117,24 @@ export function findProductMentions<Product extends ProductTerms>(
   const keywordMessage = keywordCharacters.join('');
   // The final word of a parsed quantity is usually its unit, not a product
   // alias: "20 licenses of SBL-RLY-1Y" must not also select Palisade via
-  // "license". When nothing else names a product, the unit word is the
-  // product: "8 hubs", "5 cables".
-  const units = quantities.flatMap(({ start, end }) => {
-    const unit = message.slice(start, end).match(/[a-z]+$/i)?.[0];
-    return unit ? [{ start: end - unit.length, end }] : [];
+  // "license". When nothing else in that quantity's phrase names a product,
+  // the unit word is the product: "8 hubs", "5 cables".
+  const units = quantities.flatMap((occurrence) => {
+    const unit = message
+      .slice(occurrence.start, occurrence.end)
+      .match(/[a-z]+$/i)?.[0];
+    return unit
+      ? [
+          {
+            occurrence,
+            start: occurrence.end - unit.length,
+            end: occurrence.end,
+          },
+        ]
+      : [];
   });
-  const inUnit = (mention: ProductMention) =>
-    units.some((unit) => mention.start < unit.end && mention.end > unit.start);
+  const unitOf = (mention: ProductMention) =>
+    units.find((unit) => mention.start < unit.end && mention.end > unit.start);
   // Check aliases after collecting all explicit references, regardless of row
   // order. Separately mentioned aliases remain available for mixed comparisons.
   const aliasMentions = products.flatMap((product) =>
@@ -129,11 +146,14 @@ export function findProductMentions<Product extends ProductTerms>(
         ...termMentions(keywordMessage, product.item_number, `${term}s`, true),
       ]),
   );
-  const named =
-    mentions.length > 0 || aliasMentions.some((mention) => !inUnit(mention));
-  const keywordMentions = named
-    ? aliasMentions.filter((mention) => !inUnit(mention))
-    : aliasMentions;
+  const otherMentions = [
+    ...mentions,
+    ...aliasMentions.filter((mention) => !unitOf(mention)),
+  ];
+  const keywordMentions = aliasMentions.filter((mention) => {
+    const unit = unitOf(mention);
+    return !unit || !localTargets(message, unit.occurrence, otherMentions).size;
+  });
   mentions.push(...keywordMentions);
   const keywordProducts = products.filter(
     (product) =>

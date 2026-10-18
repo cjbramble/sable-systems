@@ -62,7 +62,8 @@ const UNSUPPORTED_NEGATION = new RegExp(
 );
 // "Upcoming" or "future" orders can mean scheduled releases or open orders
 // that have not arrived, so the customer chooses.
-const UPCOMING = /\b(?:upcoming|future)\b/i;
+const UPCOMING =
+  /\b(?:upcoming|future)\s+(?:orders|purchases?|releases?)\b|\b(?:orders|purchases?|releases?)\s+(?:(?:that|which)\s+)?(?:are|were|is)\s+(?:upcoming|future)\b/i;
 const EXCLUSION = /^(?:excluding|except|without)\s+/i;
 const EXPLANATION =
   /^\s*(?:and\s+)?(?:please\s+)?(?:explain|describe|define)\b/i;
@@ -156,7 +157,7 @@ export function parseOrderStatusFilter(
   message: string,
 ): SupportOrderStatusFilter | undefined {
   const filter: Filter = { kind: 'filter', include: [], exclude: [] };
-  if (ORDER_NOUN.test(message) && UPCOMING.test(message))
+  if (UPCOMING.test(message))
     return { kind: 'clarification', reason: 'upcoming' };
   for (const clause of message.split(
     /[;.!?]|\band\s+(?=(?:please\s+)?(?:explain|describe|define)\b)/i,

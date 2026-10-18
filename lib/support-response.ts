@@ -3,6 +3,7 @@ import {
   itemReferences,
   type SupportRecordReference,
 } from './support-references.ts';
+import type { QuantityUnits } from './support-quantities.ts';
 import type {
   SupportRecordsContext,
   VerifiedSupportReference,
@@ -100,14 +101,17 @@ function identifierEvidence(
   return evidence;
 }
 
+// `units` are the catalog's quantity nouns, so "order 1000 cells" in a reply
+// is a quantity, as it is in the customer's question.
 export function hasGroundedSupportIdentifiers(
   content: string,
   context: SupportRecordsContext,
+  units?: QuantityUnits,
 ): boolean {
   const evidence = identifierEvidence(context);
   const text = normalizeIdentifierText(content);
   const { identifiers, orderIds, customerPos, echoReferences } = evidence;
-  const { occurrences } = parseSupportReferences(text, identifiers);
+  const { occurrences } = parseSupportReferences(text, identifiers, units);
   return (
     occurrences.every(({ reference }) => {
       const { identifier, namespace } = reference;

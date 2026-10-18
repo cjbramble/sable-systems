@@ -6,7 +6,6 @@ import {
 } from './support-order-status.ts';
 import {
   parseQuantityOccurrences,
-  quantityUnits,
   type QuantityOccurrence,
   type QuantityUnits,
 } from './support-quantities.ts';
@@ -20,7 +19,11 @@ import {
   isCatalogCategory,
   type CatalogCategory,
 } from './catalog-categories.ts';
-import { findProductMentions, type ProductTerms } from './product-mentions.ts';
+import {
+  findProductMentions,
+  productQuantityUnits,
+  type ProductTerms,
+} from './product-mentions.ts';
 
 export type SupportQueryIntent =
   | SupportRecordReference
@@ -376,7 +379,7 @@ export function classifySupportQuery(
   messages: ChatHistoryMessage[],
   products: readonly ProductTerms[] = [],
 ): SupportQueryIntent {
-  const units = productUnits(products);
+  const units = productQuantityUnits(products);
   let frame = emptyFrame();
   let intent: SupportQueryIntent = { kind: 'summary', message: '' };
   for (const message of messages) {
@@ -476,11 +479,6 @@ export function classifySupportQuery(
   return intent;
 }
 
-// Catalog unit labels ("cell", "seat", "kit") also count a product.
-function productUnits(products: readonly ProductTerms[]) {
-  return quantityUnits(products.map((product) => product.unit_label));
-}
-
 function mentionedProducts(
   normalized: string,
   products: readonly ProductTerms[],
@@ -489,7 +487,7 @@ function mentionedProducts(
   const { explicitProducts, keywordProducts } = findProductMentions(
     normalized,
     products,
-    parseQuantityOccurrences(normalized, productUnits(products)),
+    parseQuantityOccurrences(normalized, productQuantityUnits(products)),
   );
   return [...explicitProducts, ...keywordProducts].map(
     (product) => product.item_number,
@@ -609,7 +607,7 @@ export function classifySupportQueries(
   products: readonly ProductTerms[] = [],
 ): SupportQueryIntent[] {
   const primary = classifySupportQuery(messages, products);
-  const units = productUnits(products);
+  const units = productQuantityUnits(products);
   const latest = messages.at(-1)?.content.trim() ?? '';
   const { occurrences, remainder } = parseSupportReferences(
     latest,
