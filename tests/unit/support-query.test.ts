@@ -894,3 +894,206 @@ it('does not treat ordinary order wording as a date filter', () => {
       classifySupportQuery([{ role: 'user', content: message }]),
     ).not.toHaveProperty('unsupportedDate');
 });
+
+describe('conversation frame targets', () => {
+  // Catalog terms as stored in the seed, so names and aliases match as in production.
+  const products = [
+    {
+      item_number: 'SBL-AEG-4',
+      product_name: 'Aegis Hardware Firewall',
+      unit_label: 'unit',
+      search_terms: 'aegis,hardware firewall,firewall',
+    },
+    {
+      item_number: 'SBL-CSR-R2',
+      product_name: 'Coldstart Rack Controller R2',
+      unit_label: 'controller',
+      search_terms: 'coldstart,rack controller,r2',
+    },
+    {
+      item_number: 'SBL-RPC-12',
+      product_name: 'Redline Power Cell R12',
+      unit_label: 'cell',
+      search_terms: 'redline,power cell,r12',
+    },
+  ];
+  const user = (content: string) => ({ role: 'user' as const, content });
+  const assistant = (content: string) => ({
+    role: 'assistant' as const,
+    content,
+  });
+  const orderQuestion = user('What is the status of order SBL-2022-000118?');
+  const orderAnswer = assistant('SBL-2022-000118 was delivered on 2022-06-27.');
+  const order = {
+    kind: 'order',
+    namespace: 'order_id',
+    identifier: 'SBL-2022-000118',
+  };
+
+  it.each([
+    ['Is the Redline in stock? How much is it?', 'SBL-RPC-12'],
+    [
+      'Is the Aegis Hardware Firewall in stock and what does it cost?',
+      'SBL-AEG-4',
+    ],
+    ['Is the Redline Power Cell R12 in stock? How much is it?', 'SBL-RPC-12'],
+  ])('resolves "it" to a product named in the same message: %s', (content) => {
+    expect(classifySupportQueries([user(content)], products)).toEqual([
+      expect.objectContaining({
+        kind: 'catalog',
+        message: content.toLowerCase(),
+      }),
+    ]);
+  });
+
+  it.each([
+    ['Is the Redline Power Cell R12 in stock?', 'SBL-RPC-12'],
+    ['Is the Redline in stock?', 'SBL-RPC-12'],
+    ['Is the Aegis Hardware Firewall in stock?', 'SBL-AEG-4'],
+  ])(
+    'resolves "it" to a product named in an earlier message: %s',
+    (content, itemNumber) => {
+      const messages = [
+        user(content),
+        assistant('Yes, 40 are in stock.'),
+        user('How much is it?'),
+      ];
+      expect(classifySupportQueries(messages, products)).toEqual([
+        expect.objectContaining({
+          kind: 'catalog',
+          message: `how much is it? ${itemNumber.toLowerCase()}`,
+        }),
+      ]);
+    },
+  );
+
+  it.each([
+    'Was the controller on that order damaged?',
+    'Was the Aegis Hardware Firewall on that order damaged?',
+    'Was it shipped with the controller?',
+    'Did it include the Redline Power Cell R12?',
+  ])(
+    'keeps a product named on the current order on that order: %s',
+    (content) => {
+      expect(
+        classifySupportQueries(
+          [orderQuestion, orderAnswer, user(content)],
+          products,
+        ),
+      ).toEqual([order]);
+    },
+  );
+
+  it('switches from an order to a product named in a stock question', () => {
+    expect(
+      classifySupportQueries(
+        [
+          orderQuestion,
+          orderAnswer,
+          user('Is the Redline in stock? How much is it?'),
+        ],
+        products,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        kind: 'catalog',
+        message: 'is the redline in stock? how much is it?',
+      }),
+    ]);
+  });
+
+  it('resolves "it" to the one record the assistant named after a list', () => {
+    expect(
+      classifySupportQuery([
+        user('Show my cancelled orders'),
+        assistant('You have one cancelled order: SBL-2023-000205.'),
+        user('Why was it cancelled?'),
+      ]),
+    ).toEqual({
+      kind: 'order',
+      namespace: 'order_id',
+      identifier: 'SBL-2023-000205',
+    });
+  });
+
+  it('resolves "it" to the one product the assistant named after a catalog list', () => {
+    expect(
+      classifySupportQuery([
+        user('Which compute products are in stock?'),
+        assistant('SBL-HXB-09 is in stock.'),
+        user('How much is it?'),
+      ]),
+    ).toMatchObject({ kind: 'catalog', message: 'how much is it? sbl-hxb-09' });
+  });
+
+  it('still asks which record "it" means when the assistant named several', () => {
+    expect(
+      classifySupportQuery([
+        user('Show my cancelled orders'),
+        assistant('SBL-2023-000205 and SBL-2026-000120 were cancelled.'),
+        user('Why was it cancelled?'),
+      ]),
+    ).toEqual({
+      kind: 'clarification',
+      entity: 'order',
+      reason: 'multiple_targets',
+    });
+  });
+
+  it.each([
+    'Was it delayed by a power outage?',
+    'Is that order on hold for a security review?',
+    'Is there an interface where I can track it?',
+    'Was its software license applied?',
+  ])('keeps an everyday category word on the current order: %s', (content) => {
+    expect(
+      classifySupportQueries([orderQuestion, orderAnswer, user(content)]),
+    ).toEqual([order]);
+  });
+
+  it.each([
+    'Which warehouse did my last order ship from?',
+    'When will my invoice be available?',
+    'What security options does my account have?',
+    'Is my payment on hold for a security review?',
+  ])(
+    'does not read an everyday question as a catalog request: %s',
+    (content) => {
+      expect(classifySupportQuery([user(content)]).kind).not.toBe('catalog');
+    },
+  );
+
+  it.each([
+    ['Which power products are in stock?', 'Power'],
+    ['List the Software catalog.', 'Software'],
+    ['Show the security category.', 'Security'],
+    ['What is in the catalog for compute?', 'Compute'],
+    ['Is any interface gear available?', 'Interface'],
+    ['Do you have cybernetics in stock?', 'Cybernetics'],
+  ])('still reads a category beside a catalog cue: %s', (content, category) => {
+    expect(classifySupportQuery([user(content)])).toMatchObject({
+      kind: 'catalog',
+      category,
+    });
+  });
+
+  it('starts a new catalog topic for a category question without a pronoun', () => {
+    expect(
+      classifySupportQuery([
+        orderQuestion,
+        orderAnswer,
+        user('Which power products are in stock?'),
+      ]),
+    ).toMatchObject({ kind: 'catalog', category: 'Power' });
+  });
+
+  it.each([
+    'Which warehouse stocks SBL-RPC-12?',
+    'Is the item SBL-RPC-12 available?',
+    'Show order SBL-2022-000118. Check Coldstart Rack Controller R2 availability.',
+  ])('keeps stock words with a named product as catalog: %s', (content) => {
+    expect(
+      classifySupportQueries([user(content)], products).map(({ kind }) => kind),
+    ).toContain('catalog');
+  });
+});

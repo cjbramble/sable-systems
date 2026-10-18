@@ -1146,7 +1146,8 @@ Ask which item the customer wants if a specific availability decision is require
       kind: 'catalog',
       message:
         'compare the nightvault 16 tb solid-state array versus the redline power cell r12.',
-      category: 'Power',
+      // "Power" here is part of a product name, not a category request.
+      category: undefined,
       quantities: [],
       includeLocations: false,
       compare: true,
