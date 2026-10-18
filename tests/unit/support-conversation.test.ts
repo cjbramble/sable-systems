@@ -299,6 +299,28 @@ describe('support conversation drafts and exchanges', () => {
     ]);
   });
 
+  it('keeps a recovered receipt below incidents updated after it', () => {
+    const newer = {
+      ...incident(secondId),
+      updatedAt: '2026-10-09T13:00:00.000Z',
+    };
+    const third = incident('INC-THIRD-CONVERSATION');
+    const state = apply(
+      reduce(initialSupportConversation(), {
+        type: 'load',
+        incidents: [newer, third, incident()],
+      }),
+      { type: 'send', request, createdAt, consumeDraft: true },
+      { type: 'unconfirmed', request, error: 'Lost receipt' },
+      { type: 'reconciled', request, snapshot },
+    );
+    expect(state.incidents.map(({ id }) => id)).toEqual([
+      secondId,
+      firstId,
+      third.id,
+    ]);
+  });
+
   it('merges a historical receipt by ID in its original position without duplicating messages', () => {
     const laterMessages = [
       {

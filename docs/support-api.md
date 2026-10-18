@@ -207,8 +207,9 @@ does not prove failure: its original request may still be running. A later revis
 without the pair proves that the old command can no longer save and allows explicit
 review and resubmission. Checking history never sends a message automatically.
 
-A confirmed reply moves its incident to the top of the sidebar, matching the
-server's newest-first order. Drafts stay in memory while switching incidents. Deleting an incident clears its
+A confirmed reply re-places its incident in the sidebar by its saved update time,
+matching the server's newest-first order. Changes made in another tab appear after
+the page reloads. Drafts stay in memory while switching incidents. Deleting an incident clears its
 local draft; remote deletion preserves unsent text for recovery into a new incident.
 Reloading the page or changing accounts clears local drafts and pending recovery.
 

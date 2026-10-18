@@ -139,13 +139,21 @@ function replaceIncident(
   );
 }
 
-// A saved reply makes its incident the most recently updated, matching the
-// server's newest-first order.
-function moveToTop(incidents: SupportIncident[], incidentId: string) {
-  const incident = incidents.find(({ id }) => id === incidentId);
-  return incident
-    ? [incident, ...incidents.filter(({ id }) => id !== incidentId)]
-    : incidents;
+// Re-place an incident whose updatedAt changed, using the server's order:
+// newest first, then incident ID. A replay or recovered receipt can be older
+// than incidents this page already shows, so it does not always go first.
+function placeByUpdatedAt(incidents: SupportIncident[], incidentId: string) {
+  const target = incidents.find(({ id }) => id === incidentId);
+  if (!target) return incidents;
+  const others = incidents.filter(({ id }) => id !== incidentId);
+  const updated = Date.parse(target.updatedAt);
+  const index = others.findIndex((incident) => {
+    const other = Date.parse(incident.updatedAt);
+    return other < updated || (other === updated && incident.id > target.id);
+  });
+  return index === -1
+    ? [...others, target]
+    : [...others.slice(0, index), target, ...others.slice(index)];
 }
 
 function mergeSavedPair(
@@ -325,7 +333,7 @@ export function supportConversationReducer(
       if (!exchange) return state;
       return {
         ...state,
-        incidents: moveToTop(
+        incidents: placeByUpdatedAt(
           state.incidents.map((incident) =>
             incident.id === action.request.incidentId
               ? {
@@ -355,7 +363,7 @@ export function supportConversationReducer(
         return state;
       return {
         ...state,
-        incidents: moveToTop(
+        incidents: placeByUpdatedAt(
           replaceIncident(state, action.snapshot),
           action.snapshot.id,
         ),
