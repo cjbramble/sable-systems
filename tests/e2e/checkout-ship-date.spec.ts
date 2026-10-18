@@ -21,11 +21,13 @@ for (const timezoneId of ['Pacific/Pago_Pago', 'Pacific/Kiritimati']) {
         '/shop',
       );
       await shopPage.addCase('SBL-RPC-12');
+      // The zone's date may roll over while the cart renders; accept either day.
+      const before = localDate(timezoneId);
       await shopPage.openCart();
-
-      const today = localDate(timezoneId);
       const shipDate = shopPage.cart.getByLabel('Requested ship date');
-      await expect(shipDate).toHaveAttribute('min', today);
+      await expect(shipDate).toHaveAttribute('min', /^\d{4}-\d{2}-\d{2}$/);
+      const today = (await shipDate.getAttribute('min'))!;
+      expect([before, localDate(timezoneId)]).toContain(today);
 
       // The browser sends its zone; integration tests pin the clock for the
       // boundary cases.
