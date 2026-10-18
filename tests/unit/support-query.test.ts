@@ -1002,6 +1002,73 @@ describe('conversation frame targets', () => {
     ]);
   });
 
+  it('resolves "it" to a product the assistant named without its item number', () => {
+    expect(
+      classifySupportQuery(
+        [
+          user('Which power products are in stock?'),
+          assistant('Redline Power Cell R12 is in stock.'),
+          user('How much is it?'),
+        ],
+        products,
+      ),
+    ).toMatchObject({ kind: 'catalog', message: 'how much is it? sbl-rpc-12' });
+  });
+
+  it('keeps product names in a reply about one order on that order', () => {
+    expect(
+      classifySupportQuery(
+        [
+          user('Show my cancelled orders'),
+          assistant(
+            'One cancelled order: SBL-2023-000205 for 12 Aegis Hardware Firewall units.',
+          ),
+          user('Why was it cancelled?'),
+        ],
+        products,
+      ),
+    ).toEqual({
+      kind: 'order',
+      namespace: 'order_id',
+      identifier: 'SBL-2023-000205',
+    });
+  });
+
+  it('moves from an order to a product named in a price question', () => {
+    expect(
+      classifySupportQuery(
+        [
+          orderQuestion,
+          orderAnswer,
+          user('How much is Redline?'),
+          assistant('It costs $680.00 per cell.'),
+          user('Is it in stock?'),
+        ],
+        products,
+      ),
+    ).toMatchObject({ kind: 'catalog', message: 'is it in stock? sbl-rpc-12' });
+  });
+
+  it.each([
+    'Show my orders containing Redline',
+    'Show my orders containing SBL-RPC-12',
+  ])('resolves "it" to the order a filtered search found: %s', (content) => {
+    expect(
+      classifySupportQuery(
+        [
+          user(content),
+          assistant('One matching order: SBL-2026-000417.'),
+          user('When was it created?'),
+        ],
+        products,
+      ),
+    ).toEqual({
+      kind: 'order',
+      namespace: 'order_id',
+      identifier: 'SBL-2026-000417',
+    });
+  });
+
   it('resolves "it" to the one record the assistant named after a list', () => {
     expect(
       classifySupportQuery([
@@ -1056,6 +1123,7 @@ describe('conversation frame targets', () => {
     'When will my invoice be available?',
     'What security options does my account have?',
     'Is my payment on hold for a security review?',
+    'What security options does my account offer?',
   ])(
     'does not read an everyday question as a catalog request: %s',
     (content) => {
@@ -1070,6 +1138,8 @@ describe('conversation frame targets', () => {
     ['What is in the catalog for compute?', 'Compute'],
     ['Is any interface gear available?', 'Interface'],
     ['Do you have cybernetics in stock?', 'Cybernetics'],
+    ['What do you sell in Security?', 'Security'],
+    ['Do you carry anything for power?', 'Power'],
   ])('still reads a category beside a catalog cue: %s', (content, category) => {
     expect(classifySupportQuery([user(content)])).toMatchObject({
       kind: 'catalog',

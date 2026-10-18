@@ -58,7 +58,7 @@ const CATEGORY_NOUN =
   /^\s+(?:products?|items?|category|categories|catalog|line|lineup|range|gear|parts|hardware|equipment|stock|inventory|offerings?|availability)\b/;
 const CATEGORY_LABEL = /\b(?:category|catalog)\s+(?:of\s+|for\s+)?$/;
 const STOCK_CUE =
-  /\b(?:in\s+stock|stock(?:ed)?|inventory|catalog|availability|available|backorder(?:ed)?|products?|prices?|pricing|lead[ -]times?|case[ -]packs?)\b/;
+  /\b(?:(?:you|we)\s+(?:sell|carry|offer|stock)|for\s+sale|(?:can|could)\s+i\s+(?:buy|purchase)|in\s+stock|stock(?:ed)?|inventory|catalog|availability|available|backorder(?:ed)?|products?|prices?|pricing|lead[ -]times?|case[ -]packs?)\b/;
 
 function requestedCategory(message: string) {
   const stockQuestion = STOCK_CUE.test(message);
@@ -383,8 +383,17 @@ export function classifySupportQuery(
         );
         if (matching.length) frame.assistant[kind] = matching;
       }
-      if (references.length || numberedItems.length)
-        frame.assistantActive = { references, items: numberedItems };
+      // Product names in a reply about records describe their lines.
+      const items = references.length
+        ? numberedItems
+        : [
+            ...numberedItems,
+            ...mentionedProducts(normalized, products).filter(
+              (item) => !numberedItems.includes(item),
+            ),
+          ];
+      if (references.length || items.length)
+        frame.assistantActive = { references, items };
       continue;
     }
 
@@ -399,19 +408,6 @@ export function classifySupportQuery(
       ),
     ];
     const current = classifyCurrentTopic(remainder);
-    // A product name can describe a line on the record under discussion
-    // ("the controller on that order"); it becomes the target only without a
-    // record cue and, while a record is the target, only in a catalog question.
-    const recordTarget = [frame.active, frame.assistantActive].some(
-      (target) => target && !('kind' in target) && target.references.length,
-    );
-    const named =
-      entityCues.length || (recordTarget && current.kind !== 'catalog')
-        ? []
-        : mentionedProducts(normalized, products).filter(
-            (item) => !numberedItems.includes(item),
-          );
-    const items = [...numberedItems, ...named];
     const followUp =
       entityCues.length > 0 ||
       (current.kind === 'catalog' &&
@@ -420,6 +416,21 @@ export function classifySupportQuery(
       /\b(?:it|its|those|them|both)\b|\b(?:about|for) that\s*[?.!]*$/.test(
         normalized,
       );
+    // A product name can describe a line on the record under discussion
+    // ("the controller on that order", "was it shipped with the controller?");
+    // with a record cue, or a pronoun outside a catalog question, it does not
+    // replace that record.
+    const recordTarget = [frame.active, frame.assistantActive].some(
+      (target) => target && !('kind' in target) && target.references.length,
+    );
+    const named =
+      entityCues.length ||
+      (recordTarget && followUp && current.kind !== 'catalog')
+        ? []
+        : mentionedProducts(normalized, products).filter(
+            (item) => !numberedItems.includes(item),
+          );
+    const items = [...numberedItems, ...named];
     // A category word with a record cue or pronoun describes that record.
     const currentTopic =
       items.length > 0 ||
@@ -434,7 +445,11 @@ export function classifySupportQuery(
       (!followUp && current.kind !== 'summary')
     ) {
       frame = emptyFrame();
-      rememberCustomer(frame, { references, items });
+      // Products filter an order search; the orders it finds are the targets.
+      rememberCustomer(frame, {
+        references,
+        items: current.kind === 'orders' ? [] : items,
+      });
       intent = references[0] ?? current;
     } else if (answer) {
       intent = refineNamespace(frame, answer);
