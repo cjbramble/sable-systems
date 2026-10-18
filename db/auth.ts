@@ -72,7 +72,7 @@ export async function authenticateCredentials(
       FROM users u
       JOIN user_credentials c ON c.user_id = u.user_id
       JOIN distributors d ON d.customer_id = u.distributor_id
-      WHERE lower(u.email) = ?
+      WHERE u.email = ?
         AND u.status = 'active'
         AND d.account_status = 'active'`)
     .bind(email.toLowerCase())

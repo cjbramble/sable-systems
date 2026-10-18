@@ -185,6 +185,88 @@ describe('database initialization', () => {
     },
   );
 
+  test('lowercases schema 15 emails once when two Workers upgrade concurrently', async ({
+    initialization,
+  }) => {
+    const { database, getDatabase, restart } = initialization;
+    await seedHistoricalDatabase(database, '15');
+    await addUserRecords(database);
+    await database.batch([
+      database.prepare(
+        "INSERT INTO metadata VALUES ('support_incidents_seed_version', '1')",
+      ),
+      database.prepare(
+        "UPDATE users SET email = 'Mara.Venn@CalderPike.example' WHERE user_id = 'USR-CPD-001'",
+      ),
+    ]);
+    const before = await databaseSnapshot(database);
+    const secondWorker = await restart();
+    const emailUpgrades = new WeakSet<D1PreparedStatement>();
+    const prepare = database.prepare.bind(database);
+    const prepareSpy = vi
+      .spyOn(database, 'prepare')
+      .mockImplementation((sql) => {
+        const statement = prepare(sql);
+        if (sql.startsWith('UPDATE users SET email = lower(email)'))
+          emailUpgrades.add(statement);
+        return statement;
+      });
+    // Hold the first schema batch until the second Worker has planned its own.
+    const bothPlanned = Promise.withResolvers<void>();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      bothPlanned.resolve();
+    }, 2_000);
+    let upgradeAttempts = 0;
+    const batch = database.batch.bind(database);
+    const batchSpy = vi
+      .spyOn(database, 'batch')
+      .mockImplementation(async (statements) => {
+        if (!statements.some((statement) => emailUpgrades.has(statement)))
+          return batch(statements);
+        if (++upgradeAttempts === 2) bothPlanned.resolve();
+        await bothPlanned.promise;
+        return batch(statements);
+      });
+    try {
+      const outcomes = await Promise.allSettled(
+        [getDatabase(), secondWorker()].map((attempt) =>
+          attempt.then(() => undefined),
+        ),
+      );
+      expect(outcomes).toEqual([
+        { status: 'fulfilled', value: undefined },
+        { status: 'fulfilled', value: undefined },
+      ]);
+      expect(upgradeAttempts).toBe(2);
+      expect(timedOut).toBe(false);
+    } finally {
+      bothPlanned.resolve();
+      clearTimeout(timer);
+      batchSpy.mockRestore();
+      prepareSpy.mockRestore();
+    }
+    const after = await databaseSnapshot(database);
+    for (const [table, rows] of Object.entries(before.tables))
+      if (table !== 'metadata' && table !== 'users')
+        expect(after.tables[table], table).toEqual(rows);
+    expect(after.tables.users).toEqual(
+      before.tables.users.map((row) => {
+        const user = row as { email: string };
+        return { ...user, email: user.email.toLowerCase() };
+      }),
+    );
+    expect(after.tables.metadata).toContainEqual({
+      key: 'schema_version',
+      value: SCHEMA_VERSION,
+    });
+    await (
+      await restart()
+    )();
+    expect(await databaseSnapshot(database)).toEqual(after);
+  });
+
   test('adds conversation revisions atomically to schema 12 and preserves historical replies across restart', async ({
     initialization,
   }) => {
@@ -592,7 +674,7 @@ describe('database initialization', () => {
     expect(await databaseSnapshot(database)).toEqual(current);
   });
 
-  test.for(['6', '7', '8', '9', '10', '11', '12', '13', '14'] as const)(
+  test.for(['6', '7', '8', '9', '10', '11', '12', '13', '14', '15'] as const)(
     'upgrades historical schema %s without reseeding or losing records',
     async (version, { initialization }) => {
       const { database, getDatabase, restart } = initialization;

@@ -25,6 +25,19 @@ const RETIRED_INDEXES = [
   'idx_inventory_item',
 ] as const;
 
+// Schema 16 stores emails in lowercase. Run before any startup writes so a
+// case-duplicate is refused with a clear message instead of a constraint error.
+export async function auditUserEmails(db: D1Database) {
+  const duplicate = await db
+    .prepare(`SELECT 1 FROM users GROUP BY lower(email)
+      HAVING COUNT(*) > 1 LIMIT 1`)
+    .first();
+  if (duplicate)
+    throw new Error(
+      'Cannot upgrade database: two or more users have email addresses that differ only by letter case. Startup made no changes. Preserve the database and resolve the duplicate accounts before retrying.',
+    );
+}
+
 async function columnsOf(db: D1Database, table: string) {
   const { results } = await db
     .prepare(`PRAGMA table_info(${table})`)
@@ -49,6 +62,10 @@ export async function planSchemaUpgrades(db: D1Database) {
   );
   if (removesSessionActivity)
     statements.push('ALTER TABLE sessions DROP COLUMN last_seen_at');
+  if ((await columnsOf(db, 'users')).length)
+    statements.push(
+      'UPDATE users SET email = lower(email) WHERE email <> lower(email)',
+    );
   statements.push(
     ...RETIRED_INDEXES.map((index) => `DROP INDEX IF EXISTS ${index}`),
   );
