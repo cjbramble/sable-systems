@@ -18,7 +18,7 @@ test('removes unused session activity metadata atomically and preserves every ot
   const before = await databaseSnapshot(database);
   await database
     .prepare(`CREATE TRIGGER fail_session_upgrade BEFORE UPDATE ON metadata
-    WHEN NEW.key = 'schema_version' AND NEW.value = '14'
+    WHEN NEW.key = 'schema_version' AND NEW.value = '${SCHEMA_VERSION}'
     BEGIN SELECT RAISE(ABORT, 'session upgrade interrupted'); END`)
     .run();
   try {
@@ -53,6 +53,79 @@ test('removes unused session activity metadata atomically and preserves every ot
       .first(),
   ).toEqual({ value: SCHEMA_VERSION });
   const after = await databaseSnapshot(database);
+  await (
+    await restart()
+  )();
+  expect(await databaseSnapshot(database)).toEqual(after);
+});
+
+const RETIRED_INDEXES = [
+  'idx_account_charges_order',
+  'idx_inventory_item',
+  'idx_orders_customer_open',
+];
+
+async function indexNames(database: D1Database) {
+  const { results } = await database
+    .prepare(
+      "SELECT name FROM sqlite_schema WHERE type = 'index' AND name NOT GLOB 'sqlite_*' ORDER BY name",
+    )
+    .all<{ name: string }>();
+  return results.map(({ name }) => name);
+}
+
+test('replaces schema 14 indexes atomically and keeps every record', async ({
+  initialization,
+}) => {
+  const { database, getDatabase, restart } = initialization;
+  await seedHistoricalDatabase(database, '14');
+  await addUserRecords(database);
+  await database
+    .prepare(
+      "INSERT INTO metadata VALUES ('support_incidents_seed_version', '1')",
+    )
+    .run();
+  const before = await databaseSnapshot(database);
+  expect(await indexNames(database)).toEqual(
+    expect.arrayContaining(RETIRED_INDEXES),
+  );
+  await database
+    .prepare(`CREATE TRIGGER fail_index_upgrade BEFORE UPDATE ON metadata
+    WHEN NEW.key = 'schema_version' AND NEW.value = '${SCHEMA_VERSION}'
+    BEGIN SELECT RAISE(ABORT, 'index upgrade interrupted'); END`)
+    .run();
+  try {
+    await expect(getDatabase().then(() => undefined)).rejects.toThrow(
+      /index upgrade interrupted/,
+    );
+    const interrupted = await databaseSnapshot(database);
+    expect(interrupted.tables).toEqual(before.tables);
+    expect(
+      interrupted.objects.filter(({ name }) => name !== 'fail_index_upgrade'),
+    ).toEqual(before.objects);
+  } finally {
+    await database.prepare('DROP TRIGGER fail_index_upgrade').run();
+  }
+  await getDatabase();
+  const indexes = await indexNames(database);
+  expect(indexes).toContain('idx_returns_order');
+  for (const retired of RETIRED_INDEXES) expect(indexes).not.toContain(retired);
+  const after = await databaseSnapshot(database);
+  for (const [table, rows] of Object.entries(before.tables))
+    if (
+      ![
+        'metadata',
+        'order_events',
+        'order_items',
+        'shipments',
+        'shipment_items',
+      ].includes(table)
+    )
+      expect(after.tables[table], table).toEqual(rows);
+  expect(after.tables.metadata).toContainEqual({
+    key: 'schema_version',
+    value: SCHEMA_VERSION,
+  });
   await (
     await restart()
   )();

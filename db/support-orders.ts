@@ -62,7 +62,8 @@ export async function lookupSupportOrder(
     .all<SupportOrderFacts['events'][number]>();
   const returnRow = await db
     .prepare(`SELECT return_id, status, reason_code, requested_on, authorized_on, received_on
-      FROM returns WHERE order_id = ? ORDER BY requested_on DESC LIMIT 1`)
+      FROM returns WHERE order_id = ?
+      ORDER BY requested_on DESC, return_id DESC LIMIT 1`)
     .bind(order.order_id)
     .first<NonNullable<SupportOrderFacts['return']>>();
   const charge = await db

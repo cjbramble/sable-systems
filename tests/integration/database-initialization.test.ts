@@ -47,7 +47,7 @@ function upgradedRows(table: string, rows: unknown[]) {
 
 describe('database initialization', () => {
   test.for(
-    (['12', '13'] as const).flatMap((version) =>
+    (['9', '12', '13'] as const).flatMap((version) =>
       ['recover', 'unrelated failure', 'retry failure'].map((scenario) => ({
         version,
         scenario,
@@ -55,6 +55,8 @@ describe('database initialization', () => {
     ),
   )(
     'handles concurrent schema $version migrations without hiding errors: $scenario',
+    // Two full historical upgrades take several seconds in Miniflare.
+    { timeout: 20_000 },
     async ({ version, scenario }, { initialization }) => {
       const { database, getDatabase, restart } = initialization;
       await seedHistoricalDatabase(database, version);
@@ -152,9 +154,9 @@ describe('database initialization', () => {
           expect(duplicateErrors).toHaveLength(1);
           expect(duplicateErrors[0]).toBeInstanceOf(Error);
           expect((duplicateErrors[0] as Error).message).toContain(
-            version === '12'
-              ? 'duplicate column name: revision'
-              : 'last_seen_at',
+            version === '13'
+              ? 'last_seen_at'
+              : 'duplicate column name: revision',
           );
         }
         const after = await databaseSnapshot(database);
@@ -369,6 +371,129 @@ describe('database initialization', () => {
     expect(await databaseSnapshot(database)).toEqual(before);
   });
 
+  test('seeds once when two Workers start on an empty database together', async ({
+    initialization,
+  }) => {
+    const { database, getDatabase, restart } = initialization;
+    // Separate module caches model two cold Workers sharing the same D1 DB.
+    const secondWorker = await restart();
+    const claims = new WeakSet<D1PreparedStatement>();
+    const checkpoints = new WeakSet<D1PreparedStatement>();
+    const prepare = database.prepare.bind(database);
+    const prepareSpy = vi
+      .spyOn(database, 'prepare')
+      .mockImplementation((sql) => {
+        const statement = prepare(sql);
+        if (sql === schemaStatements[0]) claims.add(statement);
+        if (sql.includes('DO UPDATE SET value = excluded.value')) {
+          // Checkpoints are bound, and bind returns a new statement.
+          const bind = statement.bind.bind(statement);
+          statement.bind = (...values) => {
+            const bound = bind(...values);
+            checkpoints.add(bound);
+            return bound;
+          };
+        }
+        return statement;
+      });
+    // Hold both claims, then both first seed batches, so each step collides.
+    const barriers = [
+      Promise.withResolvers<void>(),
+      Promise.withResolvers<void>(),
+    ];
+    const arrivals = [0, 0];
+    const timer = setTimeout(() => barriers.forEach((b) => b.resolve()), 2_000);
+    const conflicts: string[] = [];
+    const batch = database.batch.bind(database);
+    const batchSpy = vi
+      .spyOn(database, 'batch')
+      .mockImplementation(async (statements) => {
+        const step = statements.some((statement) => claims.has(statement))
+          ? 0
+          : statements.some((statement) => checkpoints.has(statement))
+            ? 1
+            : -1;
+        if (step >= 0 && arrivals[step] < 2) {
+          if (++arrivals[step] === 2) barriers[step].resolve();
+          await barriers[step].promise;
+        }
+        try {
+          return await batch(statements);
+        } catch (error) {
+          conflicts.push(
+            error instanceof Error ? error.message : String(error),
+          );
+          throw error;
+        }
+      });
+    try {
+      const outcomes = await Promise.allSettled(
+        [getDatabase(), secondWorker()].map((attempt) =>
+          attempt.then(() => undefined),
+        ),
+      );
+      expect(outcomes).toEqual([
+        { status: 'fulfilled', value: undefined },
+        { status: 'fulfilled', value: undefined },
+      ]);
+      expect(arrivals).toEqual([2, 2]);
+      expect(conflicts.length).toBeGreaterThan(0);
+      for (const message of conflicts)
+        expect(message).toMatch(/constraint failed/i);
+    } finally {
+      clearTimeout(timer);
+      barriers.forEach((b) => b.resolve());
+      batchSpy.mockRestore();
+      prepareSpy.mockRestore();
+    }
+    const seeded = await databaseSnapshot(database);
+    expect(seeded.tables.orders).toHaveLength(720);
+    expect(seeded.tables.support_messages).toHaveLength(24);
+    expect(seeded.tables.metadata).toEqual([
+      { key: 'as_of_date', value: '2026-09-02' },
+      { key: 'schema_version', value: SCHEMA_VERSION },
+      { key: 'seed_version', value: SEED_VERSION },
+      { key: 'support_incidents_seed_version', value: '1' },
+    ]);
+    expect(
+      (await database.prepare('PRAGMA foreign_key_check').all()).results,
+    ).toEqual([]);
+    await (
+      await restart()
+    )();
+    expect(await databaseSnapshot(database)).toEqual(seeded);
+  });
+
+  test('finishes initialization when statistics upkeep fails', async ({
+    initialization,
+    onTestFinished,
+  }) => {
+    const { database, getDatabase, restart } = initialization;
+    const prepare = database.prepare.bind(database);
+    const prepareSpy = vi
+      .spyOn(database, 'prepare')
+      .mockImplementation((sql) =>
+        prepare(
+          sql === 'PRAGMA optimize' ? 'SELECT * FROM missing_table' : sql,
+        ),
+      );
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    onTestFinished(() => {
+      prepareSpy.mockRestore();
+      logged.mockRestore();
+    });
+    await getDatabase();
+    expect(logged).toHaveBeenCalledOnce();
+    expect(String(logged.mock.calls[0][0])).toContain('[database optimize]');
+    prepareSpy.mockRestore();
+    const seeded = await databaseSnapshot(database);
+    expect(seeded.tables.orders).toHaveLength(720);
+    await (
+      await restart()
+    )();
+    expect(await databaseSnapshot(database)).toEqual(seeded);
+  });
+
   test.for([
     ['seed_version', 'unrecognized-seed'],
     ['schema_version', '99'],
@@ -467,7 +592,7 @@ describe('database initialization', () => {
     expect(await databaseSnapshot(database)).toEqual(current);
   });
 
-  test.for(['6', '7', '8', '9', '10', '11', '12', '13'] as const)(
+  test.for(['6', '7', '8', '9', '10', '11', '12', '13', '14'] as const)(
     'upgrades historical schema %s without reseeding or losing records',
     async (version, { initialization }) => {
       const { database, getDatabase, restart } = initialization;
@@ -751,6 +876,29 @@ test('does not construct main seed data for an initialized database', async ({
   onTestFinished(() => build.mockRestore());
   await getDatabase();
   expect(build).not.toHaveBeenCalled();
+});
+
+test('starts an up-to-date database with read-only inspection', async ({
+  initialization,
+  onTestFinished,
+}) => {
+  const { database } = initialization;
+  await initialization.getDatabase();
+  const getDatabase = await initialization.restart();
+  const prepare = vi.spyOn(database, 'prepare');
+  const batch = vi.spyOn(database, 'batch');
+  onTestFinished(() => {
+    prepare.mockRestore();
+    batch.mockRestore();
+  });
+  await getDatabase();
+  expect(batch).not.toHaveBeenCalled();
+  expect(
+    prepare.mock.calls.map(([sql]) => sql.split(/\s+/).slice(0, 4)),
+  ).toEqual([
+    ['SELECT', 'name', 'FROM', 'sqlite_schema'],
+    ['SELECT', 'key,', 'value', 'FROM'],
+  ]);
 });
 
 test('constructs seed data once and keeps the explicit table inventory complete', async ({
