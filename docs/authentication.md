@@ -7,15 +7,19 @@ public deployment. See [Security boundaries](../README.md#security-boundaries).
 ## Sessions
 
 Login requires an active user and distributor. Password verification uses
-PBKDF2-SHA256; the database stores a hash of each random session token.
+PBKDF2-SHA256; unknown and inactive accounts run the same derivation against a
+dummy salt, so response time does not reveal active emails. The database stores
+a hash of each random session token.
 Cookies use `Path=/`, `HttpOnly`, `SameSite=Lax`, and `Max-Age=43200`, plus
 `Secure` on HTTPS. Loopback HTTP intentionally omits `Secure`.
 
 Sessions expire absolutely after twelve hours, including at the exact expiry
 instant. Requests recheck expiry, revocation, user status, and distributor status.
 Suspension blocks access; reactivation can restore an unexpired, unrevoked session.
-Logout revokes only the presented session. If revocation fails, the cookie remains
-available for a retry.
+A successful sign-in revokes the session the browser presented, in the same
+write that creates the new one. Logout revokes only the presented session. If
+revocation fails, the cookie remains available for a retry. Sign-in, sign-out,
+and session checks time out after ten seconds in the browser.
 
 ## Permissions
 

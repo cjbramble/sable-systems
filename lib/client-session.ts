@@ -6,6 +6,15 @@ import type { SessionSubject } from './contracts';
 import { parseSessionSubject, sameSessionSubject } from './session-subject';
 
 const SESSION_CHANGE_KEY = 'sable:session-changed';
+const AUTH_REQUEST_TIMEOUT_MS = 10_000;
+
+// A stalled worker must not leave a sign-in, sign-out, or session check pending.
+export function withAuthRequestTimeout(signal: AbortSignal) {
+  return AbortSignal.any([
+    signal,
+    AbortSignal.timeout(AUTH_REQUEST_TIMEOUT_MS),
+  ]);
+}
 
 export function notifySessionChanged() {
   try {
@@ -49,14 +58,13 @@ export function useSessionGuard(
       try {
         const response = await fetch('/api/auth/session', {
           cache: 'no-store',
-          signal: AbortSignal.any([
-            controller.signal,
-            AbortSignal.timeout(10_000),
-          ]),
+          signal: withAuthRequestTimeout(controller.signal),
         });
         if (controller.signal.aborted) return;
         if (response.status === 401) {
-          invalidateSession();
+          // The session ended; the account did not change. Clear account state
+          // and go to sign-in without flashing the account-changed notice.
+          onInvalidated?.();
           redirectToLogin(
             typeof destination === 'function' ? destination() : destination,
           );
@@ -97,7 +105,7 @@ export function useSessionGuard(
       document.removeEventListener('visibilitychange', onResume);
       window.removeEventListener('storage', onStorage);
     };
-  }, [userId, customerId, destination, invalidateSession]);
+  }, [userId, customerId, destination, invalidateSession, onInvalidated]);
 
   return { sessionChanged, invalidateSession };
 }
@@ -122,7 +130,7 @@ export function useSignOut() {
     try {
       const response = await fetch('/api/auth/logout', {
         method: 'POST',
-        signal: controller.signal,
+        signal: withAuthRequestTimeout(controller.signal),
       });
       if (!response.ok) throw new Error('Sign-out failed');
       if (!controller.signal.aborted) {
