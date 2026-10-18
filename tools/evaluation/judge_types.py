@@ -25,6 +25,7 @@ class RequestRecord(TypedDict, total=False):
     retryExhausted: bool
     retrySkipped: str
     retryDelaySeconds: float
+    deadlineExceeded: bool
 
 
 class RequestEvidence(TypedDict, total=False):
@@ -140,6 +141,7 @@ class RetryPolicy(TypedDict):
     jitterSeconds: float
     maxDelaySeconds: float
     honorRetryAfter: bool
+    requestDeadlineSeconds: float
 
 
 class CollectionMetadata(TypedDict):

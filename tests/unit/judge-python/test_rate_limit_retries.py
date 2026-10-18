@@ -14,6 +14,7 @@ from pydantic import BaseModel
 import judge_collection as collection
 import judge_runtime
 import openrouter_judge as adapter
+import openrouter_transport as transport
 import support_grading as grading
 from judge_errors import JudgeError
 from request_summary import summarize_requests
@@ -58,6 +59,10 @@ def http_sequence(monkeypatch):
         def read(self, limit):
             if state.get("readError"):
                 raise TimeoutError("response read timed out")
+            # Return the body once, then EOF, like a real response.
+            if getattr(self, "body_read", False):
+                return b""
+            self.body_read = True
             if self.status != 200:
                 return b'{"error":{"message":"retry-test-secret provider busy"}}'
             return json.dumps(
@@ -138,6 +143,61 @@ def test_retry_after_above_wait_budget_fails_without_retrying_early(http_sequenc
     assert len(judge.requests) == 1
     assert http_sequence["delays"] == []
     assert judge.requests[0]["retrySkipped"] == "retry-after-exceeds-wait-budget"
+
+
+def test_retry_wait_past_request_deadline_fails_without_waiting(
+    monkeypatch, http_sequence
+):
+    monkeypatch.setitem(transport.RETRY_POLICY, "requestDeadlineSeconds", 20)
+    http_sequence["responses"] = [(429, "30"), (200, None)]
+    judge = adapter.OpenRouterJudge()
+    with pytest.raises(RuntimeError, match="429"):
+        judge.generate("Evaluate", Verdict)
+    assert len(judge.requests) == 1
+    assert http_sequence["delays"] == []
+    assert judge.requests[0]["retrySkipped"] == "retry-exceeds-request-deadline"
+
+
+def test_trickling_response_stops_at_total_deadline(monkeypatch):
+    # Each read arrives within the socket timeout; only the total deadline ends it.
+    monkeypatch.setenv("OPENROUTER_API_KEY", "offline-test-key")
+    monkeypatch.delenv("HTTPS_PROXY", raising=False)
+    monkeypatch.delenv("https_proxy", raising=False)
+    monkeypatch.setitem(transport.RETRY_POLICY, "requestDeadlineSeconds", 10)
+    clock = {"now": 0.0, "reads": 0}
+    monkeypatch.setattr(time, "monotonic", lambda: clock["now"])
+
+    class Trickle:
+        status = 200
+        length = 1_000
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def request(self, *args):
+            pass
+
+        def getresponse(self):
+            return self
+
+        def read(self, limit):
+            clock["now"] += 1
+            clock["reads"] += 1
+            return b"x"
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(http.client, "HTTPSConnection", Trickle)
+    monkeypatch.setattr(time, "sleep", lambda seconds: pytest.fail("No retry"))
+    with pytest.raises(JudgeError, match="total deadline") as caught:
+        grading.judge_answer("Question", "Answer", "Reference")
+    calls = caught.value.calls
+    assert len(calls) == 1
+    assert calls[0]["deadlineExceeded"] is True
+    assert calls[0]["responseComplete"] is False
+    assert calls[0]["rawResponse"] == "x" * clock["reads"]
+    assert clock["reads"] == 10
 
 
 @pytest.mark.parametrize("status", [400, 401, 402, 403, 404, 501])

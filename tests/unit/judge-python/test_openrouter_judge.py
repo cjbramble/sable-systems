@@ -50,6 +50,10 @@ def transport(monkeypatch):
             return self
 
         def read(self, limit):
+            # Return the body once, then EOF, like a real response.
+            if getattr(self, "body_read", False):
+                return b""
+            self.body_read = True
             content = (
                 state["responses"].pop(0) if "responses" in state else state["content"]
             )
@@ -318,6 +322,9 @@ def test_failed_transport_keeps_bounded_redacted_evidence(monkeypatch, transport
             return self
 
         def read(self, limit):
+            if getattr(self, "body_read", False) and kind != "oversized":
+                return b""
+            self.body_read = True
             if kind == "invalid-json":
                 return b"invalid offline-test-key"
             if kind == "oversized":
