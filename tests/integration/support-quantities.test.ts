@@ -430,3 +430,62 @@ describe('saved quantity clarification', () => {
       );
   });
 });
+
+describe('quantities without a generic unit noun', () => {
+  for (const [content, quantity] of [
+    ['Do you have 100 SBL-RPC-12 in stock?', 100],
+    ['Can I order 12 SBL-RPC-12?', 12],
+    ['Do you have 24 Redline power cells?', 24],
+  ] as const)
+    test(`checks the requested amount: ${content}`, async ({ database }) => {
+      const records = await catalogRecords(database, content);
+      expect(records).toContain('Product: SBL-RPC-12 ');
+      expect(records).toContain(`Requested quantity ${quantity}:`);
+    });
+
+  for (const content of [
+    'Do you have two Redline power cells?',
+    'Can I get a dozen SBL-RPC-12?',
+  ])
+    test(`asks for digits instead of ignoring "${content}"`, async ({
+      database,
+    }) => {
+      expect(
+        await buildSupportContext(database, ask(content), calderPikeUser),
+      ).toEqual({
+        kind: 'clarification',
+        message:
+          'Please provide a whole-number quantity of units for each item, using digits with optional comma grouping.',
+      });
+    });
+});
+
+describe('unit words that name a product', () => {
+  test('keeps a unit-only target when another product is named elsewhere', async ({
+    database,
+  }) => {
+    const records = await catalogRecords(
+      database,
+      'Do you have 5 hubs and is SBL-SWC-12 available?',
+    );
+    expect(productRecords(records, 'SBL-NL-4P')).toContain(
+      'Requested quantity 5:',
+    );
+    expect(productRecords(records, 'SBL-SWC-12')).not.toContain(
+      'Requested quantity',
+    );
+  });
+
+  test('still reads a unit as a measure when its own phrase names the product', async ({
+    database,
+  }) => {
+    const records = await catalogRecords(
+      database,
+      'Are 20 licenses of SBL-RLY-1Y available?',
+    );
+    expect(records.match(/^Product:/gm)).toHaveLength(1);
+    expect(productRecords(records, 'SBL-RLY-1Y')).toContain(
+      'Requested quantity 20:',
+    );
+  });
+});

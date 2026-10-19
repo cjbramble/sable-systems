@@ -3,23 +3,18 @@ import { describe, expect, it } from 'vitest';
 import {
   formatIncidentListReply,
   isIncidentListReply,
-  type SupportIncident,
+  type SupportIncidentSummary,
 } from '@/lib/support-incidents';
 
 const incident = (
   index: number,
   title = `Incident ${index}`,
-): SupportIncident => ({
+): SupportIncidentSummary => ({
   id: `INC-LIST-${index}`,
   revision: 0,
   title,
   updatedAt: `2026-09-${String(10 + index).padStart(2, '0')}T08:00:00.000Z`,
-  messages: Array.from({ length: index % 3 }, (_, message) => ({
-    id: `MSG-${index}-${message}`,
-    role: 'user' as const,
-    content: 'Message',
-    createdAt: '2026-09-01T00:00:00.000Z',
-  })),
+  messageCount: index % 3,
 });
 
 describe('server-built incident list', () => {

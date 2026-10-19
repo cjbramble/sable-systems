@@ -13,6 +13,8 @@
     "test-support-judge.mjs",
     "lib/process-scope.mjs",
     "lib/environment.mjs",
+    "lib/line-framer.mjs",
+    "lib/model-test-args.mjs",
     "../lib/support-model-config.mjs"
   ]
 }

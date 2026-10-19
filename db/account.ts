@@ -2,6 +2,7 @@ import type { AuthenticatedUser } from './auth';
 import { AS_OF_DATE } from './seed';
 import type { AccountSummary } from '@/lib/contracts';
 import { orderStatusCountSql } from '@/lib/order-status-groups';
+import { lowStockSql, orderableProductSql } from '@/lib/product-eligibility';
 
 export async function getAccountSummary(
   db: D1Database,
@@ -23,10 +24,14 @@ export async function getAccountSummary(
     .prepare(`SELECT COUNT(*) AS alert_count FROM (
       SELECT p.item_number
       FROM products p
-      JOIN inventory_balances i ON i.item_number = p.item_number
-      WHERE p.fulfillment_type = 'physical' AND p.active_to IS NULL
+      LEFT JOIN inventory_balances i ON i.item_number = p.item_number
+      WHERE p.fulfillment_type = 'physical' AND ${orderableProductSql('p')}
       GROUP BY p.item_number
-      HAVING SUM(i.on_hand_quantity - i.reserved_quantity - i.quarantined_quantity) <= p.case_pack * 8
+      -- A product without inventory rows has nothing available.
+      HAVING ${lowStockSql(
+        'COALESCE(SUM(i.on_hand_quantity - i.reserved_quantity - i.quarantined_quantity), 0)',
+        'p',
+      )}
     )`)
     .first<{ alert_count: number }>();
 

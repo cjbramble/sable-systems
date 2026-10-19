@@ -45,7 +45,8 @@ def test_live_report_separates_application_disagreement_and_execution(
         "batches": {
             "order-status": {
                 "samples": [sample],
-                "reference": "Authorized order SBL-2026-000417 is partially_shipped. Original live context.",
+                # Older transcripts carried a reference; it must not reach the judge.
+                "reference": "Stale reference that must be ignored.",
                 "request": {
                     "messages": [
                         {"role": "system", "content": "Read-only assistant."},
@@ -74,14 +75,18 @@ def test_live_report_separates_application_disagreement_and_execution(
     report = json.loads(output.read_text())
     summary = report["summary"]["overall"]
     assert summary["applicationFailures"] == int(phase == "factuality")
+    # A generator failure is an execution error, not a wrong answer.
+    assert summary["factualFailures"] == int(phase == "factuality")
+    assert report["factualSuccessful"] is (phase != "factuality")
     assert summary["judgeApplicationDisagreements"] == int(phase == "factuality")
     assert summary["generatorExecutionErrors"] == int(phase == "inference")
     assert summary["judgeExecutionErrors"] == int(phase == "judge")
     assert summary["executionErrors"] == int(phase != "factuality")
-    assert (
-        report["results"][0]["reference"]
-        == payload["batches"]["order-status"]["reference"]
+    records = (
+        "Authorized order SBL-2026-000417 is partially_shipped. Original live context."
     )
+    assert report["results"][0]["reference"] == records
+    assert all(call[2] == records for call in called)
     assert (
         report["coverage"]["expectedSamples"]
         == report["coverage"]["processedSamples"]
@@ -167,7 +172,16 @@ def test_transcript_verdicts_remain_advisory_and_preserve_source_evidence(
                     "samples": [{"sample": 1, "answer": "Answer", "passed": True}]
                 }
             },
-            "captured authorized reference",
+            "captured authorized records",
+        ),
+        (
+            {
+                "order-status": {
+                    "samples": [{"sample": 1, "answer": "Answer", "passed": True}],
+                    "reference": "A reference without captured records.",
+                }
+            },
+            "captured authorized records",
         ),
     ],
 )

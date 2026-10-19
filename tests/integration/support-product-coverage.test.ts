@@ -416,3 +416,30 @@ describe('catalog target coverage', () => {
     );
   });
 });
+
+describe('short product aliases', () => {
+  test('finds the hub by its one-owner alias', async ({ database }) => {
+    const { records } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        ask('What is the price of the hub?'),
+        calderPikeUser,
+      ),
+    );
+    expect(records).toContain('Product: SBL-NL-4P ');
+  });
+
+  test('keeps a shared model code from naming a product', async ({
+    database,
+  }) => {
+    const { records } = requireSupportRecords(
+      await buildSupportContext(
+        database,
+        ask('What is the price of the r2?'),
+        calderPikeUser,
+      ),
+    );
+    expect(records).not.toContain('Product: SBL-GG-R2 ');
+    expect(records).not.toContain('Product: SBL-CSR-R2 ');
+  });
+});

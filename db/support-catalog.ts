@@ -4,6 +4,7 @@ import type {
   InventoryAdvisoryFacts,
   InventoryAdvisoryOutcome,
 } from '@/lib/support-catalog-outcomes';
+import { lowStockSql, orderableProductSql } from '@/lib/product-eligibility';
 
 export async function lookupSupportCategory(
   db: D1Database,
@@ -18,7 +19,7 @@ export async function lookupSupportCategory(
       COALESCE(SUM(i.inbound_quantity), 0) AS inbound
       FROM products p
       LEFT JOIN inventory_balances i ON i.item_number = p.item_number
-      WHERE p.active_to IS NULL AND p.category = ?
+      WHERE ${orderableProductSql('p')} AND p.category = ?
       GROUP BY p.item_number ORDER BY p.product_name LIMIT 12`)
     .bind(category)
     .all<CatalogProductFacts>();
@@ -40,13 +41,15 @@ export async function lookupSupportInventoryAdvisories(
 ): Promise<InventoryAdvisoryOutcome> {
   const rows = await db
     .prepare(`SELECT p.item_number, p.product_name, p.case_pack,
-      SUM(i.on_hand_quantity - i.reserved_quantity - i.quarantined_quantity) AS available,
-      SUM(i.inbound_quantity) AS inbound,
+      COALESCE(SUM(i.on_hand_quantity - i.reserved_quantity - i.quarantined_quantity), 0) AS available,
+      COALESCE(SUM(i.inbound_quantity), 0) AS inbound,
       MIN(i.expected_restock_date) AS restock
-      FROM products p JOIN inventory_balances i ON i.item_number = p.item_number
-      WHERE p.active_to IS NULL AND p.fulfillment_type = 'physical'
+      FROM products p
+      -- Matches the account alert count: no inventory rows means none available.
+      LEFT JOIN inventory_balances i ON i.item_number = p.item_number
+      WHERE ${orderableProductSql('p')} AND p.fulfillment_type = 'physical'
       GROUP BY p.item_number, p.product_name, p.case_pack
-      HAVING available <= p.case_pack * 8
+      HAVING ${lowStockSql('available', 'p')}
       ORDER BY available, p.item_number LIMIT 6`)
     .all<InventoryAdvisoryFacts>();
   return {

@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { createProcessScope, exitStatus } from './lib/process-scope.mjs';
 import { loadLocalEnvironment } from './lib/environment.mjs';
+import { createLineFramer } from './lib/line-framer.mjs';
+import { parseModelTestArgs, shellQuote } from './lib/model-test-args.mjs';
 import {
   getSupportModelConfig,
   supportModelHeaders,
@@ -12,27 +14,9 @@ import {
 const scope = createProcessScope();
 let testExitCode;
 
-async function runVitest() {
+/** @param {string[]} args */
+async function runVitest(args) {
   const vitestEntrypoint = resolve('node_modules/vitest/vitest.mjs');
-  // Console records are the worker-to-host evidence channel. Do not let a
-  // silent/custom reporter turn an executed sampling test into a skipped score.
-  const suppliedArgs = process.argv.slice(2);
-  const args = [];
-  for (let index = 0; index < suppliedArgs.length; index++) {
-    const arg = suppliedArgs[index];
-    if (arg === '--reporter' || arg.startsWith('--reporter=')) {
-      const reporter =
-        arg === '--reporter'
-          ? suppliedArgs[++index]
-          : arg.slice('--reporter='.length);
-      if (reporter !== 'verbose')
-        throw new Error('Model transcript capture requires --reporter=verbose');
-    } else if (arg === '--silent' || arg.startsWith('--silent=')) {
-      throw new Error(
-        'Silent model tests cannot retain model evaluation evidence',
-      );
-    } else args.push(arg);
-  }
   const transcriptPath = resolve(
     'reports/model-runs',
     `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}.log`,
@@ -40,6 +24,8 @@ async function runVitest() {
   mkdirSync(dirname(transcriptPath), { recursive: true });
   const transcript = openSync(transcriptPath, 'wx');
   console.info(`Model test transcript: ${transcriptPath}`);
+  /** @type {(() => void)[]} */
+  const detach = [];
   try {
     const test = scope.start(
       process.execPath,
@@ -62,15 +48,27 @@ async function runVitest() {
     ];
     for (const [source, destination] of streams) {
       if (!source) throw new Error('Vitest output pipe was not created');
-      source.on('data', (chunk) => {
-        writeSync(transcript, chunk);
+      // Frame each stream by line so stderr cannot split a stdout sample record.
+      const lines = createLineFramer((data) => writeSync(transcript, data));
+      /** @param {Buffer} chunk */
+      const onData = (chunk) => {
+        lines.push(chunk);
         destination.write(chunk);
+      };
+      source.on('data', onData);
+      detach.push(() => {
+        source.off('data', onData);
+        source.destroy();
+        lines.flush();
       });
     }
-    test.child.once('error', (error) => {
+    /** @param {Error} error */
+    const onError = (error) => {
       writeSync(transcript, `Could not start Vitest: ${error.message}\n`);
       console.error(error);
-    });
+    };
+    test.child.once('error', onError);
+    detach.push(() => test.child.off('error', onError));
     const result = await test.exited;
     if (result.signal || result.error) void scope.stop(exitStatus(result));
     await test.stop();
@@ -78,6 +76,8 @@ async function runVitest() {
     await test.closed;
     return { code: exitStatus(result), transcriptPath };
   } finally {
+    // Stop writing before the descriptor closes or another file reuses it.
+    for (const stopWriting of detach) stopWriting();
     closeSync(transcript);
   }
 }
@@ -89,10 +89,18 @@ try {
   console.info(
     `Live tests use OpenRouter ${config.model}; API requests are billed.`,
   );
+  const { vitestArgs, judge: runJudge } = parseModelTestArgs(
+    process.argv.slice(2),
+  );
   scope.signal.throwIfAborted();
-  const { code, transcriptPath } = await runVitest();
+  const { code, transcriptPath } = await runVitest(vitestArgs);
   testExitCode = code;
-  if (!scope.stopping) {
+  if (!scope.stopping && !runJudge) {
+    console.info(
+      `Skipped the billed judge (--no-judge). To judge later: npm run test:judge -- --transcript ${shellQuote(transcriptPath)}`,
+    );
+    await scope.stop(code);
+  } else if (!scope.stopping) {
     const { listSamplingScenarios, getSamplingScenario } =
       await import('../tools/evaluation/sampling-results.mjs');
     const { readFileSync } = await import('node:fs');

@@ -7,6 +7,7 @@ import {
 import {
   createIncidentTitle,
   type SupportIncident,
+  type SupportIncidentSummary,
 } from '../lib/support-incidents.ts';
 import type { SupportCommand, SupportReply } from '../lib/chat-request.ts';
 
@@ -62,22 +63,15 @@ type IncidentMessageRow = {
   message_created_at: string | null;
 };
 
-export async function listSupportIncidents(
-  db: D1Database,
-  user: AuthenticatedUser,
-): Promise<SupportIncident[]> {
-  const rows = await db
-    .prepare(`SELECT i.incident_id, i.title, i.revision,
+const INCIDENT_MESSAGE_COLUMNS = `i.incident_id, i.title, i.revision,
       i.updated_at AS incident_updated_at, m.message_id, m.role, m.content,
       m.created_at AS message_created_at
       FROM support_incidents i
-      LEFT JOIN support_messages m ON m.incident_id = i.incident_id
-      WHERE i.user_id = ?
-      ORDER BY julianday(i.updated_at) DESC, i.incident_id, m.sequence_number`)
-    .bind(user.userId)
-    .all<IncidentMessageRow>();
+      LEFT JOIN support_messages m ON m.incident_id = i.incident_id`;
+
+function groupIncidentRows(rows: IncidentMessageRow[]): SupportIncident[] {
   const incidents = new Map<string, SupportIncident>();
-  for (const row of rows.results) {
+  for (const row of rows) {
     const incident = incidents.get(row.incident_id) ?? {
       id: row.incident_id,
       title: row.title,
@@ -96,6 +90,63 @@ export async function listSupportIncidents(
     incidents.set(row.incident_id, incident);
   }
   return [...incidents.values()];
+}
+
+export async function listSupportIncidents(
+  db: D1Database,
+  user: AuthenticatedUser,
+): Promise<SupportIncident[]> {
+  const rows = await db
+    .prepare(`SELECT ${INCIDENT_MESSAGE_COLUMNS}
+      WHERE i.user_id = ?
+      ORDER BY julianday(i.updated_at) DESC, i.incident_id, m.sequence_number`)
+    .bind(user.userId)
+    .all<IncidentMessageRow>();
+  return groupIncidentRows(rows.results);
+}
+
+// Deleted, foreign, and never-saved incidents are all absent: the answer does
+// not reveal whether another user owns the ID.
+export async function getSupportIncident(
+  db: D1Database,
+  user: AuthenticatedUser,
+  incidentId: string,
+): Promise<SupportIncident | null> {
+  const rows = await db
+    .prepare(`SELECT ${INCIDENT_MESSAGE_COLUMNS}
+      WHERE i.incident_id = ? AND i.user_id = ?
+      ORDER BY m.sequence_number`)
+    .bind(incidentId, user.userId)
+    .all<IncidentMessageRow>();
+  return groupIncidentRows(rows.results)[0] ?? null;
+}
+
+export async function listSupportIncidentSummaries(
+  db: D1Database,
+  user: AuthenticatedUser,
+): Promise<SupportIncidentSummary[]> {
+  const rows = await db
+    .prepare(`SELECT i.incident_id, i.title, i.revision, i.updated_at,
+      (SELECT COUNT(*) FROM support_messages m
+        WHERE m.incident_id = i.incident_id) AS message_count
+      FROM support_incidents i
+      WHERE i.user_id = ?
+      ORDER BY julianday(i.updated_at) DESC, i.incident_id`)
+    .bind(user.userId)
+    .all<{
+      incident_id: string;
+      title: string;
+      revision: number;
+      updated_at: string;
+      message_count: number;
+    }>();
+  return rows.results.map((row) => ({
+    id: row.incident_id,
+    title: row.title,
+    updatedAt: row.updated_at,
+    revision: row.revision,
+    messageCount: row.message_count,
+  }));
 }
 
 export async function getSupportIncidentState(

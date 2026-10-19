@@ -4,7 +4,9 @@ import http.client
 import json
 import os
 import random
+import socket
 import time
+from collections.abc import Callable
 from contextlib import closing
 from email.utils import parsedate_to_datetime
 from typing import NoReturn
@@ -16,6 +18,8 @@ from judge_runtime import connect_openrouter, request_scope
 from judge_types import RequestRecord, RetryPolicy
 
 MAX_RESPONSE_BYTES = 2_000_000
+READ_CHUNK_BYTES = 65_536
+SOCKET_TIMEOUT_SECONDS = 180
 
 RETRY_POLICY: RetryPolicy = {
     "httpStatuses": [429, 500, 502, 503, 504],
@@ -27,7 +31,14 @@ RETRY_POLICY: RetryPolicy = {
     "jitterSeconds": 1,
     "maxDelaySeconds": 60,
     "honorRetryAfter": True,
+    # The socket timeout restarts on every read, so bound each logical request
+    # (all attempts, reads, and retry waits) by one monotonic deadline.
+    "requestDeadlineSeconds": 600,
 }
+
+
+class RequestDeadlineExceeded(TimeoutError):
+    """The logical request ran past its total deadline."""
 
 
 def retry_delay(retry_after: str | None, attempt: int) -> float | None:
@@ -54,16 +65,39 @@ def retry_delay(retry_after: str | None, attempt: int) -> float | None:
     return delay if delay <= RETRY_POLICY["maxDelaySeconds"] else None
 
 
+def bound_socket(sock: socket.socket, deadline: float, record: RequestRecord) -> None:
+    """Fail at the deadline, or cap the next blocking socket call by the time left."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        record["deadlineExceeded"] = True
+        raise RequestDeadlineExceeded("Judge request exceeded its total deadline")
+    sock.settimeout(min(SOCKET_TIMEOUT_SECONDS, remaining))
+
+
 def read_response(
-    response: http.client.HTTPResponse, record: RequestRecord, key: str
+    response: http.client.HTTPResponse,
+    record: RequestRecord,
+    key: str,
+    before_read: Callable[[], None],
 ) -> bytes:
     """Capture bounded, redacted evidence before validating the HTTP body."""
-    read_error = None
+    read_error: Exception | None = None
+    parts: list[bytes] = []
+    size = 0
     try:
-        raw = response.read(MAX_RESPONSE_BYTES + 1)
+        while size <= MAX_RESPONSE_BYTES:
+            before_read()
+            chunk = response.read(min(READ_CHUNK_BYTES, MAX_RESPONSE_BYTES + 1 - size))
+            if not chunk:
+                break
+            parts.append(chunk)
+            size += len(chunk)
     except http.client.IncompleteRead as error:
-        raw = error.partial
+        parts.append(error.partial)
         read_error = error
+    except RequestDeadlineExceeded as error:
+        read_error = error
+    raw = b"".join(parts)
     record["responseBytes"] = len(raw)
     # read(amt) may return short on premature Content-Length EOF.
     record["responseComplete"] = read_error is None and getattr(
@@ -151,8 +185,12 @@ def request_verdict[Response: BaseModel](
             )
         destination = (proxy.hostname, proxy.port or 80)
     logical_request = len(requests) + 1
+    deadline = time.monotonic() + RETRY_POLICY["requestDeadlineSeconds"]
     for attempt in range(1, RETRY_POLICY["maxRetries"] + 2):
-        connection = http.client.HTTPSConnection(*destination, timeout=180)
+        # Bounds connecting and sending; a zero timeout would make the socket
+        # non-blocking, and the retry check below keeps the remainder positive.
+        timeout = min(SOCKET_TIMEOUT_SECONDS, max(0.001, deadline - time.monotonic()))
+        connection = http.client.HTTPSConnection(*destination, timeout=timeout)
         if proxy_url:
             connection.set_tunnel("openrouter.ai", 443)
         # HTTPConnection uses this private hook for the guarded socket factory.
@@ -169,12 +207,23 @@ def request_verdict[Response: BaseModel](
                 connection.request(
                     "POST", "/api/v1/chat/completions", json.dumps(body), headers
                 )
+                # The response keeps using this socket after http.client releases it.
+                sock = connection.sock
+
+                def bound(
+                    sock: socket.socket = sock, record: RequestRecord = record
+                ) -> None:
+                    bound_socket(sock, deadline, record)
+
+                bound()
                 response = connection.getresponse()
                 record["httpStatus"] = response.status
-                raw = read_response(response, record, key)
+                raw = read_response(response, record, key, bound)
                 return parse_verdict(raw, schema, record, key)
             except Exception as error:
                 record["errorType"] = type(error).__name__
+                if time.monotonic() >= deadline:
+                    record["deadlineExceeded"] = True
                 incomplete = (
                     isinstance(error, http.client.IncompleteRead)
                     and record.get("httpStatus") == 200
@@ -209,6 +258,9 @@ def request_verdict[Response: BaseModel](
                 )
                 if delay is None:
                     record["retrySkipped"] = "retry-after-exceeds-wait-budget"
+                    raise
+                if time.monotonic() + delay >= deadline:
+                    record["retrySkipped"] = "retry-exceeds-request-deadline"
                     raise
                 record["retryDelaySeconds"] = delay
         time.sleep(delay)

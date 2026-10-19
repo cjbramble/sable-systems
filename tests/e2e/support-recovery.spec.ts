@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures/app';
+import { INCIDENT_READ } from './pages/support-page';
 
 const firstTitle = 'Priority shipment trace';
 const otherTitle = 'Nerveline allocation';
@@ -45,7 +46,7 @@ test('checks a saved but lost exchange without resending or replacing another in
   const release = Promise.withResolvers<void>();
   const delivered = Promise.withResolvers<void>();
   await page.route(
-    '**/api/incidents',
+    INCIDENT_READ,
     async (route) => {
       const response = await route.fetch();
       received.resolve();
@@ -95,14 +96,15 @@ for (const existing of [false, true]) {
     supportPage,
     app,
   }) => {
-    let original: unknown;
+    let original: { incidentId?: unknown } | undefined;
     let chatRequests = 0;
+    let historyRequests = 0;
     page.on('request', (request) => {
-      if (
-        new URL(request.url()).pathname === '/api/chat' &&
-        request.method() === 'POST'
-      )
+      const url = new URL(request.url());
+      if (url.pathname === '/api/chat' && request.method() === 'POST')
         chatRequests += 1;
+      if (url.pathname === '/api/incidents' && !url.search)
+        historyRequests += 1;
     });
     await page.route(
       '**/api/chat',
@@ -119,11 +121,17 @@ for (const existing of [false, true]) {
       page.getByText('Save unconfirmed', { exact: true }),
     ).toBeVisible();
     await supportPage.messageInput.fill(newerDraft);
-    const checked = page.waitForResponse('**/api/incidents');
+    const checked = page.waitForResponse(INCIDENT_READ);
     await page
       .getByRole('button', { name: 'Check saved conversation', exact: true })
       .click();
-    expect((await checked).status()).toBe(200);
+    const check = await checked;
+    expect(check.status()).toBe(200);
+    // The check reads only this incident, never the whole history.
+    expect(new URL(check.url()).searchParams.get('incidentId')).toBe(
+      original?.incidentId,
+    );
+    expect(historyRequests).toBe(0);
     await expect(supportPage.retryMessageButton).toBeEnabled();
     await expect(
       page.getByText('Save unconfirmed', { exact: true }),
@@ -220,22 +228,20 @@ for (const failure of ['unavailable', 'malformed'] as const) {
     await page.unroute('**/api/chat');
     await supportPage.messageInput.fill(newerDraft);
     await page.route(
-      '**/api/incidents',
+      INCIDENT_READ,
       (route) =>
         route.fulfill(
           failure === 'unavailable'
             ? { status: 503, body: 'Unavailable' }
             : {
                 json: {
-                  incidents: [
-                    { id: 'INC-USR-CPD-001-01', revision: 'invalid' },
-                  ],
+                  incident: { id: 'INC-USR-CPD-001-01', revision: 'invalid' },
                 },
               },
         ),
       { times: 1 },
     );
-    const checked = page.waitForResponse('**/api/incidents');
+    const checked = page.waitForResponse(INCIDENT_READ);
     await page
       .getByRole('button', { name: 'Check saved conversation', exact: true })
       .click();

@@ -817,3 +817,17 @@ No order matching SBL-2021-500000 is available within Calder Pike Distribution's
     expect(context.match(/: cancelled;/g)).toHaveLength(total);
   });
 });
+
+describe('order IDs with typographic hyphens', () => {
+  it('looks up an order ID pasted with non-breaking hyphens', async () => {
+    const { records } = requireSupportRecords(
+      await buildSupportContext(
+        await getDatabase(),
+        [{ role: 'user', content: 'Where is my order SBL‑2026‑000417?' }],
+        calderPikeUser,
+      ),
+    );
+    expect(records).toContain('SBL-2026-000417');
+    expect(records).not.toContain('outcome: unavailable');
+  });
+});

@@ -40,24 +40,17 @@ def plan_transcript(
     for scenario, batch in batches.items():
         live = live_scenarios.get(scenario)
         fixture_path = live_path if live else fixtures / f"{scenario}.json"
+        # Live scenarios have no fixture reference; the captured records message
+        # below is their only reference source.
+        fixture: FixtureInput | None = None
         if live:
-            if batch.reference is None:
-                raise ValueError(
-                    "Live scenario requires its captured authorized reference"
-                )
-            fixture = FixtureInput.model_validate(
-                {
-                    "question": live["messages"][-1]["content"],
-                    "references": [batch.reference],
-                }
-            )
+            question = live["messages"][-1]["content"]
         else:
             fixture = FixtureInput.model_validate_json(fixture_path.read_text())
+            question = fixture.question
         history: list[ConversationMessage] = []
         policy = None
-        reference_source: Literal["captured", "fixture"] = (
-            "captured" if live else "fixture"
-        )
+        reference_source: Literal["captured", "fixture"] = "fixture"
         request = batch.request
         if isinstance(request, dict) and "messages" in request:
             messages = request["messages"]
@@ -89,7 +82,7 @@ def plan_transcript(
                         )
                     fixture = FixtureInput.model_validate(
                         {
-                            "question": fixture.question,
+                            "question": question,
                             "references": [records.get("records")],
                         }
                     )
@@ -104,9 +97,11 @@ def plan_transcript(
                 ConversationMessage.model_validate(message)
                 for message in messages[start:]
             ]
-            if dialogue[-1].role != "user" or dialogue[-1].content != fixture.question:
+            if dialogue[-1].role != "user" or dialogue[-1].content != question:
                 raise ValueError("Captured final question does not match the scenario")
             history = dialogue[:-1]
+        if fixture is None:
+            raise ValueError("Live scenario requires its captured authorized records")
         planned.append(
             PlannedScenario(
                 scenario,

@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures/app';
-import { SupportPage } from './pages/support-page';
+import { INCIDENT_READ, SupportPage } from './pages/support-page';
 
 const title = 'Priority shipment trace';
 const otherTitle = 'Nerveline allocation';
@@ -108,13 +108,13 @@ for (const failure of ['unavailable', 'malformed'] as const) {
       exact: true,
     });
     await expect(reload).toBeVisible();
-    await page.route('**/api/incidents', (route) =>
+    await page.route(INCIDENT_READ, (route) =>
       route.fulfill(
         failure === 'unavailable'
           ? { status: 503, body: 'Unavailable' }
           : {
               json: {
-                incidents: [{ id: 'INC-USR-CPD-001-01', revision: 'invalid' }],
+                incident: { id: 'INC-USR-CPD-001-01', revision: 'invalid' },
               },
             },
       ),
@@ -123,7 +123,7 @@ for (const failure of ['unavailable', 'malformed'] as const) {
     await expect(supportPage.requestError).toContainText(
       'could not be reloaded',
     );
-    await page.unroute('**/api/incidents');
+    await page.unroute(INCIDENT_READ);
     await expect(supportPage.messageInput).toHaveValue(rejectedMessage);
     await expect(
       page.getByRole('button', { name: 'Send message' }),
@@ -132,7 +132,7 @@ for (const failure of ['unavailable', 'malformed'] as const) {
     const received = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     await page.route(
-      '**/api/incidents',
+      INCIDENT_READ,
       async (route) => {
         const response = await route.fetch();
         received.resolve();
@@ -190,8 +190,7 @@ test('does not restore an incident deleted while its snapshot is loading', async
   const received = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const delivered = Promise.withResolvers<void>();
-  await page.route('**/api/incidents', async (route) => {
-    if (route.request().method() !== 'GET') return route.continue();
+  await page.route(INCIDENT_READ, async (route) => {
     const response = await route.fetch();
     received.resolve();
     await release.promise;
@@ -278,7 +277,7 @@ test('redirects an expired refresh before trying to decode its body', async ({
     page.getByRole('button', { name: 'Reload conversation', exact: true }),
   ).toBeVisible();
   await page.route(
-    '**/api/incidents',
+    INCIDENT_READ,
     (route) =>
       route.fulfill({
         status: 401,

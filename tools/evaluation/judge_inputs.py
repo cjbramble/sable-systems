@@ -63,7 +63,6 @@ class TranscriptSample(StrictInput):
 
 class TranscriptBatch(StrictInput):
     samples: list[TranscriptSample]
-    reference: NonemptyText | None = None
     request: object = None
 
     @model_validator(mode="after")

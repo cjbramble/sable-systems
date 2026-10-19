@@ -3,6 +3,9 @@ import { expect, type Page } from '@playwright/test';
 import { SupportMessage } from './support-message';
 import { SessionControls } from './session-controls';
 
+// Reload and recovery checks read one incident instead of the whole history.
+export const INCIDENT_READ = '**/api/incidents?incidentId=*';
+
 export class SupportPage {
   readonly session: SessionControls;
   constructor(private readonly page: Page) {
