@@ -13,6 +13,14 @@ a hash of each random session token.
 Cookies use `Path=/`, `HttpOnly`, `SameSite=Lax`, and `Max-Age=43200`, plus
 `Secure` on HTTPS. Loopback HTTP intentionally omits `Secure`.
 
+Sign-in trims and lowercases the email, then matches the stored address exactly
+through the `users.email` unique index. The database stores emails in
+lowercase: triggers reject a mixed-case insert or update, so two accounts
+cannot differ only by letter case. Schema 16 lowercases existing emails during
+upgrade. If two existing accounts differ only by case, startup refuses the
+upgrade and makes no changes. Lowercasing covers ASCII letters only, matching
+SQLite's `lower()`.
+
 Sessions expire absolutely after twelve hours, including at the exact expiry
 instant. Requests recheck expiry, revocation, user status, and distributor status.
 Suspension blocks access; reactivation can restore an unexpired, unrevoked session.
@@ -70,6 +78,7 @@ before any database work.
 | Cookies, independent logout, exact expiry, revocation, suspension, and authenticated replay | [Session integration tests](../tests/integration/auth-session.test.ts)          |
 | All role labels, checkout ownership, and same-distributor conversation isolation            | [Permission integration tests](../tests/integration/auth-permissions.test.ts)   |
 | Missing/unknown sessions and untrusted origins denied before inference, writes, or replay   | [Support response safety](../tests/integration/support-response-safety.test.ts) |
+| Case-insensitive sign-in, lowercase email storage, and the schema 16 upgrade                | [Schema maintenance tests](../tests/integration/schema-maintenance.test.ts)     |
 | Distributor-scoped order history and totals                                                 | [Orders API tests](../tests/integration/orders-api.test.ts)                     |
 | Incident ownership, deletion, and concurrent changes                                        | [Incident lifecycle tests](../tests/integration/incident-lifecycle.test.ts)     |
 | Browser login/logout, retry, and session recovery                                           | [Authentication browser tests](../tests/e2e/auth-session.spec.ts)               |

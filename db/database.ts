@@ -10,6 +10,7 @@ import {
 import { buildSeedStatements, buildSupportSeedStatements } from './seed';
 import { logServerError } from '@/lib/server-log';
 import {
+  auditUserEmails,
   hasUnsupportedLegacyLayout,
   planSchemaUpgrades,
   schemaAlterationsCompleted,
@@ -35,6 +36,7 @@ const SUPPORTED_SCHEMA_VERSIONS = new Set([
   '12',
   '13',
   '14',
+  '15',
   SCHEMA_VERSION,
 ]);
 let initialization: Promise<D1Database> | null = null;
@@ -68,6 +70,7 @@ async function initializeDatabase(
       : await hasLegacyOrderLineTables(db);
   if (state.kind === 'ready' && needsOrderLineMigration)
     await auditOrderLineParents(db);
+  if (upgradingSchema) await auditUserEmails(db);
   if (state.kind === 'empty') {
     // Claim only an empty database, atomically, before any schema/seed work.
     // Another Worker may claim it first; then continue from its checkpoint.

@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = '15';
+export const SCHEMA_VERSION = '16';
 export const SEED_VERSION = 'sable-distribution-2026-09-02-v8';
 
 export const METADATA_TABLE_SQL = `CREATE TABLE IF NOT EXISTS metadata (
@@ -16,6 +16,24 @@ const USERS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS users (
   created_on TEXT NOT NULL,
   last_login_at TEXT
 ) STRICT`;
+
+// Sign-in matches the lowercase address exactly, so the case-sensitive UNIQUE
+// rule on users.email also rejects addresses that differ only by letter case.
+const USER_EMAIL_INSERT_TRIGGER_SQL = `CREATE TRIGGER IF NOT EXISTS users_lowercase_email_insert
+  BEFORE INSERT ON users
+  FOR EACH ROW
+  WHEN NEW.email <> lower(NEW.email)
+  BEGIN
+    SELECT RAISE(ABORT, 'user email must be lowercase');
+  END`;
+
+const USER_EMAIL_UPDATE_TRIGGER_SQL = `CREATE TRIGGER IF NOT EXISTS users_lowercase_email_update
+  BEFORE UPDATE OF email ON users
+  FOR EACH ROW
+  WHEN NEW.email <> lower(NEW.email)
+  BEGIN
+    SELECT RAISE(ABORT, 'user email must be lowercase');
+  END`;
 
 const USER_CREDENTIALS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS user_credentials (
   user_id TEXT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
@@ -266,6 +284,8 @@ export const schemaStatements = [
   CHECKOUT_COMMANDS_TABLE_SQL,
   ORDER_USER_INSERT_TRIGGER_SQL,
   ORDER_USER_UPDATE_TRIGGER_SQL,
+  USER_EMAIL_INSERT_TRIGGER_SQL,
+  USER_EMAIL_UPDATE_TRIGGER_SQL,
   `CREATE INDEX IF NOT EXISTS idx_orders_customer_ship_date
     ON orders(customer_id, requested_ship_date)`,
   ORDER_HISTORY_INDEX_SQL,

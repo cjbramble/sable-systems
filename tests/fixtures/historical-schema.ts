@@ -326,7 +326,12 @@ export type HistoricalSchemaVersion =
   | '11'
   | '12'
   | '13'
-  | '14';
+  | '14'
+  | '15';
+
+// Schema 15 (b9ecf4c) dropped these schema 6 indexes.
+const retiredIndexes15 =
+  /^CREATE INDEX IF NOT EXISTS (idx_orders_customer_open|idx_account_charges_order|idx_inventory_item)\s/;
 
 export function historicalSchemaStatements(version: HistoricalSchemaVersion) {
   return [
@@ -338,7 +343,8 @@ export function historicalSchemaStatements(version: HistoricalSchemaVersion) {
             sql,
           )) &&
         (Number(version) < 14 ||
-          !sql.startsWith('CREATE TABLE IF NOT EXISTS sessions ')),
+          !sql.startsWith('CREATE TABLE IF NOT EXISTS sessions ')) &&
+        (Number(version) < 15 || !retiredIndexes15.test(sql)),
     ),
     ...(Number(version) >= 7 ? additions7 : []),
     ...(Number(version) >= 13 ? replacements13 : []),
