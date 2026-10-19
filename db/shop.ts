@@ -8,10 +8,14 @@ import type {
 import { isProductOrderable } from '@/lib/product-eligibility';
 import {
   calendarDateIn,
+  initialOrderStatus,
+  orderLeadTimeDays,
   parseCheckoutFailure,
   parseCheckoutInput,
   parseCheckoutReceipt,
+  shipDateWindow,
 } from '@/lib/checkout';
+import { logServerError } from '@/lib/server-log';
 import { sameSessionSubject } from '@/lib/session-subject';
 
 type ProductRow = {
@@ -107,26 +111,41 @@ export async function placeChargeAccountOrder(
   try {
     return await createOrder(db, input, user, intent, createdAt);
   } catch (error) {
+    let claimed = true;
     if (error instanceof CheckoutError) {
       // A terminal rejection must also win the command's unique identity. This
       // prevents an earlier, still-running attempt from committing afterward.
-      await db
-        .prepare(`INSERT INTO checkout_commands (command_id, intent_json, status, response_json)
-        VALUES (?, ?, ?, ?) ON CONFLICT(command_id) DO NOTHING`)
-        .bind(
-          input.commandId,
-          intent,
-          error.status,
-          JSON.stringify({
-            error: error.message,
-            code: error.code,
-          } satisfies CheckoutFailure),
-        )
-        .run();
+      try {
+        await db
+          .prepare(`INSERT INTO checkout_commands (command_id, intent_json, status, response_json)
+          VALUES (?, ?, ?, ?) ON CONFLICT(command_id) DO NOTHING`)
+          .bind(
+            input.commandId,
+            intent,
+            error.status,
+            JSON.stringify({
+              error: error.message,
+              code: error.code,
+            } satisfies CheckoutFailure),
+          )
+          .run();
+      } catch (claimError) {
+        // Keep the buyer's real reason. Without the claim, a retry recomputes
+        // the outcome against current data.
+        logServerError('checkout rejection claim', claimError);
+        claimed = false;
+      }
     }
     // A concurrent winner can commit during validation, or the database can
     // commit our batch before losing its acknowledgment. Resolve identity first.
-    const recovered = await recoverCheckout(db, input.commandId, intent);
+    let recovered: CheckoutReceipt | null;
+    try {
+      recovered = await recoverCheckout(db, input.commandId, intent);
+    } catch (recoveryError) {
+      if (claimed || recoveryError instanceof CheckoutError)
+        throw recoveryError;
+      throw error;
+    }
     if (recovered) return recovered;
     throw error;
   }
@@ -175,12 +194,21 @@ async function createOrder(
   const today = createdAt.slice(0, 10);
   // Customers choose dates in their own time zone. Compare at submission, so
   // a stale page cannot carry an earlier local date forward.
-  if (
-    input.requestedShipDate < calendarDateIn(input.timeZone ?? 'UTC', createdAt)
-  ) {
+  const localToday = calendarDateIn(input.timeZone ?? 'UTC', createdAt);
+  if (input.requestedShipDate < localToday) {
     throw new CheckoutError('Requested ship date cannot be in the past.', 422);
   }
+  const { latest } = shipDateWindow(localToday, 0);
+  if (input.requestedShipDate > latest) {
+    throw new CheckoutError(
+      `Requested ship date must be on or before ${latest}.`,
+      422,
+    );
+  }
 
+  // Scheduled releases are allocated when fulfillment opens, as in the seed,
+  // so they neither check nor reserve today's stock.
+  const status = initialOrderStatus(input.requestedShipDate, localToday);
   const catalog = await getCatalog(db);
   const productById = new Map(
     catalog.map((product) => [product.itemNumber, product]),
@@ -211,7 +239,8 @@ async function createOrder(
       throw new CheckoutError('The order total is too large.', 422);
     }
 
-    if (product.fulfillmentType === 'license') continue;
+    if (product.fulfillmentType === 'license' || status === 'scheduled')
+      continue;
     const balances = await db
       .prepare(`SELECT location_id,
       on_hand_quantity - reserved_quantity - quarantined_quantity AS available_quantity
@@ -244,6 +273,18 @@ async function createOrder(
     }
   }
 
+  const orderedProducts = input.items.map((line) =>
+    productById.get(line.itemNumber)!,
+  );
+  const leadTimeDays = orderLeadTimeDays(orderedProducts);
+  const { earliest } = shipDateWindow(localToday, leadTimeDays);
+  if (input.requestedShipDate < earliest) {
+    throw new CheckoutError(
+      `Requested ship date must be on or after ${earliest} to cover the ${leadTimeDays}-day lead time.`,
+      422,
+    );
+  }
+
   for (let attempt = 1; ; attempt += 1) {
     const receipt = newReceipt(input, user, totalCents, today);
     try {
@@ -252,6 +293,7 @@ async function createOrder(
         ...orderStatements(db, input, user, receipt, intent, productById, {
           createdAt,
           today,
+          status,
         }),
       ]);
       return receipt;
@@ -307,7 +349,11 @@ function orderStatements(
   receipt: CheckoutReceipt,
   intent: string,
   productById: Map<string, CatalogProduct>,
-  { createdAt, today }: { createdAt: string; today: string },
+  {
+    createdAt,
+    today,
+    status,
+  }: { createdAt: string; today: string; status: 'confirmed' | 'scheduled' },
 ): D1PreparedStatement[] {
   const { orderId, chargeId, authorizationCode, totalCents } = receipt;
   return [
@@ -315,7 +361,7 @@ function orderStatements(
       .prepare(`INSERT INTO orders (
       order_id, customer_id, placed_by_user_id, customer_po_number, created_on,
       requested_ship_date, status, currency, order_total_cents, shipping_region
-    ) VALUES (?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?)`)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(
         orderId,
         user.distributorId,
@@ -323,6 +369,7 @@ function orderStatements(
         input.customerPoNumber,
         today,
         input.requestedShipDate,
+        status,
         user.currency,
         totalCents,
         input.shippingRegion,
@@ -341,18 +388,26 @@ function orderStatements(
           product.name,
           product.unitPriceCents,
           line.quantity,
-          line.quantity,
+          status === 'scheduled' ? 0 : line.quantity,
         );
     }),
     db
       .prepare(`INSERT INTO order_events (
       event_id, order_id, occurred_at, event_type, customer_safe_description
-    ) VALUES (?, ?, ?, 'order_confirmed', ?)`)
+    ) VALUES (?, ?, ?, ?, ?)`)
       .bind(
         `EVT-${crypto.randomUUID()}`,
         orderId,
         createdAt,
-        `Wholesale order confirmed for requested ship date ${input.requestedShipDate}. Charge account authorization confirmed.`,
+        ...(status === 'scheduled'
+          ? [
+              'order_created',
+              `Wholesale order scheduled for requested ship date ${input.requestedShipDate}. Inventory is allocated when fulfillment opens. Charge account authorization confirmed.`,
+            ]
+          : [
+              'order_confirmed',
+              `Wholesale order confirmed for requested ship date ${input.requestedShipDate}. Charge account authorization confirmed.`,
+            ]),
       ),
     db
       .prepare(`INSERT INTO account_charges (

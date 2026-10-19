@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  addCalendarDays,
+  initialOrderStatus,
+  orderLeadTimeDays,
   parseCheckoutFailure,
   parseCheckoutInput,
   parseCheckoutReceipt,
+  shipDateWindow,
 } from '@/lib/checkout';
 
 const commandId = '32809452-79df-4c50-8d6b-9a23f5823984';
@@ -225,5 +229,34 @@ describe('checkout destination text', () => {
         shippingRegion: '  Great   Lakes  District ',
       }),
     ).toMatchObject({ shippingRegion: 'Great Lakes District' });
+  });
+});
+
+describe('ship-date window', () => {
+  it('counts calendar days and years across month ends and leap days', () => {
+    expect(addCalendarDays('2026-09-11', 90)).toBe('2026-12-10');
+    expect(addCalendarDays('2028-02-29', 18)).toBe('2028-03-18');
+    expect(addCalendarDays('2026-12-31', 1)).toBe('2027-01-01');
+    // February 29 has no match in 2033, so the horizon rolls to March 1.
+    expect(shipDateWindow('2028-02-29', 0)).toEqual({
+      earliest: '2028-02-29',
+      latest: '2033-03-01',
+    });
+  });
+
+  it('takes the longest lead time from physical lines only', () => {
+    expect(orderLeadTimeDays([])).toBe(0);
+    expect(
+      orderLeadTimeDays([
+        { fulfillmentType: 'physical', leadTimeDays: 18 },
+        { fulfillmentType: 'license', leadTimeDays: 120 },
+        { fulfillmentType: 'physical', leadTimeDays: 60 },
+      ]),
+    ).toBe(60);
+  });
+
+  it('schedules orders that ship more than 90 days after the local date', () => {
+    expect(initialOrderStatus('2026-12-10', '2026-09-11')).toBe('confirmed');
+    expect(initialOrderStatus('2026-12-11', '2026-09-11')).toBe('scheduled');
   });
 });

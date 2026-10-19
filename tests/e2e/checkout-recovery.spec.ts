@@ -253,3 +253,107 @@ for (const loss of ['before commit', 'after commit', 'malformed receipt']) {
     expect(app.modelRequests).toEqual([]);
   });
 }
+
+test('after a failed retry, offers order history for the PO and a deliberate start over', async ({
+  page,
+  app,
+  loginPage,
+  shopPage,
+}) => {
+  await loginPage.goto('/shop');
+  await loginPage.signIn(
+    'imani.kade@meridiancivic.example',
+    'Sable-WHS-1098!',
+    '/shop',
+  );
+  await shopPage.addCase(itemNumber);
+  await shopPage.openCart();
+  const customerPoNumber = 'MCS-UNCERTAIN-START-OVER';
+  await shopPage.fillOrder({
+    customerPoNumber,
+    requestedShipDate: '2031-01-01',
+    shippingRegion: 'Great Lakes District',
+  });
+  await shopPage.chargeConsent.check();
+  // The order commits, but every reply is a server error.
+  await page.route('**/api/orders', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    await route.fetch();
+    await route.fulfill({ status: 500, json: { error: 'Unavailable' } });
+  });
+  const historyLink = shopPage.cart.getByRole('link', {
+    name: 'Check order history',
+  });
+  const startOver = shopPage.cart.getByRole('button', {
+    name: 'Start over',
+    exact: true,
+  });
+  const retry = shopPage.cart.getByRole('button', {
+    name: 'Retry this order',
+    exact: true,
+  });
+  await shopPage.submitOrder();
+  await expect(shopPage.checkoutError).toContainText('could not be verified');
+  // The first failure offers only recovery.
+  await expect(historyLink).toHaveCount(0);
+  await expect(startOver).toHaveCount(0);
+  await retry.click();
+  await expect(historyLink).toBeVisible();
+  await expect(historyLink).toHaveAttribute('target', '_blank');
+  await expect(historyLink).toHaveAttribute(
+    'href',
+    `/orders?query=${customerPoNumber}`,
+  );
+
+  // The history tab opens already filtered to the PO.
+  const [history] = await Promise.all([
+    page.context().waitForEvent('page'),
+    historyLink.click(),
+  ]);
+  await expect(history.getByLabel('Search order history')).toHaveValue(
+    customerPoNumber,
+  );
+  await expect(
+    history.getByRole('table').locator('tbody').getByRole('row'),
+  ).toHaveCount(1);
+  await expect(history.getByRole('table')).toContainText(customerPoNumber);
+  await history.close();
+
+  // Starting over asks first and warns about a duplicate charge.
+  await startOver.click();
+  await expect(shopPage.cart).toContainText('can charge the account twice');
+  await shopPage.cart
+    .getByRole('button', { name: 'Keep this order', exact: true })
+    .click();
+  await expect(retry).toBeVisible();
+  await startOver.click();
+  await shopPage.cart
+    .getByRole('button', { name: 'Start over anyway', exact: true })
+    .click();
+  await expect(retry).toHaveCount(0);
+  await expect(shopPage.checkoutError).toHaveCount(0);
+  await expect(shopPage.chargeConsent).not.toBeChecked();
+  await expect(shopPage.cartLines).toHaveCount(1);
+  await expect(
+    shopPage.cart.getByLabel('Purchase-order reference'),
+  ).toHaveValue(customerPoNumber);
+  for (const field of await shopPage.orderFields.all())
+    await expect(field).toBeEnabled();
+
+  // A new command with the same PO is rejected rather than duplicated.
+  await page.unroute('**/api/orders');
+  await shopPage.chargeConsent.check();
+  const response = await shopPage.placeOrder();
+  expect(response.status()).toBe(409);
+  await expect(shopPage.checkoutError).toHaveText(
+    'That purchase-order reference is already in use.',
+  );
+  expect(
+    await app.database
+      .prepare(
+        'SELECT COUNT(*) AS orders FROM orders WHERE customer_po_number = ?',
+      )
+      .bind(customerPoNumber)
+      .first(),
+  ).toEqual({ orders: 1 });
+});

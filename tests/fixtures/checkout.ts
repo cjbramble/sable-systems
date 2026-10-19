@@ -9,7 +9,10 @@ export function checkoutCommand(
     commandId: crypto.randomUUID(),
     expectedSubject: { userId: 'USR-MCS-001', customerId: 'WHS-1098' },
     customerPoNumber,
-    requestedShipDate: '2031-01-01',
+    // Inside the 90-day window, so the order is confirmed and reserves stock.
+    requestedShipDate: new Date(Date.now() + 30 * 86_400_000)
+      .toISOString()
+      .slice(0, 10),
     shippingRegion: 'Great Lakes District',
     items: [
       { itemNumber: 'SBL-RPC-12', quantity: 8, expectedUnitPriceCents: 68000 },

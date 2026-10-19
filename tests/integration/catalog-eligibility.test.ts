@@ -1,6 +1,11 @@
 import { expect } from 'vitest';
 import { POST } from '@/app/api/orders/route';
+import { getAccountSummary } from '@/db/account';
 import { getCatalog } from '@/db/shop';
+import {
+  lookupSupportCategory,
+  lookupSupportInventoryAdvisories,
+} from '@/db/support-catalog';
 import { test } from '../fixtures/support-integration';
 import { snapshotCheckoutState } from '../fixtures/checkout';
 import { calderPikeUser } from '../fixtures/users';
@@ -82,7 +87,7 @@ test('checkout rejects a retired product even with available physical stock', as
           customerId: calderPikeUser.distributorId,
         },
         customerPoNumber: 'CPD-RETIRED-REJECT',
-        requestedShipDate: '2099-01-01',
+        requestedShipDate: '2030-01-01',
         shippingRegion: calderPikeUser.region,
         items: [{ itemNumber, quantity: 8, expectedUnitPriceCents: 98000 }],
       }),
@@ -136,4 +141,59 @@ test('catalog restock dates include only today or later', async ({
   expect(await restockDate([utcDate(-3), utcDate(30)])).toBe(utcDate(30));
   expect(await restockDate([utcDate(-3), null])).toBeNull();
   expect(await restockDate([utcDate(9), utcDate(30)])).toBe(utcDate(9));
+});
+
+test('catalog, account alerts, and support lookups share one orderable and low-stock rule', async ({
+  database,
+  onTestFinished,
+}) => {
+  const itemNumber = 'SBL-TEST-NO-STOCK';
+  onTestFinished(async () => {
+    await database
+      .prepare('DELETE FROM products WHERE item_number = ?')
+      .bind(itemNumber)
+      .run();
+  });
+  const views = async () => {
+    const catalog = await getCatalog(database);
+    const category = await lookupSupportCategory(database, 'Compute');
+    const advisories = await lookupSupportInventoryAdvisories(database);
+    const account = await getAccountSummary(database, calderPikeUser);
+    return {
+      inCatalog: catalog.find((product) => product.itemNumber === itemNumber),
+      inCategory: category.facts.find(
+        (product) => product.item_number === itemNumber,
+      ),
+      inAdvisories: advisories.facts.find(
+        (product) => product.item_number === itemNumber,
+      ),
+      alerts: account.inventoryAlerts,
+    };
+  };
+  const baseline = await views();
+  expect(baseline.inCatalog).toBeUndefined();
+
+  // A physical product without inventory rows has nothing available.
+  await database
+    .prepare(`INSERT INTO products (item_number, product_name, category,
+      fulfillment_type, unit_price_cents, unit_label, case_pack, lead_time_days,
+      warranty_months, active_from, active_to, search_terms)
+      VALUES (?, 'Unstocked Test Wafer', 'Compute', 'physical', 1000, 'wafer',
+      4, 7, 12, '2021-01-01', NULL, 'unstocked test wafer')`)
+    .bind(itemNumber)
+    .run();
+  const orderable = await views();
+  expect(orderable.inCatalog).toMatchObject({ availableQuantity: 0 });
+  expect(orderable.inCategory).toMatchObject({ available: 0 });
+  expect(orderable.inAdvisories).toMatchObject({ available: 0, inbound: 0 });
+  expect(orderable.alerts).toBe(baseline.alerts + 1);
+
+  // Any retirement marker removes it from every view at once.
+  await database
+    .prepare(
+      "UPDATE products SET active_to = '2099-12-31' WHERE item_number = ?",
+    )
+    .bind(itemNumber)
+    .run();
+  expect(await views()).toEqual(baseline);
 });
