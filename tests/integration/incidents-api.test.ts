@@ -2,7 +2,7 @@ import { describe, expect, vi } from 'vitest';
 
 import { DELETE, GET } from '@/app/api/incidents/route';
 import { POST as chat } from '@/app/api/chat/route';
-import { saveSupportExchange } from '@/db/incidents';
+import { deleteSupportIncident, saveSupportExchange } from '@/db/incidents';
 import type { SupportIncident } from '@/lib/support-incidents';
 import type { SupportApiSession } from '../fixtures/support-api';
 import { test } from '../fixtures/support-integration';
@@ -617,5 +617,119 @@ describe('support incident API', () => {
     expect(
       (await fixture.messages(recentId, olderId, colleagueIncidentId)).results,
     ).toEqual(messagesBefore.results);
+  });
+
+  test('reads one owned incident and answers null for foreign, deleted, and missing IDs', async ({
+    database,
+    supportApi: fixture,
+  }) => {
+    const ownedId = 'INC-SINGLE-READ-OWNED';
+    const otherId = 'INC-SINGLE-READ-OTHER';
+    const deletedId = 'INC-SINGLE-READ-DELETED';
+    const missingId = 'INC-SINGLE-READ-NEVER-SAVED';
+    for (const id of [ownedId, otherId, deletedId])
+      await fixture.trackTemporaryIncident(id, calderPikeUser);
+    await saveSupportExchange(
+      database,
+      calderPikeUser,
+      ownedId,
+      'MSG-SINGLE-READ-OWNED',
+      'Trace my shipment.',
+      'Which shipment should I trace?',
+      0,
+    );
+    await saveSupportExchange(
+      database,
+      calderPikeUser,
+      otherId,
+      'MSG-SINGLE-READ-OTHER',
+      'Keep this separate incident.',
+      'This conversation stays out of the reply.',
+      0,
+    );
+    await saveSupportExchange(
+      database,
+      calderPikeUser,
+      deletedId,
+      'MSG-SINGLE-READ-DELETED',
+      'Delete this incident.',
+      'Understood.',
+      0,
+    );
+    await deleteSupportIncident(database, calderPikeUser, deletedId);
+    const owner = await fixture.session(calderPikeUser);
+    const externalUser = await loadActiveUserFixture(database, 'USR-MCS-001');
+    const foreign = await fixture.session(externalUser);
+    const read = async (session: SupportApiSession, incidentId: string) => {
+      const response = await GET(
+        new Request(
+          `http://localhost/api/incidents?${new URLSearchParams({ incidentId })}`,
+          { headers: session.request({}).headers },
+        ),
+      );
+      return { status: response.status, body: await response.json() };
+    };
+
+    const owned = await read(owner, ownedId);
+    expect(owned.status).toBe(200);
+    expect(owned.body).toEqual({
+      incident: {
+        id: ownedId,
+        title: 'Trace my shipment.',
+        revision: 1,
+        updatedAt: expect.any(String),
+        messages: [
+          {
+            id: 'MSG-SINGLE-READ-OWNED',
+            role: 'user',
+            content: 'Trace my shipment.',
+            createdAt: expect.any(String),
+          },
+          {
+            id: 'AST-MSG-SINGLE-READ-OWNED',
+            role: 'assistant',
+            content: 'Which shipment should I trace?',
+            createdAt: expect.any(String),
+          },
+        ],
+      },
+    });
+    expect(JSON.stringify(owned.body)).not.toContain(otherId);
+
+    // A foreign ID looks exactly like one that was never saved.
+    for (const [session, incidentId] of [
+      [foreign, ownedId],
+      [owner, deletedId],
+      [owner, missingId],
+    ] as const)
+      expect(await read(session, incidentId), incidentId).toEqual({
+        status: 200,
+        body: { incident: null },
+      });
+    expect(await fixture.findIncident(ownedId)).toMatchObject({
+      user_id: calderPikeUser.userId,
+    });
+  });
+
+  test('rejects a malformed single-incident ID and requires a session', async ({
+    supportApi: fixture,
+  }) => {
+    const session = await fixture.session(calderPikeUser);
+    const invalid = await GET(
+      new Request('http://localhost/api/incidents?incidentId=not-an-incident', {
+        headers: session.request({}).headers,
+      }),
+    );
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toEqual({
+      error: 'Enter a valid incident ID.',
+    });
+    const anonymous = await GET(
+      new Request('http://localhost/api/incidents?incidentId=INC-ANY-INCIDENT'),
+    );
+    expect(anonymous.status).toBe(401);
+    expect(await anonymous.json()).toEqual({
+      error: 'Authentication required.',
+    });
   });
 });

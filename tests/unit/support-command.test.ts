@@ -48,6 +48,13 @@ describe('support command contracts', () => {
   ])('rejects malformed or retired commands: %j', (value) => {
     expect(parseSupportRequest(value)).toBeNull();
   });
+  it('accepts the random UUIDs the support page uses as message IDs', () => {
+    const messageId = crypto.randomUUID();
+    expect(parseSupportRequest({ ...command, messageId })).toEqual({
+      ...command,
+      messageId,
+    });
+  });
   it('accepts the Unicode message boundary', () => {
     expect(parseSupportRequest({ message: '🙂'.repeat(2000) })).toEqual({
       message: '🙂'.repeat(2000),

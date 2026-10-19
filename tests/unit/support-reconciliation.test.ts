@@ -83,7 +83,7 @@ describe('unresolved support exchange reconciliation', () => {
       reconcileSupportSnapshot({ ...snapshot, id: 'INC-OTHER' }, request),
     ).toBe('unconfirmed');
     expect(
-      parseIncidentSnapshot({ incidents: [] }, request.incidentId),
+      parseIncidentSnapshot({ incident: null }, request.incidentId),
     ).toBeNull();
   });
 

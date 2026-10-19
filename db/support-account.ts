@@ -1,6 +1,6 @@
 import type { AuthenticatedUser } from './auth';
 import { getAccountSummary } from './account';
-import { listSupportIncidents } from './incidents';
+import { listSupportIncidentSummaries } from './incidents';
 import type {
   AccountLookupOutcome,
   SummaryLookupOutcome,
@@ -54,13 +54,13 @@ export async function lookupSupportIncidentHistory(
   db: D1Database,
   user: AuthenticatedUser,
 ): Promise<IncidentHistoryOutcome> {
-  const incidents = (await listSupportIncidents(db, user))
+  const incidents = (await listSupportIncidentSummaries(db, user))
     .slice(0, 8)
-    .map(({ id, title, updatedAt, messages }) => ({
+    .map(({ id, title, updatedAt, messageCount }) => ({
       id,
       title,
       updatedAt,
-      messageCount: messages.length,
+      messageCount,
     }));
   return {
     kind: 'incidents',

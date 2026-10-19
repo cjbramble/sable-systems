@@ -126,29 +126,18 @@ export function parseSupportIncidents(
   return incidents;
 }
 
-// Decode only the requested snapshot; unrelated conversations are not replaced.
+// Decode the single-incident reply from `GET /api/incidents?incidentId=`.
 // A missing new incident may still be saving; callers decide whether absence
-// means deletion. Invalid data must remain retryable.
+// means deletion. Invalid data, including another incident, must remain retryable.
 export function parseIncidentSnapshot(
   value: unknown,
   incidentId: string,
 ): SupportIncident | null {
   const invalid = () =>
     new Error('The conversation could not be reloaded. Please try again.');
-  if (!isRecord(value) || !Array.isArray(value.incidents)) throw invalid();
-  if (
-    !value.incidents.every(
-      (incident: unknown) =>
-        isRecord(incident) && typeof incident.id === 'string',
-    )
-  )
-    throw invalid();
-  const matches = value.incidents.filter(
-    (incident: unknown) => isRecord(incident) && incident.id === incidentId,
-  );
-  if (matches.length === 0) return null;
-  if (matches.length !== 1) throw invalid();
-  const incident = parseSavedIncident(matches[0]);
-  if (!incident) throw invalid();
+  if (!isRecord(value) || !('incident' in value)) throw invalid();
+  if (value.incident === null) return null;
+  const incident = parseSavedIncident(value.incident);
+  if (!incident || incident.id !== incidentId) throw invalid();
   return incident;
 }

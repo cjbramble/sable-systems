@@ -7,7 +7,7 @@ import {
   IncidentDeletedError,
   getSupportConversationHistory,
   IncidentAccessDeniedError,
-  listSupportIncidents,
+  listSupportIncidentSummaries,
   saveSupportExchange,
   SupportMessageIdConflictError,
   SupportMessageTextConflictError,
@@ -212,7 +212,7 @@ export async function answerSupportMessage(
     );
     if (intents.length === 1 && intents[0].kind === 'incidents')
       return await reply(
-        formatIncidentListReply(await listSupportIncidents(db, user)),
+        formatIncidentListReply(await listSupportIncidentSummaries(db, user)),
       );
 
     const context = await buildSupportContext(db, history, user, intents);

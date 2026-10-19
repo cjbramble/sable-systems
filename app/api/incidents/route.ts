@@ -5,7 +5,11 @@ import { parseIncidentId } from '@/lib/chat-request';
 import { getAuthenticatedUser } from '@/db/auth';
 import { getDatabase } from '@/db/database';
 import { consumeRequestQuota } from '@/db/request-limits';
-import { deleteSupportIncident, listSupportIncidents } from '@/db/incidents';
+import {
+  deleteSupportIncident,
+  getSupportIncident,
+  listSupportIncidents,
+} from '@/db/incidents';
 import { logServerError } from '@/lib/server-log';
 
 export const dynamic = 'force-dynamic';
@@ -13,7 +17,16 @@ export const dynamic = 'force-dynamic';
 // A deletion request carries only an incident ID.
 const MAX_DELETE_REQUEST_BYTES = 1024;
 
+// `?incidentId=` reads one incident. An unowned, deleted, or unknown ID
+// returns `{ incident: null }`, so the reply reveals nothing about other users.
 export async function GET(request: Request) {
+  const requestedId = new URL(request.url).searchParams.get('incidentId');
+  const incidentId = requestedId === null ? null : parseIncidentId(requestedId);
+  if (requestedId !== null && !incidentId)
+    return Response.json(
+      { error: 'Enter a valid incident ID.' },
+      { status: 400 },
+    );
   try {
     const db = await getDatabase();
     const user = await getAuthenticatedUser(db, request);
@@ -22,6 +35,10 @@ export async function GET(request: Request) {
         { error: 'Authentication required.' },
         { status: 401 },
       );
+    if (incidentId)
+      return Response.json({
+        incident: await getSupportIncident(db, user, incidentId),
+      });
     return Response.json({ incidents: await listSupportIncidents(db, user) });
   } catch (error) {
     logServerError('incident list', error);

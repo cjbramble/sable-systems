@@ -202,9 +202,12 @@ describe('saved support incident response decoding', () => {
         },
       ],
     };
-    const envelope = { incidents: [historical] };
-    expect(parseSupportIncidents(envelope)).toEqual([historical]);
-    expect(parseIncidentSnapshot(envelope, historical.id)).toEqual(historical);
+    expect(parseSupportIncidents({ incidents: [historical] })).toEqual([
+      historical,
+    ]);
+    expect(
+      parseIncidentSnapshot({ incident: historical }, historical.id),
+    ).toEqual(historical);
   });
 
   it.each([null, [], {}, { incidents: null }, { incidents: {} }])(
@@ -272,11 +275,11 @@ describe('saved support incident response decoding', () => {
         invalid && !Array.isArray(invalid) && Object.keys(invalid).length
           ? { ...incident.messages[0], ...invalid }
           : invalid;
-      const envelope = { incidents: [{ ...incident, messages: [malformed] }] };
-      expect(parseSupportIncidents(envelope)).toBeNull();
-      expect(() => parseIncidentSnapshot(envelope, incident.id)).toThrow(
-        'The conversation could not be reloaded. Please try again.',
-      );
+      const target = { ...incident, messages: [malformed] };
+      expect(parseSupportIncidents({ incidents: [target] })).toBeNull();
+      expect(() =>
+        parseIncidentSnapshot({ incident: target }, incident.id),
+      ).toThrow('The conversation could not be reloaded. Please try again.');
     },
   );
 
@@ -285,9 +288,11 @@ describe('saved support incident response decoding', () => {
     (field) => {
       const message: Record<string, unknown> = { ...incident.messages[0] };
       delete message[field];
-      const envelope = { incidents: [{ ...incident, messages: [message] }] };
-      expect(parseSupportIncidents(envelope)).toBeNull();
-      expect(() => parseIncidentSnapshot(envelope, incident.id)).toThrow();
+      const target = { ...incident, messages: [message] };
+      expect(parseSupportIncidents({ incidents: [target] })).toBeNull();
+      expect(() =>
+        parseIncidentSnapshot({ incident: target }, incident.id),
+      ).toThrow();
     },
   );
 
@@ -298,56 +303,46 @@ describe('saved support incident response decoding', () => {
   });
 
   it('rejects duplicate message IDs within each incident', () => {
-    const envelope = {
-      incidents: [
-        {
-          ...incident,
-          messages: [incident.messages[0], incident.messages[0]],
-        },
-      ],
+    const target = {
+      ...incident,
+      messages: [incident.messages[0], incident.messages[0]],
     };
-    expect(parseSupportIncidents(envelope)).toBeNull();
-    expect(() => parseIncidentSnapshot(envelope, incident.id)).toThrow();
+    expect(parseSupportIncidents({ incidents: [target] })).toBeNull();
+    expect(() =>
+      parseIncidentSnapshot({ incident: target }, incident.id),
+    ).toThrow();
   });
 });
 
 describe('target support snapshot decoding', () => {
-  it('ignores unrelated malformed contents and duplicate unrelated IDs', () => {
-    const envelope = {
-      incidents: [{ id: '' }, { id: '' }, incident, { id: 'unrelated' }],
-    };
-    expect(parseIncidentSnapshot(envelope, incident.id)).toEqual(incident);
-    expect(parseIncidentSnapshot(envelope, 'absent')).toBeNull();
+  it('returns the requested incident', () => {
+    expect(parseIncidentSnapshot({ incident }, incident.id)).toEqual(incident);
   });
 
-  it('returns null only for absence from a valid envelope', () => {
-    expect(parseIncidentSnapshot({ incidents: [] }, incident.id)).toBeNull();
+  it('returns null only for an explicit absent incident', () => {
+    expect(parseIncidentSnapshot({ incident: null }, incident.id)).toBeNull();
   });
 
   it.each([
     null,
     [],
     {},
-    { incidents: null },
-    { incidents: [null] },
-    { incidents: [{}] },
-    { incidents: [{ id: 3 }] },
+    { incidents: [] },
+    { incidents: [incident] },
+    { incident: undefined },
+    { incident: [] },
+    { incident: {} },
+    { incident: { id: 3 } },
   ])('keeps malformed envelopes retryable with a safe error: %j', (value) => {
     expect(() => parseIncidentSnapshot(value, incident.id)).toThrow(
       'The conversation could not be reloaded. Please try again.',
     );
   });
 
-  it('rejects malformed unrelated envelope IDs even when the target exists', () => {
+  it('rejects a snapshot of a different incident', () => {
     expect(() =>
-      parseIncidentSnapshot({ incidents: [incident, {}] }, incident.id),
-    ).toThrow();
-  });
-
-  it('rejects duplicate target IDs', () => {
-    expect(() =>
-      parseIncidentSnapshot({ incidents: [incident, incident] }, incident.id),
-    ).toThrow();
+      parseIncidentSnapshot({ incident }, 'INC-SOMEONE-ELSE'),
+    ).toThrow('The conversation could not be reloaded. Please try again.');
   });
 
   it.each([
@@ -359,7 +354,7 @@ describe('target support snapshot decoding', () => {
   ])('keeps malformed target snapshots retryable: %j', (invalid) => {
     expect(() =>
       parseIncidentSnapshot(
-        { incidents: [{ ...incident, ...invalid }] },
+        { incident: { ...incident, ...invalid } },
         incident.id,
       ),
     ).toThrow('The conversation could not be reloaded. Please try again.');

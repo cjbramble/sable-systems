@@ -139,6 +139,23 @@ function replaceIncident(
   );
 }
 
+// Re-place an incident whose updatedAt changed, using the server's order:
+// newest first, then incident ID. A replay or recovered receipt can be older
+// than incidents this page already shows, so it does not always go first.
+function placeByUpdatedAt(incidents: SupportIncident[], incidentId: string) {
+  const target = incidents.find(({ id }) => id === incidentId);
+  if (!target) return incidents;
+  const others = incidents.filter(({ id }) => id !== incidentId);
+  const updated = Date.parse(target.updatedAt);
+  const index = others.findIndex((incident) => {
+    const other = Date.parse(incident.updatedAt);
+    return other < updated || (other === updated && incident.id > target.id);
+  });
+  return index === -1
+    ? [...others, target]
+    : [...others.slice(0, index), target, ...others.slice(index)];
+}
+
 function mergeSavedPair(
   messages: SupportChatMessage[],
   request: SupportCommand,
@@ -316,20 +333,23 @@ export function supportConversationReducer(
       if (!exchange) return state;
       return {
         ...state,
-        incidents: state.incidents.map((incident) =>
-          incident.id === action.request.incidentId
-            ? {
-                ...incident,
-                messages: mergeSavedPair(
-                  incident.messages,
-                  exchange.request,
-                  action.reply,
-                ),
-                updatedAt: action.reply.incidentUpdatedAt,
-                // A replay can predate unseen turns. Its receipt cannot claim their revision.
-                revision: action.reply.revision,
-              }
-            : incident,
+        incidents: placeByUpdatedAt(
+          state.incidents.map((incident) =>
+            incident.id === action.request.incidentId
+              ? {
+                  ...incident,
+                  messages: mergeSavedPair(
+                    incident.messages,
+                    exchange.request,
+                    action.reply,
+                  ),
+                  updatedAt: action.reply.incidentUpdatedAt,
+                  // A replay can predate unseen turns. Its receipt cannot claim their revision.
+                  revision: action.reply.revision,
+                }
+              : incident,
+          ),
+          action.request.incidentId,
         ),
         exchanges: withoutKey(state.exchanges, action.request.incidentId),
       };
@@ -343,7 +363,10 @@ export function supportConversationReducer(
         return state;
       return {
         ...state,
-        incidents: replaceIncident(state, action.snapshot),
+        incidents: placeByUpdatedAt(
+          replaceIncident(state, action.snapshot),
+          action.snapshot.id,
+        ),
         exchanges: withoutKey(state.exchanges, action.request.incidentId),
       };
     case 'changed': {

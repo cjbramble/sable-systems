@@ -14,6 +14,10 @@ export type SupportIncident = {
   messages: SupportChatMessage[];
 };
 
+export type SupportIncidentSummary = Omit<SupportIncident, 'messages'> & {
+  messageCount: number;
+};
+
 export function filterSupportIncidents(
   incidents: SupportIncident[],
   query: string,
@@ -41,7 +45,7 @@ function incidentTitleText(title: string) {
 
 // Incident lists are pure records, so the server writes them directly instead
 // of asking the model, which could omit or rewrite a customer-written title.
-export function formatIncidentListReply(incidents: SupportIncident[]) {
+export function formatIncidentListReply(incidents: SupportIncidentSummary[]) {
   if (!incidents.length) return 'You have no saved support incidents.';
   const total = incidents.length;
   const listed = incidents.slice(0, LISTED_INCIDENTS);
@@ -54,7 +58,7 @@ export function formatIncidentListReply(incidents: SupportIncident[]) {
     heading,
     '',
     ...listed.map((incident) => {
-      const count = incident.messages.length;
+      const count = incident.messageCount;
       return `- ${incident.id}: “${incidentTitleText(incident.title)}” (updated ${incident.updatedAt.slice(0, 10)} UTC; ${count} ${count === 1 ? 'message' : 'messages'})`;
     }),
   ].join('\n');

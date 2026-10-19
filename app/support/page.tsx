@@ -128,8 +128,8 @@ function initials(name = 'Authorized User') {
     .join('');
 }
 
-function createId() {
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+function createMessageId() {
+  return crypto.randomUUID();
 }
 
 function createIncidentId() {
@@ -490,10 +490,10 @@ export default function SupportPage() {
     refreshRequests.current.set(incidentId, controller);
     setRefreshingIds((current) => [...current, incidentId]);
     try {
-      const response = await fetch('/api/incidents', {
-        cache: 'no-store',
-        signal,
-      });
+      const response = await fetch(
+        `/api/incidents?${new URLSearchParams({ incidentId })}`,
+        { cache: 'no-store', signal },
+      );
       if (signal.aborted) return;
       if (response.status === 401) {
         expireSupportSession();
@@ -569,7 +569,7 @@ export default function SupportPage() {
       return;
     const request: SupportCommand = {
       incidentId: activeIncident?.id ?? createIncidentId(),
-      messageId: createId(),
+      messageId: createMessageId(),
       message: content,
       expectedRevision: activeIncident?.revision ?? 0,
     };
