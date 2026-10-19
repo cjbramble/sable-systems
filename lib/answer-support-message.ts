@@ -23,7 +23,10 @@ import {
   type SupportFailure,
 } from '@/lib/chat-request';
 import { BodyTooLargeError, readJsonBody } from '@/lib/json-body';
-import { formatIncidentListReply } from '@/lib/support-incidents';
+import {
+  formatIncidentListReply,
+  isIncidentListReply,
+} from '@/lib/support-incidents';
 import { classifySupportQueries } from '@/lib/support-query';
 import { productQuantityUnits } from '@/lib/product-mentions';
 import {
@@ -36,11 +39,13 @@ import {
   isIncompleteSupportModelReply,
   isContextOverflowPayload,
   hasSupportModelErrorEnvelope,
+  SUPPORT_MODEL_TIMEOUT_MS,
   type SupportCorrection,
 } from '@/lib/support-model';
 import { logServerError } from '@/lib/server-log';
 
 const MAX_RESOURCE_ATTEMPTS = 2;
+const INCIDENT_LIST_PLACEHOLDER = '[incident list shown]';
 // Every new command, including server-built replies, does classification and
 // database work before any model call. The model quota below is separate.
 const SUPPORT_REQUESTS_PER_MINUTE = 60;
@@ -220,6 +225,14 @@ export async function answerSupportMessage(
     const authorizedContext = context.records;
     const unavailable = unavailableRecordReply(context);
     if (unavailable) return await reply(unavailable);
+    // Saved incident lists hold customer-written titles. The model must not
+    // read them back as its own earlier words.
+    const modelHistory = history.map((message) =>
+      message.role === 'assistant' && isIncidentListReply(message.content)
+        ? { ...message, content: INCIDENT_LIST_PLACEHOLDER }
+        : message,
+    );
+    const deadline = AbortSignal.timeout(SUPPORT_MODEL_TIMEOUT_MS);
     let correction: SupportCorrection | undefined;
     for (let attempt = 1; ; attempt += 1) {
       phase = 'model';
@@ -227,8 +240,9 @@ export async function answerSupportMessage(
         distributorName: user.distributorDisplayName,
         distributorId: user.distributorId,
         authorizedContext,
-        messages: history,
+        messages: modelHistory,
         correction,
+        signal: deadline,
       });
       if (model.kind === 'overflow')
         return unsavedFailure({ error: model.message }, 'context_overflow');

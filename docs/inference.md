@@ -112,7 +112,8 @@ or provider failures return safe errors without saving a completed exchange.
 Provider outages, credit, credential, and rate-limit errors return 503 and are
 logged by status code; see [support API](support-api.md).
 Chat and readiness requests reject redirects. Chat's two-minute deadline covers
-response headers and bodies, including provider error responses. Timeouts return
+response headers and bodies, including provider error responses, and is shared by
+the first attempt and any corrective retry. Timeouts return
 504; cancelled model requests return 503. Neither triggers a corrective retry.
 Judge transport retries are separate; see [judge evaluations](../README.md#judge-evaluations).
 

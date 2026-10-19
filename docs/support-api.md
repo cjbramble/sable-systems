@@ -92,20 +92,24 @@ their requested namespaces, but do not verify record identities or imply that
 records are missing. A single incident-list request receives a server-built reply;
 a mixed request uses the scoped facts for all selected parts. Incident titles are
 customer-written labels and cannot verify record identities or SABLE resources.
+Later model requests see a saved server-built list as “[incident list shown]”.
 
 Internal resource referrals are checked separately from record identifiers. Markdown
 emphasis, inline code, and inline link labels do not hide SABLE/COV-E attribution.
-“Our” and “my” resource claims also refer to internal resources. Direct denials such
+“Our” and “my” resource claims also refer to internal resources. Department, team,
+desk, hotline, and division referrals count without SABLE in front when introduced
+by contact, reach, ask, call, consult, email, or refer … to, or when placed “at
+SABLE”; “a”, “your”, or “local” marks an outside unit. Direct denials such
 as “the records do not provide a SABLE returns specialist” are allowed, as is advice
 to consult an outside qualified professional. Inability to contact a resource or
 refer someone to it does not establish that the resource is absent or unverified.
 Denials apply locally to their resource;
 they cannot excuse a later referral. The original accepted answer is returned and saved.
 
-Only explicit verified resource facts can authorize an internal name; prose mentions
-in records, events, customer requests, or incident titles cannot. The current database
-has no structured internal-resource catalog, so it supplies no such allowances. An
-unsupported referral gets one corrective generation attempt; a second failure returns
+No internal resource name is ever allowed: prose mentions in records, events,
+customer requests, or incident titles cannot authorize one. A structured
+internal-resource catalog that could allow verified names is planned work, not
+built. An unsupported referral gets one corrective generation attempt; a second failure returns
 an unsaved error. Detection covers bounded attribution and direct-denial wording, not
 arbitrary paraphrases, quotation semantics, implicit referrals, or every Markdown form.
 
@@ -257,15 +261,19 @@ Saved history and replayed replies are not revalidated against new-generation
 text limits. The existing provider deadline covers response-body reads as well
 as the initial request.
 
-`GET /api/status` returns `{ "ready": true }` with HTTP 200 when the provider's
-credential and gateway check succeeds, or `{ "ready": false }` with HTTP 503.
+`GET /api/status` requires a signed-in session and returns 401 without one. It
+returns `{ "ready": true }` with HTTP 200 when the provider's credential and gateway
+check succeeds, or `{ "ready": false }` with HTTP 503. A 200 body that is not JSON
+counts as not ready. Each Worker isolate reuses a result for five seconds, so open
+tabs share one provider check.
 It does not run a billed generation or guarantee credits, model capacity, or reply
 quality. The support connection badge reflects only this check; chat replies and
 failures do not change it.
 
 The page checks immediately while visible, then waits ten seconds after each check
 finishes. Only one check runs at a time, with a five-second deadline including its
-response body. Invalid responses, network failures, and timeouts show offline.
+response body. Invalid responses, a 401, network failures, and timeouts show offline;
+the page's other requests send an ended session to sign-in.
 Hidden tabs pause checks and cancel pending work; returning to the tab checks again.
 The previous observation stays visible until a new check finishes.
 

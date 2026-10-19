@@ -43,10 +43,19 @@ function incidentTitleText(title: string) {
   return title.replace(/\s+/g, ' ').replace(/[\\`*_[\]()<>~|]/g, '\\$&');
 }
 
+const INCIDENT_LIST_HEADING =
+  /^You have \d+ saved support incidents?(?:\. Here are the \d+ most recent)?:\n\n- /;
+const EMPTY_INCIDENT_LIST = 'You have no saved support incidents.';
+
+// Recognizes a saved reply written by formatIncidentListReply.
+export function isIncidentListReply(content: string) {
+  return content === EMPTY_INCIDENT_LIST || INCIDENT_LIST_HEADING.test(content);
+}
+
 // Incident lists are pure records, so the server writes them directly instead
 // of asking the model, which could omit or rewrite a customer-written title.
 export function formatIncidentListReply(incidents: SupportIncidentSummary[]) {
-  if (!incidents.length) return 'You have no saved support incidents.';
+  if (!incidents.length) return EMPTY_INCIDENT_LIST;
   const total = incidents.length;
   const listed = incidents.slice(0, LISTED_INCIDENTS);
   const noun = total === 1 ? 'incident' : 'incidents';

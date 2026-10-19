@@ -1,4 +1,4 @@
-import { describe, expect } from 'vitest';
+import { afterEach, describe, expect, vi } from 'vitest';
 
 import { POST as chat } from '@/app/api/chat/route';
 import { test } from '../fixtures/support-integration';
@@ -14,6 +14,32 @@ const question =
 // An invented SABLE resource is intermittent, so the server asks the model
 // once more. Nothing invented is returned or saved.
 describe('SABLE resource guard', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  test('runs the corrective retry under the first attempt’s deadline', async ({
+    supportApi: fixture,
+  }) => {
+    const incidentId = 'INC-RESOURCE-DEADLINE';
+    await fixture.trackTemporaryIncident(incidentId, calderPikeUser);
+    const session = await fixture.session(calderPikeUser);
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    const model = fixture.mockModel(invented, clean);
+    const response = await chat(
+      session.request({
+        expectedRevision: 0,
+        incidentId,
+        messageId: 'MSG-RESOURCE-DEADLINE',
+        message: question,
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(model).toHaveBeenCalledTimes(2);
+    expect(timeout).toHaveBeenCalledExactlyOnceWith(120_000);
+    const [first, retry] = model.mock.calls.map(([, init]) => init?.signal);
+    expect(first).toBeInstanceOf(AbortSignal);
+    expect(retry).toBe(first);
+  });
+
   test('saves a formatted denial unchanged without a corrective request', async ({
     supportApi: fixture,
   }) => {

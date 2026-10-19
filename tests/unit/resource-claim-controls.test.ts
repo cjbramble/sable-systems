@@ -57,7 +57,7 @@ describe('resource claim polarity and presentation', () => {
     expect(unsupportedSableResources(answer)).toEqual([]);
   });
 
-  it('requires explicit resource facts to authorize a name', () => {
+  it('reports a named SABLE division', () => {
     expect(
       unsupportedSableResources(
         'Contact SABLE Systems Medical Operations Division.',
@@ -68,10 +68,23 @@ describe('resource claim polarity and presentation', () => {
   it.each([
     'The records name the SABLE Systems returns handbook.',
     'The records provide a returns handbook.',
-  ])('preserves verified names in records attribution: %s', (answer) => {
-    expect(
-      unsupportedSableResources(answer, [{ name: 'Returns handbook' }]),
-    ).toEqual([]);
+  ])('rejects records attribution for a resource: %s', (answer) => {
     expect(unsupportedSableResources(answer)).not.toEqual([]);
+  });
+
+  it.each([
+    'Please contact the accounts department.',
+    'Ask the **billing team** at SABLE to reverse it.',
+    'I cannot reopen the return, but contact the returns desk.',
+  ])('rejects an unnamed internal unit: %s', (answer) => {
+    expect(unsupportedSableResources(answer).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    'No accounts department is provided in the records.',
+    'The accounts department is not listed in the records.',
+    'Please consult a licensed medical professional or a qualified professional.',
+  ])('allows a denied or outside unit: %s', (answer) => {
+    expect(unsupportedSableResources(answer)).toEqual([]);
   });
 });

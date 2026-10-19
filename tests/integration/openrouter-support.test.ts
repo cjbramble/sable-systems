@@ -1,7 +1,6 @@
 import { requireSupportModelRequest } from '../fixtures/support-model-request';
 import { afterEach, expect, it, vi } from 'vitest';
 import { POST } from '@/app/api/chat/route';
-import { GET } from '@/app/api/status/route';
 import {
   getSupportModelConfig,
   OPENROUTER_CHAT_URL,
@@ -11,6 +10,7 @@ import { extractSupportModelContent } from '@/lib/support-model';
 import { calderPikeUser } from '../fixtures/users';
 import { createSupportApiFixture } from '../fixtures/support-api';
 import { test } from '../fixtures/support-integration';
+import { uncachedModelStatus } from '../fixtures/model-status';
 
 const key = 'test-key-not-a-secret';
 function useOpenRouter(apiKey = key) {
@@ -82,7 +82,7 @@ it.each([401, 402, 429, 503])(
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       Response.json({ error: key }, { status }),
     );
-    const response = await GET();
+    const response = await uncachedModelStatus();
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ ready: false });
   },
@@ -93,7 +93,7 @@ it('checks credentials without generating a paid completion or returning a key',
   const transport = vi
     .spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(Response.json({ data: { limit_remaining: 1 } }));
-  const response = await GET();
+  const response = await uncachedModelStatus();
   expect(await response.json()).toEqual({ ready: true });
   expect(transport).toHaveBeenCalledExactlyOnceWith(
     'https://openrouter.ai/api/v1/key',
@@ -107,7 +107,7 @@ it('checks credentials without generating a paid completion or returning a key',
 it('does not contact any provider when the API key is blank', async () => {
   useOpenRouter('');
   const transport = vi.spyOn(globalThis, 'fetch');
-  const response = await GET();
+  const response = await uncachedModelStatus();
   expect(response.status).toBe(503);
   expect(transport).not.toHaveBeenCalled();
 });
