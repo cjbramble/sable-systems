@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { parseSupportReferences } from '@/lib/support-references';
+import {
+  itemReferences,
+  parseSupportReferences,
+} from '@/lib/support-references';
+import { parseQuantityOccurrences } from '@/lib/support-quantities';
 
 describe('support reference parsing', () => {
   it('retains normalized references and exact value spans in appearance order', () => {
@@ -226,4 +230,58 @@ describe('reference labels on response evidence candidates', () => {
   ])('does not label ordinary prose or item echoes: %s', (message) => {
     expect(parseSupportReferences(message, candidates).occurrences).toEqual([]);
   });
+});
+
+describe('typographic hyphens in identifiers', () => {
+  // U+2010 to U+2015 and U+2212, as pasted from PDFs and email.
+  it.each([
+    '\u2010',
+    '\u2011',
+    '\u2012',
+    '\u2013',
+    '\u2014',
+    '\u2015',
+    '\u2212',
+  ])('reads an order ID typed with U+%s', (hyphen) => {
+    const message = `Where is my order SBL${hyphen}2026${hyphen}0001?`;
+    const { occurrences, remainder } = parseSupportReferences(message);
+    expect(occurrences).toEqual([
+      {
+        reference: {
+          kind: 'order',
+          namespace: 'order_id',
+          identifier: 'SBL-2026-0001',
+        },
+        start: 18,
+        end: 31,
+      },
+    ]);
+    expect(remainder).toHaveLength(message.length);
+  });
+
+  it('reads item numbers, shipment IDs, and return IDs', () => {
+    expect(itemReferences('Is SBL\u2011RPC\u201112 in stock?')).toEqual([
+      'SBL-RPC-12',
+    ]);
+    expect(
+      parseSupportReferences(
+        'Track SHP\u20132026\u2013000417 and RTN\u22120007.',
+      ).occurrences.map(({ reference }) => reference.identifier),
+    ).toEqual(['SHP-2026-000417', 'RTN-0007']);
+  });
+
+  it.each([
+    'Ship \u22128 units',
+    'Ship \u2013 8 units',
+    'Ship 8\u201312 units',
+  ])(
+    'keeps a dash outside an identifier as part of the quantity: %s',
+    (message) => {
+      expect(parseQuantityOccurrences(message)).toEqual([
+        expect.objectContaining({
+          quantity: { kind: 'invalid', reason: 'syntax' },
+        }),
+      ]);
+    },
+  );
 });

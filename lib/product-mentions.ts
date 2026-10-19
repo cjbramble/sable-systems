@@ -1,6 +1,8 @@
-import type {
-  ProductMention,
-  QuantityOccurrence,
+import {
+  localTargets,
+  quantityUnits,
+  type ProductMention,
+  type QuantityOccurrence,
 } from './support-quantities.ts';
 import { itemReferences } from './support-references.ts';
 
@@ -33,6 +35,30 @@ function termMentions(
   return mentions;
 }
 
+// Catalog unit labels ("cell", "seat", "kit") also count a product.
+export function productQuantityUnits(products: readonly ProductTerms[]) {
+  return quantityUnits(products.map((product) => product.unit_label));
+}
+
+function terms(product: ProductTerms) {
+  return product.search_terms.split(',').map((term) => term.trim());
+}
+
+// Short terms are model codes ("r2", "m14") and can be shared between
+// products, so they name nothing. A short plain word ("hub", "kit") that only
+// one product uses is as specific as a long alias.
+function usableTerms(products: readonly ProductTerms[]) {
+  const owners = new Map<string, Set<string>>();
+  for (const product of products)
+    for (const term of [product.unit_label, ...terms(product)]) {
+      const key = term.trim().toLowerCase();
+      owners.set(key, (owners.get(key) ?? new Set()).add(product.item_number));
+    }
+  return (term: string) =>
+    term.length >= 4 ||
+    (/^[a-z]{3}$/i.test(term) && owners.get(term.toLowerCase())?.size === 1);
+}
+
 // Finds products a lowercase message names by item number, full name, or
 // alias. Full names and item numbers outrank aliases; within each tier the
 // products keep their input order.
@@ -44,6 +70,7 @@ export function findProductMentions<Product extends ProductTerms>(
   const explicitProducts: Product[] = [];
   const references = new Set(itemReferences(message));
   const mentions: ProductMention[] = [];
+  const usable = usableTerms(products);
   for (const product of products) {
     const itemNumber = product.item_number.toLowerCase();
     const productName = product.product_name.toLowerCase();
@@ -58,10 +85,10 @@ export function findProductMentions<Product extends ProductTerms>(
       const descriptors = [
         product.unit_label,
         `${product.unit_label}s`,
-        ...product.search_terms.split(','),
+        ...terms(product),
       ]
         .map((term) => term.trim())
-        .filter((term) => term.length >= 4)
+        .filter(usable)
         .flatMap((term) =>
           termMentions(message, product.item_number, term, true),
         )
@@ -87,29 +114,53 @@ export function findProductMentions<Product extends ProductTerms>(
   const keywordCharacters = message.split('');
   for (const { start, end } of mentions)
     keywordCharacters.fill(' ', start, end);
-  // The final word of a parsed quantity is its unit, not a product alias:
-  // "20 licenses of SBL-RLY-1Y" must not also select Palisade via "license".
-  for (const { start, end } of quantities) {
-    const unit = message.slice(start, end).match(/[a-z]+$/i)?.[0];
-    if (unit) keywordCharacters.fill(' ', end - unit.length, end);
-  }
   const keywordMessage = keywordCharacters.join('');
+  // The final word of a parsed quantity is usually its unit, not a product
+  // alias: "20 licenses of SBL-RLY-1Y" must not also select Palisade via
+  // "license". When nothing else in that quantity's phrase names a product,
+  // the unit word is the product: "8 hubs", "5 cables".
+  const units = quantities.flatMap((occurrence) => {
+    const unit = message
+      .slice(occurrence.start, occurrence.end)
+      .match(/[a-z]+$/i)?.[0];
+    return unit
+      ? [
+          {
+            occurrence,
+            start: occurrence.end - unit.length,
+            end: occurrence.end,
+          },
+        ]
+      : [];
+  });
+  const unitOf = (mention: ProductMention) =>
+    units.find((unit) => mention.start < unit.end && mention.end > unit.start);
   // Check aliases after collecting all explicit references, regardless of row
   // order. Separately mentioned aliases remain available for mixed comparisons.
-  const keywordProducts: Product[] = [];
-  for (const product of products) {
-    const aliases = product.search_terms
-      .split(',')
-      .map((term) => term.trim())
-      .filter((term) => term.length >= 4);
-    // Whole words only, with a plural: "applicable" must not match "cable".
-    const aliasMentions = aliases.flatMap((term) => [
-      ...termMentions(keywordMessage, product.item_number, term, true),
-      ...termMentions(keywordMessage, product.item_number, `${term}s`, true),
-    ]);
-    if (!aliasMentions.length) continue;
-    mentions.push(...aliasMentions);
-    if (!explicitProducts.includes(product)) keywordProducts.push(product);
-  }
+  const aliasMentions = products.flatMap((product) =>
+    terms(product)
+      .filter(usable)
+      // Whole words only, with a plural: "applicable" must not match "cable".
+      .flatMap((term) => [
+        ...termMentions(keywordMessage, product.item_number, term, true),
+        ...termMentions(keywordMessage, product.item_number, `${term}s`, true),
+      ]),
+  );
+  const otherMentions = [
+    ...mentions,
+    ...aliasMentions.filter((mention) => !unitOf(mention)),
+  ];
+  const keywordMentions = aliasMentions.filter((mention) => {
+    const unit = unitOf(mention);
+    return !unit || !localTargets(message, unit.occurrence, otherMentions).size;
+  });
+  mentions.push(...keywordMentions);
+  const keywordProducts = products.filter(
+    (product) =>
+      !explicitProducts.includes(product) &&
+      keywordMentions.some(
+        (mention) => mention.itemNumber === product.item_number,
+      ),
+  );
   return { explicitProducts, keywordProducts, mentions };
 }

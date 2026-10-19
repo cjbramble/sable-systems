@@ -330,3 +330,33 @@ describe('saved order status clarification', () => {
     expect((await fixture.messageContents(incidentId)).results).toHaveLength(2);
   });
 });
+
+describe('order status words that are not statuses', () => {
+  test('asks what "upcoming" orders means', async ({ database }) => {
+    expect(
+      await buildSupportContext(
+        database,
+        ask('Show my upcoming orders.'),
+        calderPikeUser,
+      ),
+    ).toEqual({
+      kind: 'clarification',
+      message:
+        'Please say whether you mean scheduled orders (future release dates), active orders (confirmed through shipped), or both.',
+    });
+  });
+
+  test('searches every status for "delivery orders"', async ({ database }) => {
+    const context = await buildSupportContext(
+      database,
+      ask('Show my delivery orders.'),
+      calderPikeUser,
+    );
+    expect(context.kind).toBe('records');
+    if (context.kind !== 'records') throw new Error(context.message);
+    const [search] = context.parts;
+    expect(search.kind).toBe('order_search');
+    if (search.kind !== 'order_search') return;
+    expect(search.criteria.statusFilter).toBeUndefined();
+  });
+});

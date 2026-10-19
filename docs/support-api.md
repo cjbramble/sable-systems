@@ -25,10 +25,14 @@ are checked as IDs and POs; unlabeled shipment references as IDs and tracking
 references. Multiple matching records within the account prompt clarification.
 For a single unresolved reference, a reply such as “It’s the order ID” or “the
 customer PO” selects the named field without repeating the reference.
+References pasted with typographic hyphens, such as `SBL‑2026‑0001` with
+non-breaking hyphens or en dashes, are read as if typed with `-`.
 Follow-ups such as “that order” retain their named entity; a shipment mentioned in an answer
 does not replace the customer's order. A product named by its full name or alias
-can be the target of “it”, and after a list question “it” means the one record or
-item the answer named. Category words such as “power” or “security” request a
+can be the target of “it”. Aliases shorter than four characters count only when
+they are plain words that one product owns, such as “hub”; shared model codes
+such as “r2” do not name a product. After a list question “it” means the one
+record or item the answer named. Category words such as “power” or “security” request a
 category only beside a catalog cue (“power products”, “in stock”), so they do not
 replace a record follow-up. Multiple or missing conversational targets
 also ask for clarification. Clarification replies are saved and replayed like other
@@ -127,7 +131,10 @@ does not suppress a separate item-availability question; coordinated product nam
 that describe incidents remain part of the incident request.
 
 Quantity lookups accept whole numbers from 1 through 999,999, with optional comma
-grouping such as `1,000`. Attach each quantity to its product, or use shared wording
+grouping such as `1,000`. A quantity is a number before a unit noun (“units”,
+“licenses”, or any catalog unit label such as “cells” or “seats”) or directly
+before an item number (“100 SBL-RPC-12”). Spelled-out amounts such as “two” or “a
+dozen” ask for the quantity in digits. Attach each quantity to its product, or use shared wording
 such as “24 units each.” Fractional, invalid, or ambiguous quantities prompt a saved
 clarification before the model is called. Quantity requests can assess up to three
 matched products; an unclear target or a larger set also prompts clarification.
@@ -135,7 +142,8 @@ matched products; an unclear target or a larger set also prompts clarification.
 Order searches support status lists and explicit exclusions, such as “shipped or
 partially shipped orders,” “orders that are not cancelled,” and “active orders
 excluding on hold.” Active orders exclude scheduled, delivered, and cancelled
-statuses. Ambiguous negation, unknown explicit statuses, and contradictory filters
+statuses. “Upcoming” or “future” orders prompt a clarification between scheduled
+and active orders; “delivery” and “deliveries” are not a status filter. Ambiguous negation, unknown explicit statuses, and contradictory filters
 prompt a saved clarification without a model call. Phrasings such as “don't
 show”, “hide”, “skip”, or “other than” count as ambiguous negation. Excluding
 scheduled orders does not change a year filter from the order's creation year to

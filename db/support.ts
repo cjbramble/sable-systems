@@ -129,7 +129,9 @@ async function authorizedContextForIntent(
     return {
       kind: 'clarification',
       message:
-        'Please clarify which order statuses to include or exclude. For example, ask for orders excluding cancelled and delivered.',
+        intent.statusFilter.reason === 'upcoming'
+          ? 'Please say whether you mean scheduled orders (future release dates), active orders (confirmed through shipped), or both.'
+          : 'Please clarify which order statuses to include or exclude. For example, ask for orders excluding cancelled and delivered.',
     };
   if (intent.kind === 'orders' && intent.unsupportedDate)
     return {

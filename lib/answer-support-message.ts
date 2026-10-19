@@ -25,6 +25,7 @@ import {
 import { BodyTooLargeError, readJsonBody } from '@/lib/json-body';
 import { formatIncidentListReply } from '@/lib/support-incidents';
 import { classifySupportQueries } from '@/lib/support-query';
+import { productQuantityUnits } from '@/lib/product-mentions';
 import {
   hasGroundedSupportIdentifiers,
   unavailableRecordReply,
@@ -206,10 +207,9 @@ export async function answerSupportMessage(
 
     // Single-topic incident lists are pure records: build them on the server so a
     // customer-written title cannot lead the model to hide or rewrite one.
-    const intents = classifySupportQueries(
-      history,
-      await loadSupportProductTerms(db),
-    );
+    const productTerms = await loadSupportProductTerms(db);
+    const units = productQuantityUnits(productTerms);
+    const intents = classifySupportQueries(history, productTerms);
     if (intents.length === 1 && intents[0].kind === 'incidents')
       return await reply(
         formatIncidentListReply(await listSupportIncidentSummaries(db, user)),
@@ -339,7 +339,7 @@ export async function answerSupportMessage(
         );
       }
 
-      if (!hasGroundedSupportIdentifiers(content, context)) {
+      if (!hasGroundedSupportIdentifiers(content, context, units)) {
         return unsavedFailure(
           {
             error:

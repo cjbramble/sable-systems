@@ -15,8 +15,6 @@ const filter = (include: string[], exclude: string[] = []) => ({
 describe('order status filters', () => {
   it.each([
     ['scheduled', 'scheduled'],
-    ['future', 'scheduled'],
-    ['upcoming', 'scheduled'],
     ['confirmed', 'confirmed'],
     ['allocating', 'allocating'],
     ['backordered', 'backordered'],
@@ -34,6 +32,32 @@ describe('order status filters', () => {
       statusFilter: filter([status]),
     });
   });
+
+  // "Upcoming" can mean scheduled releases or open orders not yet delivered.
+  it.each([
+    'Show my upcoming orders.',
+    'Show my future orders.',
+    'Which orders are upcoming?',
+  ])('asks which statuses "%s" means', (message) => {
+    expect(classify(message)).toMatchObject({
+      kind: 'orders',
+      statusFilter: { kind: 'clarification', reason: 'upcoming' },
+    });
+  });
+
+  it('keeps a status filter when "future" describes something else', () => {
+    expect(
+      classify('Show shipped orders for products with future availability.'),
+    ).toMatchObject({ kind: 'orders', statusFilter: filter(['shipped']) });
+  });
+
+  it.each(['Show delivery orders.', 'Show my orders and deliveries.'])(
+    'does not read a delivery noun as delivered: %s',
+    (message) => {
+      expect(classify(message)).toMatchObject({ kind: 'orders' });
+      expect(classify(message)).not.toHaveProperty('statusFilter.include');
+    },
+  );
 
   it.each([
     'Show orders that are delivered.',

@@ -30,6 +30,11 @@ it('classifies a worst-case conversation within a fixed time', () => {
   ).toBeLessThan(3000);
 });
 
+it('parses a long run of number words within a fixed time', () => {
+  const message = `${'twenty '.repeat(700)}units ${'two '.repeat(700)}`;
+  expect(elapsed(() => parseQuantityOccurrences(message))).toBeLessThan(1000);
+});
+
 it('returns independent copies of cached quantity results', () => {
   const message = 'Can you supply 1,000 units of SBL-RPC-12?';
   const first = parseQuantityOccurrences(message);
@@ -65,9 +70,10 @@ it('does not let callers change nested cached values', () => {
 });
 
 // The unbounded pattern before the cost fix, used as an oracle: the bounded
-// pattern must report the same starts, ends, and raw text.
+// pattern must report the same starts, ends, and raw text. Its tail matches
+// the current one, including a number directly before an item number.
 const UNBOUNDED =
-  /(?<![\w.,/+\-−–—$])((?:[+\-−–—]\s*)?(?:\d|\.\d)[\d.,/e+\-−–—]*(?:[ \t]+(?:(?:to|through|and)[ \t]+)?[\d.,/+\-−–—][\d.,/e+\-−–—]*)*)(?![\w.,/+\-−–—])(?!\s*(?:tb|gb|mb|kb|m)\b)(?:\s+[a-z-]+){0,2}\s+(?:units?|licenses?|controllers?|arrays?|modules?|hubs?|nodes?|packs?)\b/gi;
+  /(?<![\w.,/+\-−–—$])((?:[+\-−–—]\s*)?(?:\d|\.\d)[\d.,/e+\-−–—]*(?:[ \t]+(?:(?:to|through|and)[ \t]+)?[\d.,/+\-−–—][\d.,/e+\-−–—]*)*)(?![\w.,/+\-−–—])(?!\s*(?:tb|gb|mb|kb|m)\b)(?:(?:\s+[a-z-]+){0,2}\s+(?:units?|licenses?|controllers?|arrays?|modules?|hubs?|nodes?|packs?)\b|(?=\s+sbl-(?!\d{4}-)[a-z0-9][a-z0-9-]*(?![\w-])))/gi;
 
 function unboundedSpans(message: string) {
   return Array.from(message.matchAll(UNBOUNDED))
@@ -89,6 +95,8 @@ it.each([
   'Price 680.00 per unit; 1 2 3 4 5 6 7 8 9 10 11 nodes',
   'Can you supply 1,000 units of SBL-RPC-12 and 24 licenses of SBL-PAL-1Y?',
   'order 8 units',
+  'Do you have 100 SBL-RPC-12 and 1 2 3 4 5 6 7 8 9 10 11 SBL-SWC-12?',
+  'order 1 2 3 4 5 6 7 8 9 10 SBL-RPC-12',
 ])('matches the unbounded pattern for %j', (message) => {
   expect(
     parseQuantityOccurrences(message).map(({ start, end, raw }) => ({
