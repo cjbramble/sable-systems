@@ -117,6 +117,18 @@ describe.skipIf(process.platform === 'win32')(
       },
     );
 
+    test('keeps stdout records whole when stderr writes between their chunks', async () => {
+      const app = launchFixture('test-interleaved');
+      await app.stopped(0);
+      const [transcript] = app.transcripts();
+      expect(transcript.split('\n')).toEqual(
+        expect.arrayContaining([
+          'Split record: {"sample":1}',
+          'worker warning',
+        ]),
+      );
+    });
+
     test('cleans up descendants left by normally exiting tests', async () => {
       const app = launchFixture('test-descendant');
       await app.stopped(0);

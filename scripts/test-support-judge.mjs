@@ -61,10 +61,7 @@ try {
     if (!Object.keys(payload.batches).length)
       throw new Error('Transcript contains no sampling scenarios to judge.');
   }
-  const python = resolve(
-    'tools/evaluation/.venv',
-    process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
-  );
+  const python = resolve('tools/evaluation/.venv/bin/python');
   const reportPath = resolve(
     'reports/judge-runs',
     `${payload.mode}-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}.json`,

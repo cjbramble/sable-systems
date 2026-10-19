@@ -83,7 +83,6 @@ function parseSamplingScenario(
       `${label} request must use normal settings and independent messages`,
     );
 
-  let reference;
   if (messages) {
     if (JSON.stringify(request.messages.slice(2)) !== JSON.stringify(messages))
       throw new Error('Sampling history does not match the scenario');
@@ -95,7 +94,6 @@ function parseSamplingScenario(
       throw new Error(
         'Sampling context does not match independent scenario facts',
       );
-    reference = `${records}\nAssistant permissions: read-only; cannot cancel or change orders, release inventory, reopen or authorize returns, or disclose other accounts.`;
   }
 
   const failures = [];
@@ -140,7 +138,8 @@ function parseSamplingScenario(
       `${label} summary does not match the retained sample verdicts`,
     );
   // Preserve original answers/raw responses/verdicts; do not rejudge factuality here.
-  return reference ? { request, samples, reference } : { request, samples };
+  // The judge reads authorized records from the captured request's data message.
+  return { request, samples };
 }
 
 export function parseSamplingTranscript(text) {

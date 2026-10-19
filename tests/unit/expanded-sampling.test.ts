@@ -9,7 +9,7 @@ import {
   listSamplingScenarios,
 } from '../../tools/evaluation/sampling-results.mjs';
 
-it('retains current request, full history and authorized reference for a topic switch', () => {
+it('retains current request, full history and authorized records for a topic switch', () => {
   expect(listSamplingScenarios()).toContain('topic-switch');
   const scenario = getSamplingScenario('topic-switch');
   const records =
@@ -46,9 +46,9 @@ it('retains current request, full history and authorized reference for a topic s
   ];
   const batch = scenario.parseTranscript(lines.join('\n'));
   expect(batch?.samples).toEqual(samples);
-  expect(batch?.reference).toContain(records);
   expect(batch?.request.messages).toEqual(requestBody.messages);
-  expect(batch?.reference).toContain('read-only');
+  // The judge reads records from the captured data message, not a second copy.
+  expect(batch).not.toHaveProperty('reference');
   expect(() => scenario.parseTranscript(lines.slice(0, -1).join('\n'))).toThrow(
     'complete',
   );
